@@ -8,7 +8,10 @@
     "dev:preload": "vite build --watch --config shell/preload/vite.config.ts",
     "dev:renderer": "vite dev --config shell/renderer/vite.config.ts",
     "dev:electron": "electron .",
-    "dev": "ts-node --transpile-only scripts/dev.ts"
+    "dev": "ts-node --transpile-only scripts/dev.ts",
+    "test": "vitest run",
+    "test:ui": "vitest --ui",
+    "test:watch": "vitest --watch"
   },
   "dependencies": {
     "electron": "^30.5.1",
@@ -22,7 +25,13 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "vite": "^5.0.0",
-    "wait-on": "^9.5.1"
+    "wait-on": "^9.5.1",
+    "vitest": "^1.6.0",
+    "@vitest/ui": "^1.6.0",
+    "@testing-library/react": "^14.0.0",
+    "@testing-library/jest-dom": "^6.4.0",
+    "@testing-library/user-event": "^14.5.0",
+    "jsdom": "^24.0.0"
   },
   "allowScripts": {
     "electron@30.5.1": true,

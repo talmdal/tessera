@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 
-function App() {
+export default function App() {
   return (
     <div style={{ padding: 20 }}>
       <h1>Tessera</h1>
@@ -9,5 +9,3 @@ function App() {
     </div>
   )
 }
-
-ReactDOM.createRoot(document.getElementById('root')!).render(<App />)
