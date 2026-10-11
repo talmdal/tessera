@@ -12,8 +12,9 @@
       "@core/*": ["core/*"],
       "@shell/*": ["shell/*"],
       "@plugins/*": ["plugins/*"],
+      "@shared/*": ["shared/*"],
       "@extensions/*": ["extension-registry/*"]
     }
   },
-  "include": ["shell", "core", "plugins", "scripts", "extension-registry"]
+  "include": ["shell", "core", "plugins", "scripts", "shared", "extension-registry"]
 }

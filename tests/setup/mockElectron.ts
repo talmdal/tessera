@@ -58,12 +58,10 @@ vi.mock('electron', () => {
     // -----------------------------
     app: {
       getVersion: () => '1.2.3',
-
       whenReady: () => Promise.resolve(),
-
       on: vi.fn(),
-
-      quit: vi.fn()
+      quit: vi.fn(),
+      getPath: vi.fn((key: string) => 'C:/fake/userData')
     }
   }
 })
