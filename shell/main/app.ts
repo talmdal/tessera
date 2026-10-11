@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 
 function createWindow() {
@@ -13,6 +13,7 @@ function createWindow() {
   win.loadURL('http://localhost:5173')
 }
 
+ipcMain.handle('get-version', () => app.getVersion())
 app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
