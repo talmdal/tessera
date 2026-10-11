@@ -1,0 +1,31 @@
+{
+  "name": "tessera",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/app.js",
+  "scripts": {
+    "dev:main": "vite build --watch --config shell/main/vite.config.ts",
+    "dev:preload": "vite build --watch --config shell/preload/vite.config.ts",
+    "dev:renderer": "vite dev --config shell/renderer/vite.config.ts",
+    "dev:electron": "electron .",
+    "dev": "ts-node --transpile-only scripts/dev.ts"
+  },
+  "dependencies": {
+    "electron": "^30.5.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@vitejs/plugin-react": "^4.0.0",
+    "concurrently": "^10.0.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vite": "^5.0.0",
+    "wait-on": "^9.5.1"
+  },
+  "allowScripts": {
+    "electron@30.5.1": true,
+    "esbuild@0.21.5": true
+  }
+}

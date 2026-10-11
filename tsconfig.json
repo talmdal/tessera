@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "types": ["node"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@core/*": ["core/*"],
+      "@shell/*": ["shell/*"],
+      "@plugins/*": ["plugins/*"],
+      "@extensions/*": ["extension-registry/*"]
+    }
+  },
+  "include": ["shell", "core", "plugins", "scripts", "extension-registry"]
+}
