@@ -1,5 +1,9 @@
-import { spawn } from 'child_process'
-import * as path from 'path'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import * as path from 'node:path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 function runViteBuild(configPath: string) {
   return new Promise<void>((resolve, reject) => {
@@ -12,7 +16,7 @@ function runViteBuild(configPath: string) {
       stdio: 'inherit'
     })
 
-    p.on('exit', code => {
+    p.on('exit', (code: any) => {
       if (code === 0) resolve()
       else reject(new Error(`Build failed: ${configPath}`))
     })
@@ -24,13 +28,13 @@ function startRendererDevServer() {
     path.resolve('node_modules/vite/bin/vite.js'),
     'dev',
     '--config',
-    'shell/renderer/vite.config.ts'
+    path.resolve('shell/renderer/vite.config.ts')
   ], {
     stdio: ['pipe', 'pipe', 'inherit']
   })
 }
 
-function startElectron(renderer) {
+function startElectron(renderer: ReturnType<typeof startRendererDevServer>) {
   const p = spawn('node', [
     path.resolve('node_modules/electron/cli.js'),
     '.'
@@ -50,15 +54,15 @@ function startElectron(renderer) {
 
 async function main() {
   console.log('[DEV] Building main...')
-  await runViteBuild('shell/main/vite.config.ts')
+  await runViteBuild(path.resolve('shell/main/vite.config.ts'))
 
   console.log('[DEV] Building preload...')
-  await runViteBuild('shell/preload/vite.config.ts')
+  await runViteBuild(path.resolve('shell/preload/vite.config.ts'))
 
   console.log('[DEV] Starting renderer dev server...')
   const renderer = startRendererDevServer()
 
-  renderer.stdout.on('data', data => {
+  renderer.stdout.on('data', (data: Buffer) => {
     const text = data.toString()
     if (text.includes('http://localhost:')) {
       console.log('[DEV] Renderer ready — launching Electron')

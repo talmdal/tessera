@@ -1,20 +1,8 @@
 {
-  "compilerOptions": {
-    "target": "ESNext",
-    "types": ["node"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "jsx": "react-jsx",
-    "strict": true,
-    "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
-    "paths": {
-      "@core/*": ["core/*"],
-      "@shell/*": ["shell/*"],
-      "@plugins/*": ["plugins/*"],
-      "@shared/*": ["shared/*"],
-      "@extensions/*": ["extension-registry/*"]
-    }
-  },
-  "include": ["shell", "core", "plugins", "scripts", "shared", "extension-registry"]
+  "files": [],
+  "references": [
+    { "path": "./shell" },
+    { "path": "./shared" },
+    { "path": "./scripts" }
+  ]
 }

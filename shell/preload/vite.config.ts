@@ -3,7 +3,15 @@ import path from 'path'
 
 export default defineConfig({
   root: __dirname,
-
+  resolve: {
+    alias: {
+      '@shared': path.resolve(__dirname, '..'),
+      '@core': path.resolve(__dirname, '../../core'),
+      '@shell': path.resolve(__dirname, '..'),
+      '@plugins': path.resolve(__dirname, '../../plugins'),
+      '@extensions': path.resolve(__dirname, '../../extension-registry')
+    }
+  },
   build: {
     ssr: true,
     outDir: path.resolve(__dirname, '../../dist'),

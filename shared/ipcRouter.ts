@@ -2,7 +2,7 @@
 import { IpcHandler, IPCMessage } from './ipcMessage'
 
 export class IpcRouter {
-  private handlers = new Map<string, IpcHandler>()
+  private handlers = new Map<string, IpcHandler<any, any>>()
 
   register<TReq, TRes>(
     module: string,

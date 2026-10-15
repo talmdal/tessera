@@ -1,10 +1,14 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
+import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { IpcRouter } from '../../shared/ipcRouter'
 import { ExtensionRegistry } from '../../shared/plugins/context'
 import { PluginManager } from '../../shared/plugins/PluginManager'
 import { bindRouterToElectron } from './ipc/bindRouter'
 import type { Services } from '../../shared/plugins/types'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // TODO: real services later
 const services: Services = {

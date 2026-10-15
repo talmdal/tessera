@@ -2,6 +2,7 @@
   "name": "tessera",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "main": "dist/app.js",
   "scripts": {
     "dev:main": "vite build --watch --config shell/main/vite.config.ts",
