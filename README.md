@@ -142,6 +142,10 @@ plugins/              Reserved for bundled plugins (not loaded yet)
 
 - [docs/plugin-creation.md](docs/plugin-creation.md): how to write a plugin
   and connect it to the framework
+- [docs/vault-design.md](docs/vault-design.md): proposed design for the
+  vault, pluggable storage, importers and file handling
+- [docs/storage-api-design.md](docs/storage-api-design.md): proposed
+  `Store` API that storage backends implement and domain plugins use
 - [docs/todo.md](docs/todo.md): known gaps and planned work
 
 ## License
