@@ -9,6 +9,10 @@ off, or delete them, as they land.
 - [ ] **Deactivate plugins on quit.** `PluginManager.deactivateAll()` exists
       but isn't called when the app quits, so plugins can't rely on
       `deactivate` to flush state.
+- [ ] **"Startup complete" event.** Plugins have no signal that every plugin
+      has activated, so work that depends on undeclared services (such as the
+      vault reopening the last file with whichever backend it needs) can't
+      be timed safely. See [vault-design.md](vault-design.md).
 - [ ] **Bundled plugins.** Only the user-data `modules/` folder is scanned.
       Load built-in plugins from a folder shipped with the app (the reserved
       `plugins/` directory), so Finance, and eventually the shell's own
@@ -39,8 +43,26 @@ off, or delete them, as they land.
       `vault.store` can be told apart from compatible ones.
 - [ ] **Typed service tokens** for TypeScript plugins (`get<T>()` currently
       trusts the caller).
-- [ ] **Shell services.** Candidates: `shell.dialogs` (open/save/message
-      boxes), `shell.notifications`, `shell.settings`.
+- [ ] **Shell services.** First `shell.files`: dialogs, recent files, atomic
+      writes, backups and locks, as sketched in
+      [vault-design.md](vault-design.md). Later `shell.notifications`,
+      `shell.settings`, and a secure password prompt.
+
+## Vault and storage (proposed designs)
+
+Designs: [vault-design.md](vault-design.md) and
+[storage-api-design.md](storage-api-design.md). Nothing here is built yet.
+
+- [ ] **Storage contract:** `Store` types, `StoreError`, an in-memory store
+      and the shared backend conformance suite.
+- [ ] **Vault plugin:** `vault.session`, the `vault.backends` and
+      `vault.schema` points, commands, menus and context keys.
+- [ ] **Backends:** encrypted-file first (no native module), then SQLite
+      (settle the native-module and packaging question).
+- [ ] **Accounts plugin:** schema and migrator, `accounts.service`, register
+      views, then `accounts.importers` with OFX, QIF and CSV parsers.
+- [ ] **Settle the open questions** in both notes: aggregation for reports,
+      passwords and keys, one vault versus several, `.mny` import.
 
 ## Menus, commands and context keys
 
