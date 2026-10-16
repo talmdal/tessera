@@ -4,7 +4,8 @@ import path from 'node:path'
 export default defineConfig({
   resolve: {
     alias: {
-      '@shared': path.resolve(__dirname, 'shared')
+      '@shared': path.resolve(__dirname, 'shared'),
+      '@core': path.resolve(__dirname, 'core')
     }
   },
   test: {
@@ -14,6 +15,14 @@ export default defineConfig({
     setupFiles: ['./tests/setup/setupTests.ts'],
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     exclude: ['dist', 'node_modules'],
+
+    // Plugins written to temp dirs by tests are loaded with Node's native
+    // import(), as Electron does, rather than through Vite's transform pipeline.
+    server: {
+      deps: {
+        external: [/tessera-(modules|userdata)-/]
+      }
+    },
 
     // You can use test-specific environments via `testEnvironment` in files
   }

@@ -150,4 +150,4 @@ vite.config.ts.timestamp-*
 .turbo
 package-lock.json
 
-todo.md
+/todo.md

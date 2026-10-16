@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "./core" },
     { "path": "./shell" },
     { "path": "./shared" },
     { "path": "./scripts" }

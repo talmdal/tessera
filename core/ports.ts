@@ -1,0 +1,26 @@
+// core/ports.ts
+//
+// Ports the core depends on. Adapters live in shell/main. Nothing in core/ may
+// import electron or node:* — tests/architecture enforces this.
+
+export interface Disposable {
+  dispose(): void
+}
+
+export interface Logger {
+  info(message: string): void
+  warn(message: string): void
+  error(message: string, error?: unknown): void
+}
+
+/** A plugin found by a PluginSource. `location` is opaque to the core. */
+export interface PluginDescriptor {
+  location: string
+  manifest: unknown
+}
+
+export interface PluginSource {
+  discover(): Promise<PluginDescriptor[]>
+  /** Loads a module from the plugin, resolving `entry` relative to its location. */
+  load(descriptor: PluginDescriptor, entry: string): Promise<unknown>
+}

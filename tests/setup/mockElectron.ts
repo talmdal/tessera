@@ -54,6 +54,28 @@ vi.mock('electron', () => {
     })),
 
     // -----------------------------
+    // Menu / dialog mocks
+    // -----------------------------
+    Menu: {
+      // The fake menu's items are the template objects, so tests can observe enabled changes
+      buildFromTemplate: vi.fn((template: any[]) => {
+        const find = (items: any[] | undefined, id: string): any =>
+          items?.reduce((found, item) => found ?? (item.id === id ? item : find(item.submenu, id)), null) ?? null
+        return { template, getMenuItemById: (id: string) => find(template, id) }
+      }),
+      setApplicationMenu: vi.fn()
+    },
+
+    dialog: {
+      showMessageBox: vi.fn(async () => ({ response: 0 }))
+    },
+
+    protocol: {
+      registerSchemesAsPrivileged: vi.fn(),
+      handle: vi.fn()
+    },
+
+    // -----------------------------
     // app mock
     // -----------------------------
     app: {
@@ -69,5 +91,5 @@ vi.mock('electron', () => {
 // Bridge ipcRenderer.invoke → ipcMain.__invoke
 ;(globalThis as any).__ipcInvoke = async (channel: string, ...args: any[]) => {
   const electron = await import('electron')
-  return electron.ipcMain.__invoke(channel, ...args)
+  return (electron.ipcMain as any).__invoke(channel, ...args)
 }

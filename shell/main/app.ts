@@ -1,31 +1,50 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+// shell/main/app.ts — composition root: wires core to Electron and file-system adapters.
+import { app, BrowserWindow } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { IpcRouter } from '../../shared/ipcRouter'
-import { ExtensionRegistry } from '../../shared/plugins/context'
-import { PluginManager } from '../../shared/plugins/PluginManager'
+import { createPluginContext, createPluginRuntime } from '../../core/plugins/PluginContext'
+import { PluginManager } from '../../core/plugins/PluginManager'
+import { SHELL_CONTRIBUTOR_ID } from '../../shared/plugins/manifest'
 import { bindRouterToElectron } from './ipc/bindRouter'
-import type { Services } from '../../shared/plugins/types'
+import { registerCoreMenus } from './menus/coreMenus'
+import { applyApplicationMenu } from './menus/electronMenu'
+import { FsPluginSource } from './plugins/FsPluginSource'
+import { handlePluginProtocol, pluginUrl, registerPluginSchemePrivileges } from './plugins/pluginProtocol'
+import { registerViewsIpc } from './views/viewsIpc'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// TODO: real services later
-const services: Services = {
-  vault: {
-    createVault: async name => `vault-${name}`
-  }
+const log = console
+
+const runtime = createPluginRuntime(log)
+
+const pluginSource = new FsPluginSource([path.join(app.getPath('userData'), 'modules')], log)
+const pluginManager = new PluginManager(pluginSource, runtime, log)
+
+/** Folder holding an active plugin's renderer remote entry, served over PLUGIN_SCHEME. */
+function rendererRootFor(pluginId: string) {
+  const plugin = pluginManager.get(pluginId)
+  if (!plugin?.manifest.renderer) return undefined
+  return path.dirname(path.resolve(plugin.location, plugin.manifest.renderer.entry))
 }
 
-const ipcRouter = new IpcRouter()
-const extensions = new ExtensionRegistry()
+function remoteEntryFor(pluginId: string) {
+  const entry = pluginManager.get(pluginId)?.manifest.renderer?.entry
+  return entry && pluginUrl(pluginId, path.basename(entry))
+}
 
-const modulesDir = path.join(app.getPath('userData'), 'modules')
-const pluginManager = new PluginManager(modulesDir, services, ipcRouter, extensions)
+registerPluginSchemePrivileges()
 
-async function bootstrapPlugins() {
+async function bootstrap() {
+  const shell = createPluginContext(SHELL_CONTRIBUTOR_ID, runtime).context
+
+  bindRouterToElectron(runtime.ipc)
+  handlePluginProtocol(rendererRootFor)
+  registerCoreMenus(shell)
+  registerViewsIpc(shell, remoteEntryFor, log)
   await pluginManager.activateAll()
-  bindRouterToElectron(ipcRouter)
+  applyApplicationMenu(runtime.extensions, runtime.commands)
 }
 
 function createWindow() {
@@ -33,7 +52,8 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(__dirname, '../preload/dist-preload/index.js')
+      // Built next to app.js by shell/preload/vite.config.ts
+      preload: path.join(__dirname, 'preload.js')
     }
   })
 
@@ -41,7 +61,7 @@ function createWindow() {
 }
 
 app.whenReady().then((async () => {
-  await bootstrapPlugins()
+  await bootstrap()
   createWindow()
 }))
 
