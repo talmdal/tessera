@@ -2,31 +2,29 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-export function writeFakePlugin(modulesDir: string) {
-  const pluginDir = path.join(modulesDir, 'test-plugin')
-  fs.mkdirSync(pluginDir)
+/** Writes a CommonJS plugin to `<modulesDir>/<dirName>` whose activate registers `ping`. */
+export function writeFakePlugin(modulesDir: string, id = 'test-plugin', dirName = id) {
+  const pluginDir = path.join(modulesDir, dirName)
+  fs.mkdirSync(path.join(pluginDir, 'privileged'), { recursive: true })
 
   fs.writeFileSync(
     path.join(pluginDir, 'manifest.json'),
     JSON.stringify({
-      id: 'test-plugin',
+      id,
       name: 'Test Plugin',
       version: '0.0.1',
       privileged: { entry: 'privileged/index.js' }
     })
   )
 
-  const privDir = path.join(pluginDir, 'privileged')
-  fs.mkdirSync(privDir)
-
   fs.writeFileSync(
-    path.join(privDir, 'index.js'),
+    path.join(pluginDir, 'privileged', 'index.js'),
     `
       exports.activate = (context) => {
-        context.ipc.register('test', 'ping', async (msg) => {
-          return 'pong'
-        })
+        context.ipc.handle('ping', async () => 'pong')
       }
     `
   )
+
+  return pluginDir
 }

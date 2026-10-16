@@ -28,6 +28,7 @@ export default defineConfig({
   build: {
     ssr: true,
     outDir: 'dist',
+    emptyOutDir: false,
     rollupOptions: {
       input: path.resolve(__dirname, 'app.ts'),
       output: {
