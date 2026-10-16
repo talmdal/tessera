@@ -20,7 +20,8 @@ vi.mock('electron', () => {
       id: 'test-plugin',
       name: 'Test Plugin',
       version: '0.0.1',
-      privileged: { entry: 'privileged/index.js' }
+      privileged: { entry: 'privileged/index.js' },
+      renderer: { entry: 'renderer/remoteEntry.js' }
     })
   )
 
@@ -29,7 +30,12 @@ vi.mock('electron', () => {
     path.join(pluginDir, 'privileged/index.js'),
     `
       exports.activate = (context) => {
-        context.ipc.register('test', 'ping', async () => 'pong')
+        context.ipc.handle('ping', async () => 'pong')
+        context.commands.register('test-plugin.hello', () => 'hello')
+        // Negative order must not move it ahead of File
+        context.extensions.contribute('shell.menus', { kind: 'menu', id: 'test-plugin.menu', label: 'Test', order: -100 })
+        context.extensions.contribute('shell.menus', { kind: 'item', id: 'test-plugin.hello', label: 'Hello', parent: 'test-plugin.menu', command: 'test-plugin.hello' })
+        context.extensions.contribute('shell.views', { id: 'test-plugin.hello', title: 'Hello', slot: 'shell.main', module: './HelloView' })
       }
     `
   )
@@ -57,6 +63,24 @@ vi.mock('electron', () => {
 
     contextBridge: {
       exposeInMainWorld: vi.fn()
+    },
+
+    Menu: {
+      buildFromTemplate: vi.fn((template: any[]) => {
+        const find = (items: any[] | undefined, id: string): any =>
+          items?.reduce((found, item) => found ?? (item.id === id ? item : find(item.submenu, id)), null) ?? null
+        return { template, getMenuItemById: (id: string) => find(template, id) }
+      }),
+      setApplicationMenu: vi.fn()
+    },
+
+    dialog: {
+      showMessageBox: vi.fn()
+    },
+
+    protocol: {
+      registerSchemesAsPrivileged: vi.fn(),
+      handle: vi.fn()
     },
 
     BrowserWindow: vi.fn(() => ({
@@ -88,14 +112,46 @@ import * as electron from 'electron'
 // 3. Tests
 // -----------------------------
 describe('main process (dynamic plugin system)', () => {
-  it('registers IPC handlers from plugins', async () => {
-    await electron.app.whenReady() // ⭐ wait for plugin activation
-    expect(electron.ipcMain.handle).toHaveBeenCalled()
+  it('binds a single invoke channel', async () => {
+    await electron.app.whenReady()
+    expect(vi.mocked(electron.ipcMain.handle).mock.calls.map(c => c[0])).toEqual(['tessera:invoke'])
   })
 
-  it('plugin IPC handler responds correctly', async () => {
-    await electron.app.whenReady() // ⭐ wait for plugin activation
-    const result = await (electron.ipcMain as any).__invoke('test:ping', { data: {} })
-    expect(result).toBe('pong')
+  it('routes requests to the plugin handler on its namespaced channel', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const response = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'test-plugin:ping', data: {} })
+    expect(response).toEqual({ ok: true, data: 'pong' })
+  })
+
+  it('installs a menu bar with plugin menus between File and Tools/Help', async () => {
+    await electron.app.whenReady()
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+
+    const template = vi.mocked(electron.Menu.buildFromTemplate).mock.calls[0][0]
+    expect(template.map(m => m.label)).toEqual(['&File', 'Test', '&Tools', '&Help'])
+  })
+
+  it('lists plugin views with the URL of the plugin remote entry', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+
+    const response = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:views.list' })
+    expect(response).toEqual({
+      ok: true,
+      data: [{
+        id: 'test-plugin.hello',
+        title: 'Hello',
+        slot: 'shell.main',
+        module: './HelloView',
+        pluginId: 'test-plugin',
+        remoteEntry: 'tessera-plugin://test-plugin/remoteEntry.js'
+      }]
+    })
+  })
+
+  it('registers the plugin scheme as privileged and serves it', async () => {
+    await vi.waitFor(() => expect(electron.protocol.handle).toHaveBeenCalledWith('tessera-plugin', expect.any(Function)))
+    expect(electron.protocol.registerSchemesAsPrivileged).toHaveBeenCalledWith([
+      expect.objectContaining({ scheme: 'tessera-plugin' })
+    ])
   })
 })
