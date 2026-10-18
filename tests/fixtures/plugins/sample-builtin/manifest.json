@@ -1,0 +1,10 @@
+{
+  "id": "sample-builtin",
+  "name": "Sample built-in plugin",
+  "version": "1.0.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": { "./HelloView": "src/renderer/HelloView.tsx" }
+  }
+}

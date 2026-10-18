@@ -15,9 +15,9 @@ describe('FsPluginSource', () => {
     fs.writeFileSync(path.join(root, 'stray-file.txt'), '')
 
     const log = createLogger()
-    const descriptors = await new FsPluginSource([root, path.join(root, 'missing')], log).discover()
+    const descriptors = await new FsPluginSource([{ dir: root, origin: 'user' }, { dir: path.join(root, 'missing'), origin: 'user' }], log).discover()
 
-    expect(descriptors).toEqual([{ location: path.join(root, 'alpha'), manifest: expect.objectContaining({ id: 'alpha' }) }])
+    expect(descriptors).toEqual([{ location: path.join(root, 'alpha'), manifest: expect.objectContaining({ id: 'alpha' }), origin: 'user' }])
     expect(log.warn).not.toHaveBeenCalled()
   })
 
@@ -27,7 +27,7 @@ describe('FsPluginSource', () => {
     fs.writeFileSync(path.join(root, 'broken', 'manifest.json'), '{ nope')
 
     const log = createLogger()
-    expect(await new FsPluginSource([root], log).discover()).toEqual([])
+    expect(await new FsPluginSource([{ dir: root, origin: 'user' }], log).discover()).toEqual([])
     expect(log.warn).toHaveBeenCalledOnce()
   })
 
@@ -43,7 +43,7 @@ describe('FsPluginSource', () => {
     writeFakePlugin(root, 'test-plugin', 'test-plugin-1.2.3')
     const runtime = createRuntime()
 
-    const active = await new PluginManager(new FsPluginSource([root], createLogger()), runtime, createLogger()).activateAll()
+    const active = await new PluginManager(new FsPluginSource([{ dir: root, origin: 'user' }], createLogger()), runtime, createLogger()).activateAll()
 
     expect(active.map(m => m.id)).toEqual(['test-plugin'])
     await expect(runtime.ipc.dispatch({ channel: 'test-plugin:ping' })).resolves.toMatchObject({ ok: true, data: 'pong' })

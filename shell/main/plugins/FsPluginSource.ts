@@ -2,19 +2,28 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Logger, PluginDescriptor, PluginSource } from '../../../core/ports'
+import { Logger, PluginDescriptor, PluginOrigin, PluginSource } from '../../../core/ports'
 
-/** Discovers plugins as `<dir>/<plugin>/manifest.json` folders under each root directory. */
+export interface PluginRoot {
+  dir: string
+  origin: PluginOrigin
+}
+
+/**
+ * Discovers plugins as `<dir>/<plugin>/manifest.json` folders under each root
+ * directory. Roots are searched in order, so list bundled plugins before user
+ * plugins: when two plugins share an id, the first one found wins.
+ */
 export class FsPluginSource implements PluginSource {
   constructor(
-    private readonly roots: readonly string[],
+    private readonly roots: readonly PluginRoot[],
     private readonly log: Logger
   ) {}
 
   async discover(): Promise<PluginDescriptor[]> {
     const descriptors: PluginDescriptor[] = []
 
-    for (const root of this.roots) {
+    for (const { dir: root, origin } of this.roots) {
       const dirs = await fs.readdir(root, { withFileTypes: true }).catch(ignoreMissing)
       for (const dir of dirs ?? []) {
         if (!dir.isDirectory()) continue
@@ -24,7 +33,7 @@ export class FsPluginSource implements PluginSource {
         if (raw === undefined) continue
 
         try {
-          descriptors.push({ location, manifest: JSON.parse(raw) })
+          descriptors.push({ location, manifest: JSON.parse(raw), origin })
         } catch {
           this.log.warn(`[plugins] Skipping ${location}: manifest.json is not valid JSON`)
         }

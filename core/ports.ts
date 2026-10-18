@@ -13,10 +13,14 @@ export interface Logger {
   error(message: string, error?: unknown): void
 }
 
+/** Where a plugin was found: shipped with the app, or installed by the user. */
+export type PluginOrigin = 'bundled' | 'user'
+
 /** A plugin found by a PluginSource. `location` is opaque to the core. */
 export interface PluginDescriptor {
   location: string
   manifest: unknown
+  origin?: PluginOrigin
 }
 
 export interface PluginSource {

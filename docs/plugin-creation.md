@@ -9,6 +9,7 @@ extension points.
 - [How a plugin fits in](#how-a-plugin-fits-in)
 - [Quick start](#quick-start)
 - [Plugin layout and installation](#plugin-layout-and-installation)
+- [Built-in plugins](#built-in-plugins)
 - [The manifest](#the-manifest)
 - [The privileged entry](#the-privileged-entry)
 - [Naming rules](#naming-rules)
@@ -171,6 +172,146 @@ At startup the shell scans every folder in the plugins directory for a
 
 ---
 
+## Built-in plugins
+
+Plugins that ship with Tessera (Finance, and eventually the shell's own
+features) use the same mechanism as user plugins. They differ only in where
+they come from:
+
+| | Built-in (bundled) | User-installed |
+|---|---|---|
+| Source | `plugins/<id>/` in the repository | Not part of the repo |
+| Loaded from | `modules/<id>/` next to the app (the build output; `resources/modules/` when packaged) | The user-data `modules/` folder above |
+| Scanned | **First** | Second |
+
+Both locations are scanned at startup. If two plugins share an `id`, **the
+first one found wins, so a built-in plugin can't be replaced by a user plugin**.
+The other is skipped with a warning naming where the winner came from.
+
+### Source layout
+
+```
+plugins/budget/
+├── manifest.json              entries name the BUILT paths, as for any plugin
+└── src/
+    ├── privileged/
+    │   └── index.ts           the privileged entry (also index.js / index.mjs)
+    └── renderer/
+        ├── SummaryView.tsx    a view: a React component with a default export
+        └── AccountsView.tsx
+```
+
+`manifest.json` is the same file a user-installed plugin has, so
+`privileged.entry` and `renderer.entry` are the *built* paths (for example
+`privileged/index.js` and `renderer/remoteEntry.js`), not source paths. The one
+addition is `renderer.expose`, which says which source files become views:
+
+```json
+{
+  "id": "budget",
+  "name": "Budget",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./SummaryView": "src/renderer/SummaryView.tsx",
+      "./AccountsView": "src/renderer/AccountsView.tsx"
+    }
+  }
+}
+```
+
+The keys are the `module` names your `shell.views` contributions use, and the
+values are source files, relative to the plugin folder. `expose` is read only
+by the build, which removes it from the built manifest.
+
+You never write `remoteEntry.js`. The build generates it (see below).
+
+### Building
+
+```bash
+npm run build:plugins                  # every plugin under plugins/ → modules/
+npm run build:plugins -- budget        # only these plugin ids
+npm run build:plugins -- --src <dir> --out <dir>
+```
+
+`npm run dev` builds bundled plugins before it starts, so a normal dev
+session needs no extra step. **Rebuild and restart after changing a plugin's
+source**; there is no watch mode yet.
+
+For each plugin the build:
+
+1. **Bundles** `src/privileged/index.*` into one ES-module file at the
+   manifest's `privileged.entry`, **with the plugin's own dependencies
+   included**. Node built-ins stay external. Source maps are written beside it.
+2. **Writes `package.json`** containing `{"type":"module"}` into the built folder, so
+   the file is read as an ES module wherever it ends up. (Without it, a copy
+   under the user-data folder would be read as CommonJS and fail.)
+3. **Compiles the renderer**, when the manifest has `renderer.expose`: every
+   listed `.tsx` / `.ts` module is built with Module Federation
+   (`@module-federation/vite`), which **generates `remoteEntry.js`** and its
+   chunks in the folder of `renderer.entry`. React, `react/jsx-runtime` and
+   `react-dom` are shared with the shell as singletons, and **no copy of React
+   is bundled**. JSX uses the automatic runtime, so no `import React` is needed.
+4. **Writes the manifest** to the built folder, without `renderer.expose`.
+5. **Checks** that the manifest's `renderer.entry`, if any, was produced.
+
+The build fails, naming the plugin, when `renderer.expose` isn't a map of
+`"./Name"` keys to existing files, when `renderer.entry` is missing, or when a
+`renderer/` folder exists beside `renderer.expose` (the build would overwrite
+it).
+
+A build deletes the plugin's previous output first, so renamed or removed
+files don't linger. One plugin failing to build is reported (the command
+exits non-zero), and the others still build. `modules/` is gitignored.
+
+Write built-in privileged code as an ES module with named exports:
+
+```ts
+import type { PluginContext } from '../../../core/plugins/PluginContext'
+
+export function activate(context: PluginContext) { /* … */ }
+export function deactivate() { /* optional */ }
+```
+
+### Writing a view
+
+A view is an ordinary React component, default-exported:
+
+```tsx
+// plugins/budget/src/renderer/SummaryView.tsx
+import { useEffect, useState } from 'react'
+
+export default function SummaryView() {
+  const [summary, setSummary] = useState<{ month: string, remaining: number }>()
+
+  useEffect(() => {
+    window.api.invoke<{ month: string, remaining: number }>('budget:summary').then(setSummary)
+  }, [])
+
+  return summary
+    ? <p>{summary.month}: ${summary.remaining} remaining</p>
+    : <p>Loading…</p>
+}
+```
+
+Contribute it from `activate` with `module: './SummaryView'`, as in
+[Contributing views](#contributing-views). Notes:
+
+- **Don't bundle React.** Import `react` normally; the build maps it to the
+  shell's copy. Using your own copy would break hooks.
+- **`window.api` is typed** inside the repo (`shell/renderer/global.d.ts`). Plugin
+  type-checking is covered by the fixture's tests project today; there is no
+  separate plugin SDK yet.
+- **Types are not checked by the build.** It compiles with esbuild, which strips
+  types. Run `npx tsc --noEmit` over your plugin to check them.
+- **CSS and assets** imported by a view should be emitted beside the remote
+  entry and served through the plugin protocol, but **this is untested**: the
+  sample view has no stylesheet. Check it before relying on it.
+
+---
+
 ## The manifest
 
 ```json
@@ -189,7 +330,8 @@ At startup the shell scans every folder in the plugins directory for a
 | `name` | yes | Human-readable name. |
 | `version` | yes | Your plugin version. |
 | `privileged.entry` | yes | Module that exports `activate`. |
-| `renderer.entry` | only if you contribute views | Your Module Federation remote entry. |
+| `renderer.entry` | only if you contribute views | Your Module Federation remote entry (the built path). |
+| `renderer.expose` | built-in plugins that have views | Build time only: `{ "./ViewName": "src/renderer/ViewName.tsx" }`. The build removes it from the built manifest. |
 | `services.provides` | if you provide services | Service ids you provide from `activate`. See [Providing and using services](#providing-and-using-services). |
 | `services.requires` | if you use services | Service ids you need. You're activated after their providers, or skipped if one is missing. |
 
@@ -686,12 +828,22 @@ requirements:
 - **Output location:** all chunks and assets alongside, or below, the
   remote entry, referenced by relative URLs.
 
-Suitable tools are `@module-federation/vite` (Vite),
-`@module-federation/enhanced` (webpack) and rspack's built-in Module
-Federation. The hand-written container in the [Quick start](#quick-start)
-shows the protocol those tools generate: `init(shareScope)` receives the
-shared modules, and `get('./Expose')` returns a factory for the exposed
-module.
+**Built-in plugins** get this for free: `npm run build:plugins` runs
+`@module-federation/vite` with exactly these settings (see
+[Built-in plugins](#built-in-plugins)). The configuration has been tested
+against the shell: the generated entry loads through the `tessera-plugin://`
+protocol, shares the shell's React, and renders a TSX view that calls its
+plugin's backend.
+
+**User-installed plugins** have no build step provided yet, so a third-party
+author must produce a remote that meets the requirements above, with
+`@module-federation/vite`, `@module-federation/enhanced` (webpack) or
+rspack's Module Federation. Mark `react`, `react/jsx-runtime` and
+`react-dom` as shared singletons with `import: false` so no fallback copy is
+bundled. The hand-written container in the [Quick start](#quick-start) is
+for illustration: it shows the protocol the tools generate, where
+`init(shareScope)` receives the shared modules and `get('./Expose')` returns a
+factory for the exposed module.
 
 ---
 

@@ -13,10 +13,29 @@ off, or delete them, as they land.
       has activated, so work that depends on undeclared services (such as the
       vault reopening the last file with whichever backend it needs) can't
       be timed safely. See [vault-design.md](vault-design.md).
-- [ ] **Bundled plugins.** Only the user-data `modules/` folder is scanned.
-      Load built-in plugins from a folder shipped with the app (the reserved
-      `plugins/` directory), so Finance, and eventually the shell's own
-      features, go through the same mechanism.
+- [ ] **Build tooling for user-installed plugins.** Built-in plugins get
+      TSX compilation and the federation remote from `scripts/build-plugins.ts`.
+      Third-party authors have no equivalent; package it as a small CLI or
+      SDK (with the `PluginContext`, `window.api` and view-prop types).
+- [ ] **Type-check plugin source.** The build strips types (esbuild). Add a
+      `plugins/tsconfig.json` and a CI step so `plugins/**` is checked; today
+      only the test fixture is.
+- [ ] **Federation build: CSS, assets and multiple views.** Verified with one
+      TSX view. Check stylesheets, images, several exposed modules and shared
+      third-party libraries.
+- [ ] **Keep the shared React range in sync.** `SHARED_REACT_RANGE` in
+      `scripts/build-plugins.ts` must match the shell's React; derive it from
+      `package.json` or the shell's loader instead.
+- [ ] **Built-in plugins: watch mode.** Rebuild and reload on source changes
+      during `npm run dev`.
+- [ ] **Built-in plugins: packaging.** Copy `modules/` into the packaged app
+      as `resources/modules` (the path the loader already expects).
+- [ ] **Built-in plugins: policy.** Decide whether users can disable (or
+      deliberately override) a built-in plugin. Today the bundled copy always
+      wins on a duplicate id.
+- [ ] **Built-in plugin dependencies.** The build bundles a plugin's npm
+      dependencies into its file. Decide how shared libraries are handled so
+      plugins don't each carry a copy.
 - [ ] **Install, uninstall or update without restarting.** Discovery and
       activation happen once, at startup.
 - [ ] **Lazy activation.** Every plugin activates at startup. Consider
@@ -63,6 +82,22 @@ Designs: [vault-design.md](vault-design.md) and
       views, then `accounts.importers` with OFX, QIF and CSV parsers.
 - [ ] **Settle the open questions** in both notes: aggregation for reports,
       passwords and keys, one vault versus several, `.mny` import.
+
+## State and settings (proposed design)
+
+Design: [settings-design.md](settings-design.md). Nothing here is built yet.
+
+- [ ] **`JsonPersistence` port and adapter**: atomic, debounced writes,
+      flushed on quit; shared by state and settings.
+- [ ] **State store** (`context.state`): per-plugin opaque key/value for
+      recent files, window bounds and similar.
+- [ ] **Settings core** (`context.settings`): defaults, versioned
+      migration, validation, change events, failure handling.
+- [ ] **Settings dialog and `shell.settings.pages`:** navigation tree, draft
+      with OK/Apply/Cancel, Restore Defaults, search, `Ctrl+,`. Needs view
+      props and main → renderer events (both listed below).
+- [ ] **Optional declarative settings form** for simple plugins; **vault
+      scope** for per-vault settings.
 
 ## Menus, commands and context keys
 
