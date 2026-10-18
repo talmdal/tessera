@@ -19,7 +19,16 @@ const log = console
 
 const runtime = createPluginRuntime(log)
 
-const pluginSource = new FsPluginSource([path.join(app.getPath('userData'), 'modules')], log)
+// Bundled plugins are built from plugins/ into modules/ (see scripts/build-plugins.ts).
+// They are listed first, so a user plugin can't replace a bundled one.
+const bundledPluginsDir = app.isPackaged
+  ? path.join(process.resourcesPath, 'modules')
+  : path.resolve(__dirname, '../modules')
+
+const pluginSource = new FsPluginSource([
+  { dir: bundledPluginsDir, origin: 'bundled' },
+  { dir: path.join(app.getPath('userData'), 'modules'), origin: 'user' }
+], log)
 const pluginManager = new PluginManager(pluginSource, runtime, log)
 
 /** Folder holding an active plugin's renderer remote entry, served over PLUGIN_SCHEME. */

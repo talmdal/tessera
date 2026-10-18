@@ -52,7 +52,7 @@ export interface PluginContext {
     get(key: string): ContextKeyValue | undefined
   }
   readonly extensions: {
-    contribute(point: string, contribution: { id: string }): Disposable
+    contribute<T extends { id: string }>(point: string, contribution: T): Disposable
     getContributions(point: string): ExtensionContribution[]
   }
   /**

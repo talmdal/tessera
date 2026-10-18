@@ -25,9 +25,12 @@ platform.
 - **Commands with live enablement:** menu items follow their command's
   `enablement` expression over **context keys**, such as
   `vault.isOpen && vault.isDirty`, and update while the app runs.
-- **Views extension point** (`shell.views`): plugin UI is loaded at runtime
-  as **Module Federation** remotes. They share the shell's React and each
-  view is isolated by its own error boundary.
+- **Views extension point** (`shell.views`): plugin UI is written as
+  `.tsx` and loaded at runtime as a **Module Federation** remote. Views
+  share the shell's React, and each is isolated by its own error boundary.
+- **Built-in plugins:** source in `plugins/<id>/`, built (TypeScript and
+  TSX) into `modules/<id>/` with `npm run build:plugins`, and loaded before
+  user-installed plugins.
 - **Services:** plugins provide and require services, such as `vault.store`,
   declared in their manifest.
 - **IPC:** a single dispatcher channel. Each plugin's handlers live under
@@ -102,6 +105,8 @@ directory:
 | Linux | `~/.config/tessera/modules/` |
 
 Copy a plugin folder there (each needs a `manifest.json`) and restart.
+Plugins that ship with Tessera are built from `plugins/` into `modules/`
+instead; see [Built-in plugins](docs/plugin-creation.md#built-in-plugins).
 To experiment without touching your real profile, launch Electron with
 `--user-data-dir=<some folder>`. The
 [Quick start](docs/plugin-creation.md#quick-start) has a complete plugin to
@@ -111,7 +116,8 @@ try.
 
 | Script | What it does |
 |---|---|
-| `npm run dev` | Build main and preload, start the renderer dev server, launch Electron |
+| `npm run dev` | Build main, preload and bundled plugins, start the renderer dev server, launch Electron |
+| `npm run build:plugins` | Build `plugins/<id>/` into `modules/<id>/` |
 | `npm test` | Run the test suite once (Vitest) |
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:ui` | Vitest UI |
@@ -132,10 +138,12 @@ shell/main/           Electron main process: composition root and adapters
 shell/preload/        window.api bridge
 shell/renderer/       React host and view loading
 scripts/dev.ts        Development launcher used by npm run dev
+scripts/build-plugins.ts  Builds bundled plugins from plugins/ into modules/
 tests/                Vitest suites, mirroring the source folders, plus
                       architecture boundary tests and fixtures
 docs/                 Plugin guide and open-work list
-plugins/              Reserved for bundled plugins (not loaded yet)
+plugins/              Source of bundled (built-in) plugins, one folder each
+modules/              Build output of plugins/ (gitignored); loaded at startup
 ```
 
 ## Documentation
@@ -146,6 +154,8 @@ plugins/              Reserved for bundled plugins (not loaded yet)
   vault, pluggable storage, importers and file handling
 - [docs/storage-api-design.md](docs/storage-api-design.md): proposed
   `Store` API that storage backends implement and domain plugins use
+- [docs/settings-design.md](docs/settings-design.md): proposed settings
+  framework where plugins own their settings shape and pages
 - [docs/todo.md](docs/todo.md): known gaps and planned work
 
 ## License
