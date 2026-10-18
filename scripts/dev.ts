@@ -23,6 +23,21 @@ function runViteBuild(configPath: string) {
   })
 }
 
+function buildBundledPlugins() {
+  return new Promise<void>((resolve, reject) => {
+    const p = spawn('node', [
+      path.resolve('node_modules/ts-node/dist/bin.js'),
+      '--transpile-only',
+      path.resolve('scripts/build-plugins.ts')
+    ], { stdio: 'inherit' })
+
+    p.on('exit', (code: any) => {
+      if (code === 0) resolve()
+      else reject(new Error('Building bundled plugins failed'))
+    })
+  })
+}
+
 function startRendererDevServer() {
   return spawn('node', [
     path.resolve('node_modules/vite/bin/vite.js'),
@@ -58,6 +73,9 @@ async function main() {
 
   console.log('[DEV] Building preload...')
   await runViteBuild(path.resolve('shell/preload/vite.config.ts'))
+
+  console.log('[DEV] Building bundled plugins...')
+  await buildBundledPlugins()
 
   console.log('[DEV] Starting renderer dev server...')
   const renderer = startRendererDevServer()

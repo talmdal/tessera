@@ -1,6 +1,6 @@
 // core/plugins/PluginManager.ts
 import { PluginManifest, parseManifest, providedServices, requiredServices } from '../../shared/plugins/manifest'
-import { Logger, PluginDescriptor, PluginSource } from '../ports'
+import { Logger, PluginDescriptor, PluginOrigin, PluginSource } from '../ports'
 import { planActivation } from './activationPlan'
 import { PluginRuntime, PluginScope, createPluginContext } from './PluginContext'
 import { PrivilegedPluginModule } from './types'
@@ -8,6 +8,7 @@ import { PrivilegedPluginModule } from './types'
 interface ActivePlugin {
   manifest: PluginManifest
   location: string
+  origin?: PluginOrigin
   module: PrivilegedPluginModule
   scope: PluginScope
 }
@@ -32,10 +33,10 @@ export class PluginManager {
     return [...this.active.values()].map(p => p.manifest)
   }
 
-  /** Manifest and source location of an active plugin. */
-  get(id: string): { manifest: PluginManifest, location: string } | undefined {
+  /** Manifest, source location and origin of an active plugin. */
+  get(id: string): { manifest: PluginManifest, location: string, origin?: PluginOrigin } | undefined {
     const plugin = this.active.get(id)
-    return plugin && { manifest: plugin.manifest, location: plugin.location }
+    return plugin && { manifest: plugin.manifest, location: plugin.location, origin: plugin.origin }
   }
 
   /**
@@ -56,8 +57,10 @@ export class PluginManager {
         continue
       }
 
-      if (this.active.has(manifest.id) || candidates.some(c => c.manifest.id === manifest.id)) {
-        this.log.warn(`[plugins] Skipping ${descriptor.location}: plugin "${manifest.id}" is already present`)
+      const existing = candidates.find(c => c.manifest.id === manifest.id)?.descriptor.location
+        ?? this.active.get(manifest.id)?.location
+      if (existing) {
+        this.log.warn(`[plugins] Skipping ${descriptor.location}: plugin "${manifest.id}" is already provided by ${existing}`)
         continue
       }
 
@@ -132,7 +135,7 @@ export class PluginManager {
       throw err
     }
 
-    this.active.set(manifest.id, { manifest, location: descriptor.location, module, scope })
+    this.active.set(manifest.id, { manifest, location: descriptor.location, origin: descriptor.origin, module, scope })
   }
 }
 

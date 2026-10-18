@@ -9,7 +9,9 @@ export interface PluginManifest {
     entry: string // e.g. "privileged/index.js"
   }
   renderer?: {
-    entry: string // e.g. "renderer/index.js"
+    entry: string // e.g. "renderer/remoteEntry.js"
+    /** Build time only (scripts/build-plugins.ts): module name to source file. Dropped from the built manifest. */
+    expose?: Record<string, string>
   }
   services?: {
     /** Services this plugin provides from `activate`. Each id has exactly one provider. */
