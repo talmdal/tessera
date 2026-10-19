@@ -6,9 +6,6 @@ off, or delete them, as they land.
 
 ## Plugin runtime
 
-- [ ] **System shutdown.** The quit handler treats every `before-quit` as
-      user-initiated. Distinguish an OS shutdown or logoff (so plugins can't
-      veto it), e.g. with Electron's `powerMonitor` / session-end events.
 - [ ] **Lifecycle events in the renderer.** Views can't observe started or
       shutting-down; needs main → renderer events (below).
 - [ ] **Configurable shutdown time limit.** It is fixed at 10 seconds.
