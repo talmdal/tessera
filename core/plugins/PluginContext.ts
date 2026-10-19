@@ -5,6 +5,7 @@ import { CommandHandler, CommandOptions, CommandRegistry } from '../commands/Com
 import { ContextKeyService } from '../context/ContextKeyService'
 import { ExtensionContribution, ExtensionRegistry } from '../extensions/ExtensionRegistry'
 import { IpcHandler, IpcRouter } from '../ipc/IpcRouter'
+import { AppLifecycle, AppPhase, ShutdownEvent } from '../lifecycle/AppLifecycle'
 import { Disposable, Logger } from '../ports'
 import { ServiceRegistry } from '../services/ServiceRegistry'
 
@@ -15,6 +16,7 @@ export interface PluginRuntime {
   commands: CommandRegistry
   contextKeys: ContextKeyService
   services: ServiceRegistry
+  lifecycle: AppLifecycle
 }
 
 /** Creates the registries, wired so command enablement follows context keys. */
@@ -25,7 +27,8 @@ export function createPluginRuntime(log?: Logger): PluginRuntime {
     extensions: new ExtensionRegistry(),
     commands: new CommandRegistry(contextKeys),
     contextKeys,
-    services: new ServiceRegistry()
+    services: new ServiceRegistry(),
+    lifecycle: new AppLifecycle({ log })
   }
 }
 
@@ -64,6 +67,18 @@ export interface PluginContext {
     provide<T extends object>(id: string, impl: T): Disposable
     get<T = unknown>(id: string): T
     has(id: string): boolean
+  }
+  /**
+   * Application lifecycle. `onStarted` runs once every plugin has activated
+   * (immediately if the app has already started). `onShuttingDown` runs when
+   * the app is asked to quit, before any plugin deactivates; it may be async
+   * and may `veto()` a user-initiated quit. Listeners are removed when your
+   * plugin deactivates.
+   */
+  readonly lifecycle: {
+    readonly phase: AppPhase
+    onStarted(listener: () => void | Promise<void>): Disposable
+    onShuttingDown(listener: (event: ShutdownEvent) => void | Promise<void>): Disposable
   }
   /** Disposed, last first, on deactivation. Plugins may push their own disposables. */
   readonly subscriptions: Disposable[]
@@ -137,6 +152,11 @@ export function createPluginContext(pluginId: string, runtime: PluginRuntime, op
       },
       get: id => runtime.services.get(id),
       has: id => runtime.services.has(id)
+    },
+    lifecycle: {
+      get phase() { return runtime.lifecycle.phase },
+      onStarted: listener => track(runtime.lifecycle.onStarted(listener)),
+      onShuttingDown: listener => track(runtime.lifecycle.onShuttingDown(listener))
     },
     subscriptions
   }

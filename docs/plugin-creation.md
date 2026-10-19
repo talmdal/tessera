@@ -20,6 +20,7 @@ extension points.
 - [Providing and using services](#providing-and-using-services)
 - [Contributing views](#contributing-views)
 - [The renderer remote](#the-renderer-remote)
+- [Application lifecycle](#application-lifecycle)
 - [Lifecycle and cleanup](#lifecycle-and-cleanup)
 - [Troubleshooting](#troubleshooting)
 - [Reference](#reference)
@@ -391,6 +392,11 @@ interface PluginContext {
     provide(id: string, impl: object): Disposable
     get<T>(id: string): T
     has(id: string): boolean
+  }
+  readonly lifecycle: {
+    readonly phase: 'starting' | 'started' | 'shuttingDown' | 'shutDown'
+    onStarted(listener: () => void | Promise<void>): Disposable
+    onShuttingDown(listener: (event: { reason: 'user' | 'system', veto(why?: string): void }) => void | Promise<void>): Disposable
   }
   readonly subscriptions: Disposable[]
 }
@@ -847,6 +853,60 @@ factory for the exposed module.
 
 ---
 
+## Application lifecycle
+
+Besides your own `activate` / `deactivate`, the whole application moves
+through four phases:
+
+| Phase | Starts when | You can observe it? |
+|---|---|---|
+| `starting` | The app begins; plugins are activating | Your `activate` *is* your starting hook |
+| `started` | **Every** plugin has activated and the window exists | `context.lifecycle.onStarted` |
+| `shuttingDown` | The app is asked to quit, **before any plugin deactivates** | `context.lifecycle.onShuttingDown` |
+| `shutDown` | The last plugin has deactivated | No: you're already gone. `deactivate()` is your hook |
+
+```js
+exports.activate = (context) => {
+  // Runs after ALL plugins are active, so it's safe to use services you didn't
+  // declare. If the app has already started, it runs immediately.
+  context.lifecycle.onStarted(async () => {
+    await reopenLastVault()
+  })
+
+  context.lifecycle.onShuttingDown(async (event) => {
+    if (vaultIsDirty()) {
+      const choice = await askToSave()           // everything is still running here
+      if (choice === 'cancel') return event.veto('user cancelled')
+      if (choice === 'save') await saveVault()
+    }
+  })
+}
+```
+
+**`onShuttingDown` is where interactive or slow work belongs**: prompting to
+save, flushing buffers. Rules:
+
+- Listeners run **one at a time, in registration order**, and the shell waits
+  for async ones.
+- `event.veto()` **cancels a user-initiated quit**. Later listeners are skipped,
+  nothing is deactivated, and the app keeps running. Calling it for
+  `event.reason === 'system'` (the OS is shutting down) has no effect, because
+  that can't be refused.
+- There is a **time limit of 10 seconds** for all shutdown listeners together.
+  After that the shutdown carries on without them, so don't wait on the user
+  indefinitely. A veto that arrives after the limit is ignored.
+- A listener that throws is logged, and the others still run.
+- After the listeners, plugins deactivate (dependents before the plugins they
+  depend on), and the shell does its final flushes.
+
+Your listeners are removed automatically when your plugin deactivates.
+
+> Quitting is not guaranteed to run any of this: a crash, a force-quit or a
+> forced OS shutdown skips it. Save important data as it changes, and use
+> `onShuttingDown` for tidying up and for asking the user.
+
+---
+
 ## Lifecycle and cleanup
 
 1. **Discover:** read `manifest.json` from each plugin folder.
@@ -857,7 +917,9 @@ factory for the exposed module.
 4. For each plugin in that order, **load** `privileged.entry` and **call
    `activate(context)`**. A plugin whose required service is unavailable,
    because its provider failed, is skipped at this point.
-5. After all plugins have activated, the shell builds the menu bar.
+5. After all plugins have activated, the shell builds the menu bar, opens the
+   window, and then fires `onStarted` (see
+   [Application lifecycle](#application-lifecycle)).
 6. The renderer fetches the view list and lazy-loads views as slots render.
 
 Everything you register through the context (IPC handlers, commands,
@@ -879,8 +941,10 @@ const timer = setInterval(syncPrices, 60_000)
 context.subscriptions.push({ dispose: () => clearInterval(timer) })
 ```
 
-> The shell doesn't yet deactivate plugins when the app quits. Don't depend
-> on `deactivate` for saving data; save as you go.
+> On a normal quit the shell runs every `onShuttingDown` listener, then
+> deactivates your plugin, so `deactivate` is reliable for releasing
+> resources. It is **not** guaranteed after a crash or force-quit, so don't
+> rely on it to save data; save as you go.
 
 ---
 
@@ -893,6 +957,9 @@ DevTools console (Tools › Toggle Developer Tools).
 | Symptom | Look for | Usual cause |
 |---|---|---|
 | Plugin does nothing | `[plugins] Skipping …` | Invalid manifest (id format, missing field), invalid JSON, or a duplicate id |
+| App won't quit | `[lifecycle] Shutdown cancelled: …` | An `onShuttingDown` listener called `event.veto()` |
+| Quit is slow, then proceeds | `[lifecycle] Shutdown listeners exceeded … ms` | An `onShuttingDown` listener took longer than the 10 s limit |
+| `onStarted` listener never runs | none | It was registered after the app had shut down, or `activate` threw before reaching it |
 | Plugin does nothing | `[plugins] Failed to activate "<id>"` | `activate` threw, e.g. you registered an id without your prefix |
 | Plugin does nothing | `Privileged entry does not export an activate function` | Wrong export, or ESM syntax in a `.js` file treated as CommonJS |
 | Plugin does nothing | `Skipping "<id>": requires service "…", which no plugin provides` | The provider isn't installed, or the id in `services.requires` has a typo |
