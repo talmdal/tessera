@@ -326,9 +326,9 @@ The design depends on these, most of which are already in
 1. **`shell.files` service**: new shell code. The todo list currently names
    it under "Shell services".
 2. **A "startup complete" lifecycle event**, so the vault can reopen the
-   last file after every plugin has activated. *(New; added to todo.md.)*
+   last file after every plugin has activated. *(Done: `onStarted`.)*
 3. **Deactivate plugins on quit**, so the vault can flush and release its
-   lock.
+   lock. *(Done: `onShuttingDown` with veto, then deactivation.)*
 4. **Declared extension points**, so the vault and accounts can declare
    `vault.backends`, `vault.schema` and `accounts.importers` and have
    contributions validated against them.
