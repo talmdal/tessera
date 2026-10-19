@@ -41,6 +41,7 @@ vi.mock('electron', () => {
   )
 
   const handlers: Record<string, any> = {}
+  const liveWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } }
 
   return {
     ipcMain: {
@@ -85,12 +86,12 @@ vi.mock('electron', () => {
       handle: vi.fn()
     },
 
-    BrowserWindow: vi.fn(() => ({
+    BrowserWindow: Object.assign(vi.fn(() => ({
       loadURL: vi.fn(),
     getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: { openDevTools: vi.fn() }
-    })),
+    })), { getAllWindows: () => [liveWindow] }),
 
     app: {
       getVersion: () => '1.2.3',
@@ -156,5 +157,12 @@ describe('main process (dynamic plugin system)', () => {
     expect(electron.protocol.registerSchemesAsPrivileged).toHaveBeenCalledWith([
       expect.objectContaining({ scheme: 'tessera-plugin' })
     ])
+  })
+
+  it('pushes lifecycle changes to the open windows', async () => {
+    const [window] = electron.BrowserWindow.getAllWindows() as any[]
+
+    await vi.waitFor(() => expect(window.webContents.send).toHaveBeenCalledWith(
+      'tessera:event', { name: 'shell:lifecycle.changed', data: { phase: 'started' } }))
   })
 })

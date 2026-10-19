@@ -1,8 +1,8 @@
 // core/lifecycle/AppLifecycle.ts
+import type { AppPhase } from '../../shared/shellEvents'
 import { Disposable, Logger } from '../ports'
 
-/** starting → started → shuttingDown → shutDown. A vetoed shutdown goes back to the previous phase. */
-export type AppPhase = 'starting' | 'started' | 'shuttingDown' | 'shutDown'
+export type { AppPhase }
 
 export type ShutdownReason = 'user' | 'system'
 
@@ -41,6 +41,7 @@ export class AppLifecycle {
   private shuttingDown = new Set<ShuttingDownListener>()
   private shutDown = new Set<ShutDownListener>()
   private pending?: Promise<boolean>
+  private phaseListeners = new Set<(phase: AppPhase) => void>()
   private readonly log?: Logger
   private readonly timeoutMs: number
 
@@ -51,6 +52,12 @@ export class AppLifecycle {
 
   get phase(): AppPhase {
     return this.current
+  }
+
+  /** Calls `listener` with the new phase each time it changes (including a vetoed shutdown returning to `started`). */
+  onDidChangePhase(listener: (phase: AppPhase) => void): Disposable {
+    this.phaseListeners.add(listener)
+    return { dispose: () => { this.phaseListeners.delete(listener) } }
   }
 
   /**
@@ -81,7 +88,7 @@ export class AppLifecycle {
   /** Called by the shell once all plugins have activated. */
   async markStarted() {
     if (this.current !== 'starting') return
-    this.current = 'started'
+    this.setPhase('started')
 
     const listeners = [...this.started]
     this.started.clear()
@@ -104,14 +111,14 @@ export class AppLifecycle {
   /** Called by the shell after every plugin has deactivated. */
   async markShutDown() {
     if (this.current === 'shutDown') return
-    this.current = 'shutDown'
+    this.setPhase('shutDown')
 
     for (const listener of [...this.shutDown]) await this.run('onShutDown listener', listener)
   }
 
   private async runShuttingDown(reason: ShutdownReason): Promise<boolean> {
     const previous = this.current
-    this.current = 'shuttingDown'
+    this.setPhase('shuttingDown')
 
     let vetoed: string | undefined
     let open = true
@@ -137,7 +144,7 @@ export class AppLifecycle {
 
     if (vetoed !== undefined) {
       this.log?.info(`[lifecycle] Shutdown cancelled: ${vetoed}`)
-      this.current = previous
+      this.setPhase(previous)
       this.pending = undefined
       return false
     }
@@ -152,6 +159,18 @@ export class AppLifecycle {
       return await Promise.race([work.then(() => false), timeout])
     } finally {
       clearTimeout(timer)
+    }
+  }
+
+  private setPhase(next: AppPhase) {
+    if (this.current === next) return
+    this.current = next
+    for (const listener of [...this.phaseListeners]) {
+      try {
+        listener(next)
+      } catch (err) {
+        this.log?.error('[lifecycle] onDidChangePhase listener failed', err)
+      }
     }
   }
 

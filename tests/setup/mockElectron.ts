@@ -28,6 +28,7 @@ vi.mock('electron', () => {
     // ipcRenderer mock
     // -----------------------------
     ipcRenderer: {
+      on: vi.fn(),
       invoke: vi.fn((channel, ...args) => {
         return (globalThis as any).__ipcInvoke(channel, ...args)
       })
@@ -45,14 +46,14 @@ vi.mock('electron', () => {
     // -----------------------------
     // BrowserWindow mock
     // -----------------------------
-    BrowserWindow: vi.fn(() => ({
+    BrowserWindow: Object.assign(vi.fn(() => ({
       loadURL: vi.fn(),
       getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: {
         openDevTools: vi.fn()
       }
-    })),
+    })), { getAllWindows: () => [] }),
 
     // -----------------------------
     // Menu / dialog mocks

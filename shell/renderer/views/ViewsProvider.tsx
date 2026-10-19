@@ -33,13 +33,26 @@ export function ViewsProvider({ source, loader, children }: {
 
   useEffect(() => {
     let live = true
-    source.listViews().then(
-      list => { if (live) setViews(list) },
-      err => {
-        console.error('[views] Failed to list views', err)
-        if (live) setViews([])
-      })
-    return () => { live = false }
+    let latest = 0
+
+    // Only the most recent request may set the list, so a slow early reply
+    // can't overwrite a newer one.
+    const load = () => {
+      const request = ++latest
+      source.listViews().then(
+        list => { if (live && request === latest) setViews(list) },
+        err => {
+          console.error('[views] Failed to list views', err)
+          if (live && request === latest) setViews(current => current ?? [])
+        })
+    }
+
+    load()
+    const stopListening = source.onDidChange?.(load)
+    return () => {
+      live = false
+      stopListening?.()
+    }
   }, [source])
 
   // One lazy component per view, so plugin code is only fetched when a slot renders it.
