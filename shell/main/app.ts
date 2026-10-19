@@ -2,12 +2,12 @@
 import { app, BrowserWindow } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { shutdownApp } from '../../core/lifecycle/shutdown'
 import { createPluginContext, createPluginRuntime } from '../../core/plugins/PluginContext'
 import { PluginManager } from '../../core/plugins/PluginManager'
 import { SHELL_CONTRIBUTOR_ID } from '../../shared/plugins/manifest'
 import { bindRouterToElectron } from './ipc/bindRouter'
 import { installQuitHandling } from './lifecycle/quit'
+import { osShutdownSources } from './lifecycle/systemShutdown'
 import { registerCoreMenus } from './menus/coreMenus'
 import { applyApplicationMenu } from './menus/electronMenu'
 import { FsPluginSource } from './plugins/FsPluginSource'
@@ -69,14 +69,15 @@ function createWindow() {
   })
 
   win.loadURL('http://localhost:5173')
+  return win
 }
-
-// Quitting runs the ShuttingDown listeners, deactivates every plugin, then quits.
-installQuitHandling(app, () => shutdownApp(runtime.lifecycle, pluginManager), log)
 
 app.whenReady().then((async () => {
   await bootstrap()
-  createWindow()
+  const win = createWindow()
+  // Quitting runs the ShuttingDown listeners, deactivates every plugin, then quits.
+  // Inside ready, because powerMonitor can't be used before it.
+  installQuitHandling(app, runtime.lifecycle, pluginManager, log, osShutdownSources(win))
   await runtime.lifecycle.markStarted()
 }))
 

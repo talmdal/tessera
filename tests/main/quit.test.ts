@@ -1,57 +1,55 @@
 import { describe, it, expect, vi } from 'vitest'
-import { installQuitHandling } from '../../shell/main/lifecycle/quit'
+import { AppLifecycle } from '../../core/lifecycle/AppLifecycle'
+import { QuitEvent, installQuitHandling } from '../../shell/main/lifecycle/quit'
 import { createLogger } from '../helpers/runtime'
 
-function setup(shutdown: () => Promise<boolean>) {
-  let listener!: (event: { preventDefault(): void }) => void
-  const app = { on: vi.fn((_event: 'before-quit', fn: typeof listener) => { listener = fn }), quit: vi.fn() }
+function setup(deactivateAll: () => Promise<void> = async () => {}) {
+  let beforeQuitListener!: (event: QuitEvent) => void
+  let systemListener!: (event?: QuitEvent) => void
+  const app = { on: vi.fn((_event: 'before-quit', fn: typeof beforeQuitListener) => { beforeQuitListener = fn }), quit: vi.fn() }
+  const lifecycle = new AppLifecycle()
   const log = createLogger()
-  installQuitHandling(app, shutdown, log)
+  installQuitHandling(app, lifecycle, { deactivateAll: vi.fn(deactivateAll) }, log, [listener => { systemListener = listener }])
 
-  const beforeQuit = () => {
+  const fire = (listener: (event: QuitEvent) => void) => {
     const event = { preventDefault: vi.fn() }
     listener(event)
     return event
   }
-  return { app, log, beforeQuit }
+  return { app, lifecycle, log, beforeQuit: () => fire(beforeQuitListener), shutdown: () => fire(systemListener) }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))
 
 describe('quit handling', () => {
   it('cancels the first quit, runs the shutdown, then quits for real', async () => {
-    const shutdown = vi.fn(async () => true)
-    const { app, beforeQuit } = setup(shutdown)
+    const { app, beforeQuit } = setup()
 
-    const first = beforeQuit()
-    expect(first.preventDefault).toHaveBeenCalled()
-    expect(shutdown).toHaveBeenCalledTimes(1)
+    expect(beforeQuit().preventDefault).toHaveBeenCalled()
     await settle()
     expect(app.quit).toHaveBeenCalledTimes(1)
 
-    const second = beforeQuit()          // the quit we triggered ourselves
-    expect(second.preventDefault).not.toHaveBeenCalled()
-    expect(shutdown).toHaveBeenCalledTimes(1)
+    expect(beforeQuit().preventDefault).not.toHaveBeenCalled()   // the quit we triggered ourselves
+    expect(app.quit).toHaveBeenCalledTimes(1)
   })
 
   it('ignores further quit requests while the shutdown is running', async () => {
-    let finish!: (completed: boolean) => void
-    const shutdown = vi.fn(() => new Promise<boolean>(resolve => { finish = resolve }))
-    const { app, beforeQuit } = setup(shutdown)
+    let finish!: () => void
+    const { app, beforeQuit } = setup(() => new Promise<void>(resolve => { finish = resolve }))
 
     beforeQuit()
-    const again = beforeQuit()
-    expect(again.preventDefault).toHaveBeenCalled()
-    expect(shutdown).toHaveBeenCalledTimes(1)
+    expect(beforeQuit().preventDefault).toHaveBeenCalled()
 
-    finish(true)
+    await settle()    // let the shutdown reach deactivateAll
+    finish()
     await settle()
     expect(app.quit).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps running when the shutdown is vetoed, and accepts a later quit', async () => {
-    const shutdown = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true)
-    const { app, beforeQuit } = setup(shutdown)
+  it('keeps running when a listener vetoes, and accepts a later quit', async () => {
+    const { app, lifecycle, beforeQuit } = setup()
+    let asked = 0
+    lifecycle.onShuttingDown(event => { if (++asked === 1) event.veto('unsaved') })
 
     beforeQuit()
     await settle()
@@ -59,7 +57,6 @@ describe('quit handling', () => {
 
     beforeQuit()
     await settle()
-    expect(shutdown).toHaveBeenCalledTimes(2)
     expect(app.quit).toHaveBeenCalledTimes(1)
   })
 
@@ -72,5 +69,17 @@ describe('quit handling', () => {
     expect(log.error).toHaveBeenCalled()
     expect(app.quit).toHaveBeenCalledTimes(1)
     expect(beforeQuit().preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('treats an OS shutdown as a system shutdown that cannot be vetoed', async () => {
+    const { app, lifecycle, shutdown } = setup()
+    const reasons: string[] = []
+    lifecycle.onShuttingDown(event => { reasons.push(event.reason); event.veto() })
+
+    expect(shutdown().preventDefault).toHaveBeenCalled()
+    await settle()
+
+    expect(reasons).toEqual(['system'])
+    expect(app.quit).toHaveBeenCalledTimes(1)
   })
 })

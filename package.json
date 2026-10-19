@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@module-federation/runtime": "^2.9.2",
+    "@paymoapp/electron-shutdown-handler": "^1.2.0",
     "electron": "^30.5.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
@@ -39,6 +40,7 @@
   },
   "allowScripts": {
     "electron@30.5.1": true,
-    "esbuild@0.21.5": true
+    "esbuild@0.21.5": true,
+    "@paymoapp/electron-shutdown-handler@1.2.0": true
   }
 }
