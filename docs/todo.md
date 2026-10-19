@@ -6,13 +6,12 @@ off, or delete them, as they land.
 
 ## Plugin runtime
 
-- [ ] **Deactivate plugins on quit.** `PluginManager.deactivateAll()` exists
-      but isn't called when the app quits, so plugins can't rely on
-      `deactivate` to flush state.
-- [ ] **"Startup complete" event.** Plugins have no signal that every plugin
-      has activated, so work that depends on undeclared services (such as the
-      vault reopening the last file with whichever backend it needs) can't
-      be timed safely. See [vault-design.md](vault-design.md).
+- [ ] **System shutdown.** The quit handler treats every `before-quit` as
+      user-initiated. Distinguish an OS shutdown or logoff (so plugins can't
+      veto it), e.g. with Electron's `powerMonitor` / session-end events.
+- [ ] **Lifecycle events in the renderer.** Views can't observe started or
+      shutting-down; needs main → renderer events (below).
+- [ ] **Configurable shutdown time limit.** It is fixed at 10 seconds.
 - [ ] **Build tooling for user-installed plugins.** Built-in plugins get
       TSX compilation and the federation remote from `scripts/build-plugins.ts`.
       Third-party authors have no equivalent; package it as a small CLI or
