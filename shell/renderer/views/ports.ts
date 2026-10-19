@@ -5,6 +5,8 @@ import type { ViewDescriptor } from '../../../shared/views/types'
 /** Where the renderer learns which views exist. */
 export interface ViewSource {
   listViews(): Promise<ViewDescriptor[]>
+  /** Calls `listener` when the set of views changes; returns a function that stops. */
+  onDidChange?(listener: () => void): () => void
 }
 
 /** Turns a view descriptor into a React component, loading plugin code as needed. */

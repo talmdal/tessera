@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { channelFor, isIpcRequest } from '../../shared/ipc'
+import { channelFor, isIpcEvent, isIpcRequest } from '../../shared/ipc'
 
 describe('IPC contract', () => {
   it('namespaces channels by plugin id', () => {
@@ -16,5 +16,13 @@ describe('IPC contract', () => {
     expect(isIpcRequest('a:b')).toBe(false)
     expect(isIpcRequest({ channel: '' })).toBe(false)
     expect(isIpcRequest({ channel: 'a:b', correlationId: 7 })).toBe(false)
+  })
+
+  it('recognises push events by their name', () => {
+    expect(isIpcEvent({ name: 'vault:opened' })).toBe(true)
+    expect(isIpcEvent({ name: 'vault:opened', data: { n: 1 } })).toBe(true)
+    expect(isIpcEvent({ name: '' })).toBe(false)
+    expect(isIpcEvent({ data: 1 })).toBe(false)
+    expect(isIpcEvent(null)).toBe(false)
   })
 })
