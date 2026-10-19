@@ -13,6 +13,11 @@ export class ContextKeyService {
   /** Fires with the keys whose values changed. */
   readonly onDidChange = this.changed.event
 
+  /** A copy of every key and its value. */
+  snapshot(): Record<string, ContextKeyValue> {
+    return Object.fromEntries(this.values)
+  }
+
   get(key: string): ContextKeyValue | undefined {
     return this.values.get(key)
   }

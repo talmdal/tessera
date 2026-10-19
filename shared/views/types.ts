@@ -12,6 +12,9 @@ export const MAIN_SLOT = 'shell.main'
 export const VIEWS_LIST_EVENT = 'views.list'
 export const VIEWS_LIST_CHANNEL = channelFor(SHELL_CONTRIBUTOR_ID, VIEWS_LIST_EVENT)
 
+/** Push event: the set of views changed. Re-request VIEWS_LIST_CHANNEL. No payload. */
+export const VIEWS_CHANGED = channelFor(SHELL_CONTRIBUTOR_ID, 'views.changed')
+
 /**
  * A view, contributed from a plugin's privileged `activate`. Pure data: the
  * component lives in the plugin's renderer remote and is only loaded when the

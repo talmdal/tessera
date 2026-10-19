@@ -5,6 +5,8 @@ import path from 'node:path'
 import { createPluginContext, createPluginRuntime } from '../../core/plugins/PluginContext'
 import { PluginManager } from '../../core/plugins/PluginManager'
 import { SHELL_CONTRIBUTOR_ID } from '../../shared/plugins/manifest'
+import { forwardEventsToWindows } from './events/forwardEvents'
+import { registerShellEvents } from './events/shellEvents'
 import { bindRouterToElectron } from './ipc/bindRouter'
 import { installQuitHandling } from './lifecycle/quit'
 import { osShutdownSources } from './lifecycle/systemShutdown'
@@ -51,6 +53,8 @@ async function bootstrap() {
   const shell = createPluginContext(SHELL_CONTRIBUTOR_ID, runtime).context
 
   bindRouterToElectron(runtime.ipc)
+  forwardEventsToWindows(runtime.events, () => BrowserWindow.getAllWindows(), log)
+  registerShellEvents(shell, runtime)
   handlePluginProtocol(rendererRootFor)
   registerCoreMenus(shell)
   registerViewsIpc(shell, remoteEntryFor, log)

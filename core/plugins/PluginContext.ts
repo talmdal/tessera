@@ -4,6 +4,7 @@ import { channelFor } from '../../shared/ipc'
 import { CommandHandler, CommandOptions, CommandRegistry } from '../commands/CommandRegistry'
 import { ContextKeyService } from '../context/ContextKeyService'
 import { ExtensionContribution, ExtensionRegistry } from '../extensions/ExtensionRegistry'
+import { EventHub } from '../ipc/EventHub'
 import { IpcHandler, IpcRouter } from '../ipc/IpcRouter'
 import { AppLifecycle, AppPhase, ShutdownEvent } from '../lifecycle/AppLifecycle'
 import { Disposable, Logger } from '../ports'
@@ -17,6 +18,7 @@ export interface PluginRuntime {
   contextKeys: ContextKeyService
   services: ServiceRegistry
   lifecycle: AppLifecycle
+  events: EventHub
 }
 
 /** Creates the registries, wired so command enablement follows context keys. */
@@ -28,7 +30,8 @@ export function createPluginRuntime(log?: Logger): PluginRuntime {
     commands: new CommandRegistry(contextKeys),
     contextKeys,
     services: new ServiceRegistry(),
-    lifecycle: new AppLifecycle({ log })
+    lifecycle: new AppLifecycle({ log }),
+    events: new EventHub(log)
   }
 }
 
@@ -75,6 +78,14 @@ export interface PluginContext {
    * and may `veto()` a user-initiated quit. Listeners are removed when your
    * plugin deactivates.
    */
+  /**
+   * Push events to the renderer. `emit('saved', data)` reaches views as
+   * `window.api.on('<pluginId>:saved', listener)`. `data` must be
+   * structured-cloneable (plain objects, arrays, primitives).
+   */
+  readonly events: {
+    emit(event: string, data?: unknown): void
+  }
   readonly lifecycle: {
     readonly phase: AppPhase
     onStarted(listener: () => void | Promise<void>): Disposable
@@ -157,6 +168,12 @@ export function createPluginContext(pluginId: string, runtime: PluginRuntime, op
       get phase() { return runtime.lifecycle.phase },
       onStarted: listener => track(runtime.lifecycle.onStarted(listener)),
       onShuttingDown: listener => track(runtime.lifecycle.onShuttingDown(listener))
+    },
+    events: {
+      emit: (event, data) => {
+        if (!event || event.includes(':')) throw new Error(`Plugin "${pluginId}" used invalid event name "${event}"`)
+        runtime.events.publish(channelFor(pluginId, event), data)
+      }
     },
     subscriptions
   }
