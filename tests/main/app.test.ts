@@ -78,6 +78,8 @@ vi.mock('electron', () => {
       showMessageBox: vi.fn()
     },
 
+    powerMonitor: { on: vi.fn() },
+
     protocol: {
       registerSchemesAsPrivileged: vi.fn(),
       handle: vi.fn()
@@ -85,6 +87,7 @@ vi.mock('electron', () => {
 
     BrowserWindow: vi.fn(() => ({
       loadURL: vi.fn(),
+    getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: { openDevTools: vi.fn() }
     })),

@@ -47,6 +47,7 @@ vi.mock('electron', () => {
     // -----------------------------
     BrowserWindow: vi.fn(() => ({
       loadURL: vi.fn(),
+      getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: {
         openDevTools: vi.fn()
@@ -70,6 +71,8 @@ vi.mock('electron', () => {
       showMessageBox: vi.fn(async () => ({ response: 0 }))
     },
 
+    powerMonitor: { on: vi.fn() },
+
     protocol: {
       registerSchemesAsPrivileged: vi.fn(),
       handle: vi.fn()
@@ -89,6 +92,16 @@ vi.mock('electron', () => {
 })
 
 // Bridge ipcRenderer.invoke → ipcMain.__invoke
+// The Windows shutdown handler is a native addon that needs a real window handle.
+vi.mock('@paymoapp/electron-shutdown-handler', () => ({
+  default: {
+    setWindowHandle: vi.fn(),
+    blockShutdown: vi.fn(() => true),
+    releaseShutdown: vi.fn(() => true),
+    on: vi.fn()
+  }
+}))
+
 ;(globalThis as any).__ipcInvoke = async (channel: string, ...args: any[]) => {
   const electron = await import('electron')
   return (electron.ipcMain as any).__invoke(channel, ...args)
