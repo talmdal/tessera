@@ -393,6 +393,9 @@ interface PluginContext {
     get<T>(id: string): T
     has(id: string): boolean
   }
+  readonly events: {
+    emit(event: string, data?: unknown): void   // → window.api.on('<pluginId>:<event>', …) in views
+  }
   readonly lifecycle: {
     readonly phase: 'starting' | 'started' | 'shuttingDown' | 'shutDown'
     onStarted(listener: () => void | Promise<void>): Disposable
@@ -643,6 +646,53 @@ const accounts = await window.api.invoke('budget:accounts.list', { includeClosed
   process.
 - Handlers are looked up per request, so a handler is callable as soon as
   it's registered.
+
+### Events from the backend to your views
+
+IPC also flows the other way. Your privileged code can **push** a named event
+to every open window, and your views listen for it:
+
+```js
+// privileged
+context.events.emit('saved', { path, at: Date.now() })   // reaches views as 'vault:saved'
+```
+
+```tsx
+// view
+useEffect(() => {
+  const stop = window.api.on<{ path: string }>('vault:saved', ({ path }) => setLastSaved(path))
+  return stop                                            // on() returns the unsubscribe function
+}, [])
+```
+
+- The event name is always `<pluginId>:<event>`. `emit` adds your prefix, and an
+  event name containing `:` is rejected.
+- `data` must be structured-cloneable (plain objects, arrays, primitives). Views
+  receive only the data, never Electron's event object.
+- Events are **fire and forget**, delivered in order, to every open window. A view
+  that wasn't listening yet **misses** them, and nothing is replayed.
+- So to show current state, **subscribe first, then request the current value**
+  with `invoke`, and apply any events that arrived in between. Send **absolute
+  values** in events (the new state), not "+1" deltas, so applying one twice is
+  harmless. The shell's own state works exactly this way (below).
+- A listener that throws is logged and the others still run.
+
+**The shell publishes its state this way too.** Each item has a request for the
+current value and an event for changes:
+
+| State | Request (`window.api.invoke`) | Event (`window.api.on`) and payload |
+|---|---|---|
+| Application phase | `shell:lifecycle.get` → `'starting' \| 'started' \| 'shuttingDown' \| 'shutDown'` | `shell:lifecycle.changed` → `{ phase }` |
+| Context keys | `shell:contextKeys.snapshot` → `{ [key]: value }` | `shell:contextKeys.changed` → `{ [key]: value \| null }` (`null` = removed) |
+| The set of views | `shell:views.list` → views | `shell:views.changed` (no payload; the shell reloads the list itself) |
+
+`shuttingDown` is **informational**: the window may close right after it, and
+a view can't delay or veto the quit. If the quit is vetoed, the phase returns to
+`started`. Do real shutdown work in your privileged `onShuttingDown` listener.
+
+The shell's own components use ready-made hooks (`useAppPhase()`,
+`useContextKey(key)`). Plugin views can't import them, because the shell
+shares only React with remotes, so views use `window.api` as above.
 
 ---
 

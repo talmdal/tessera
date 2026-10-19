@@ -6,8 +6,6 @@ off, or delete them, as they land.
 
 ## Plugin runtime
 
-- [ ] **Lifecycle events in the renderer.** Views can't observe started or
-      shutting-down; needs main → renderer events (below).
 - [ ] **Configurable shutdown time limit.** It is fixed at 10 seconds.
 - [ ] **Build tooling for user-installed plugins.** Built-in plugins get
       TSX compilation and the federation remote from `scripts/build-plugins.ts`.
@@ -118,8 +116,16 @@ Design: [settings-design.md](settings-design.md). Nothing here is built yet.
 - [ ] **View props and context.** Views receive nothing from the shell;
       they use `window.api` directly.
 - [ ] **Refresh views at runtime.** The renderer fetches the view list once.
-- [ ] **Main → renderer events.** IPC only goes renderer → main; add push
-      events (e.g. "contributions changed", "context keys changed").
+- [ ] **Renderer takes part in shutdown.** `shuttingDown` reaches views as an
+      event only. Views can't delay or veto a quit (say, to flush an editor);
+      that needs an acknowledgement round trip with a time limit.
+- [ ] **Hooks and typings for plugin views.** `useAppPhase` and
+      `useContextKey` exist for shell components only. Offer them (and typed
+      `window.api.on`) to plugin views through the SDK.
+- [ ] **Events to one window.** Pushed events go to every open window; add
+      targeting if multiple windows are supported.
+- [ ] **Push more shell state.** Candidates: plugin list changes, settings
+      changes, a "settings dialog open" request.
 - [ ] **Example plugin with a real federation build**, e.g.
       `@module-federation/vite`, checked into the repo. Then the plugin
       guide can show tested build config instead of requirements only.

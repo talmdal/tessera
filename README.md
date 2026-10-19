@@ -35,7 +35,8 @@ platform.
   declared in their manifest.
 - **IPC:** a single dispatcher channel. Each plugin's handlers live under
   `<pluginId>:<event>`, and replies are a structured success-or-error
-  envelope.
+  envelope. Events flow the other way too: the shell publishes its phase,
+  context keys and views, and plugins push their own events to views.
 
 ## Architecture
 
