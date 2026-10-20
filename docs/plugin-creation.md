@@ -76,10 +76,11 @@ its own privileged code.
 ```
 budget/
 ├── manifest.json
-├── privileged/
-│   └── index.js
-└── renderer/
-    └── remoteEntry.js
+├── src
+    ├── privileged/
+    │   └── index.js
+    └── renderer/
+        └── remoteEntry.js
 ```
 
 **`manifest.json`**
@@ -94,7 +95,7 @@ budget/
 }
 ```
 
-**`privileged/index.js`**
+**`src/privileged/index.js`**
 
 ```js
 exports.activate = (context) => {
@@ -116,7 +117,7 @@ exports.activate = (context) => {
 }
 ```
 
-**`renderer/remoteEntry.js`**: a minimal hand-written Module Federation
+**`src/renderer/remoteEntry.js`**: a minimal hand-written Module Federation
 container. In practice you'll generate this with a build tool (see
 [The renderer remote](#the-renderer-remote)), but this version runs as is.
 
