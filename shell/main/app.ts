@@ -21,7 +21,7 @@ const __dirname = path.dirname(__filename)
 
 const log = console
 
-const runtime = createPluginRuntime(log)
+const runtime = createPluginRuntime(app.getPath('userData'), log)
 
 // Bundled plugins are built from plugins/ into modules/ (see scripts/build-plugins.ts).
 // They are listed first, so a user plugin can't replace a bundled one.

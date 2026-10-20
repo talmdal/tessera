@@ -19,10 +19,12 @@ export interface PluginRuntime {
   services: ServiceRegistry
   lifecycle: AppLifecycle
   events: EventHub
+  paths: string
+  logger: Logger
 }
 
 /** Creates the registries, wired so command enablement follows context keys. */
-export function createPluginRuntime(log?: Logger): PluginRuntime {
+export function createPluginRuntime(path?: string, log?: Logger): PluginRuntime {
   const contextKeys = new ContextKeyService()
   return {
     ipc: new IpcRouter(log),
@@ -31,7 +33,9 @@ export function createPluginRuntime(log?: Logger): PluginRuntime {
     contextKeys,
     services: new ServiceRegistry(),
     lifecycle: new AppLifecycle({ log }),
-    events: new EventHub(log)
+    events: new EventHub(log),
+    paths: path ?? '/tmp/tessera-test',
+    logger: log ? log : console
   }
 }
 
