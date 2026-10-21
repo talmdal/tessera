@@ -9,6 +9,8 @@ export interface StorageEngine {
 
   insert<T>(collection: string, doc: T): Promise<void>
 
+  upsert<T>(collection: string, query: Query, doc: T): Promise<void>
+
   update<T>(collection: string, query: Query, update: Partial<T>): Promise<number>
 
   delete(collection: string, query: Query): Promise<number>
@@ -32,6 +34,7 @@ export interface StorageTransaction {
   get<T>(collection: string, query: Query): Promise<T[]>
   getOne<T>(collection: string, query: Query): Promise<T | null>
   insert<T>(collection: string, doc: T): Promise<void>
+  upsert<T>(collection: string, query: Query, doc: T): Promise<void>
   update<T>(collection: string, query: Query, update: Partial<T>): Promise<number>
   delete(collection: string, query: Query): Promise<number>
 

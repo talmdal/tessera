@@ -74,6 +74,15 @@ export class LokiStorageEngine implements StorageEngine {
     return docs.length
   }
 
+  async upsert<T>(collection: string, query: Query, doc: T): Promise<void> {
+    const existing = await this.getOne<T>(collection, query)
+    if (existing) {
+      await this.update<T>(collection, query, doc)
+    } else {
+      await this.insert<T>(collection, doc)
+    }
+  }
+
   async beginTransaction(): Promise<StorageTransaction> {
     const engine = this
     // Clone the entire Loki database state
@@ -134,6 +143,24 @@ export class LokiStorageEngine implements StorageEngine {
         return docs.length
       },
 
+      async upsert<T>(collection: string, query: Query, doc: T) {
+        const col = getCol(collection)
+        const existing = isPredicate(query)
+          ? col.find().find(query) ?? null
+          : col.findOne(query)
+
+        if (existing) {
+          const docs = isPredicate(query)
+            ? col.find().filter(query)
+            : col.find(query)
+
+          docs.forEach(d => Object.assign(d, doc))
+          col.update(docs)
+        } else {
+          col.insert(doc)
+        }
+      },
+
       async commit() {
         // Replace the live DB with the clone
         engine.db = clone
@@ -152,7 +179,8 @@ export class LokiStorageEngine implements StorageEngine {
       },
 
       async rollback() {
-        // Do nothing — discard clone
+        // Simply drop the clone and its collections
+        cloneCollections.clear()
       }
     }
 
