@@ -46,14 +46,14 @@ vi.mock('electron', () => {
     // -----------------------------
     // BrowserWindow mock
     // -----------------------------
-    BrowserWindow: Object.assign(vi.fn(() => ({
+    BrowserWindow: Object.assign(vi.fn(function () { return {
       loadURL: vi.fn(),
       getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: {
         openDevTools: vi.fn()
       }
-    })), { getAllWindows: () => [] }),
+    } }), { getAllWindows: () => [] }),
 
     // -----------------------------
     // Menu / dialog mocks

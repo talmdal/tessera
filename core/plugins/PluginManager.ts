@@ -1,8 +1,9 @@
 // core/plugins/PluginManager.ts
 import { PluginManifest, parseManifest, providedServices, requiredServices } from '../../shared/plugins/manifest'
-import { Logger, PluginDescriptor, PluginOrigin, PluginSource } from '../ports'
+import { PluginDescriptor, PluginOrigin, PluginSource } from '../ports'
 import { planActivation } from './activationPlan'
-import { PluginRuntime, PluginScope, createPluginContext } from './PluginContext'
+import { createPluginContext } from './PluginContext'
+import { Logger, PluginScope, PluginRuntime } from '@tessera/types'
 import { PrivilegedPluginModule } from './types'
 
 interface ActivePlugin {
@@ -46,7 +47,7 @@ export class PluginManager {
    * registered is rolled back.
    */
   async activateAll(): Promise<PluginManifest[]> {
-    const candidates: Candidate[] = []
+    const candidates: PluginDescriptor[] = []
 
     for (const descriptor of await this.source.discover()) {
       let manifest: PluginManifest
@@ -57,14 +58,13 @@ export class PluginManager {
         continue
       }
 
-      const existing = candidates.find(c => c.manifest.id === manifest.id)?.descriptor.location
+      const existing = candidates.find(c => c.manifest.id === manifest.id)?.location
         ?? this.active.get(manifest.id)?.location
       if (existing) {
         this.log.warn(`[plugins] Skipping ${descriptor.location}: plugin "${manifest.id}" is already provided by ${existing}`)
         continue
       }
-
-      candidates.push({ descriptor, manifest })
+      candidates.push(descriptor)
     }
 
     const { order, skipped } = planActivation(candidates, id => this.runtime.services.has(id))
@@ -72,8 +72,9 @@ export class PluginManager {
       this.log.warn(`[plugins] Skipping "${candidate.manifest.id}": ${reason}`)
     }
 
-    for (const { descriptor, manifest } of order) {
+    for (const descriptor of order) {
       // A provider that failed to activate leaves its dependents without the service.
+      const manifest = descriptor.manifest
       const missing = requiredServices(manifest).find(service => !this.runtime.services.has(service))
       if (missing) {
         this.log.warn(`[plugins] Skipping "${manifest.id}": required service "${missing}" is not available`)
@@ -81,7 +82,7 @@ export class PluginManager {
       }
 
       try {
-        await this.activate(descriptor, manifest)
+        await this.activate(descriptor)
         this.log.info(`[plugins] Activated "${manifest.id}" ${manifest.version}`)
       } catch (err) {
         this.log.error(`[plugins] Failed to activate "${manifest.id}"`, err)
@@ -89,7 +90,7 @@ export class PluginManager {
       }
 
       for (const service of providedServices(manifest)) {
-        if (this.runtime.services.providerOf(service) !== manifest.id) {
+         if (this.runtime.services.providerOf(service) !== manifest.id) {
           this.log.warn(`[plugins] "${manifest.id}" declares service "${service}" but did not provide it`)
         }
       }
@@ -124,7 +125,8 @@ export class PluginManager {
     for (const id of [...this.active.keys()].reverse()) await this.deactivate(id)
   }
 
-  private async activate(descriptor: PluginDescriptor, manifest: PluginManifest) {
+  private async activate(descriptor: PluginDescriptor) {
+    const manifest = descriptor.manifest
     const module = toPrivilegedModule(await this.source.load(descriptor, manifest.privileged.entry))
     const scope = createPluginContext(manifest.id, this.runtime, { provides: providedServices(manifest) })
 

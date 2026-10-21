@@ -151,3 +151,5 @@ vite.config.ts.timestamp-*
 package-lock.json
 
 /todo.md
+
+.zip

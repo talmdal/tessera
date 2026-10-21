@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { IpcRouter } from '../../core/ipc/IpcRouter'
+import { IpcRouterImpl } from '../../core/ipc/IpcRouter'
 import { createLogger } from '../helpers/runtime'
 
 describe('IpcRouter', () => {
   it('dispatches to the handler for the channel, passing data and correlation id', async () => {
-    const router = new IpcRouter()
+    const router = new IpcRouterImpl()
     router.register('p:echo', async msg => msg)
 
     await expect(router.dispatch({ channel: 'p:echo', data: 42, correlationId: 'c1' })).resolves.toEqual({
@@ -15,7 +15,7 @@ describe('IpcRouter', () => {
   })
 
   it('reaches handlers registered after dispatching started', async () => {
-    const router = new IpcRouter()
+    const router = new IpcRouterImpl()
     expect((await router.dispatch({ channel: 'p:late' })).ok).toBe(false)
 
     router.register('p:late', () => 'here')
@@ -24,7 +24,7 @@ describe('IpcRouter', () => {
 
   it('returns error envelopes for bad requests, missing handlers and handler failures', async () => {
     const log = createLogger()
-    const router = new IpcRouter(log)
+    const router = new IpcRouterImpl(log)
     router.register('p:boom', () => { throw new Error('kaboom') })
 
     await expect(router.dispatch(null)).resolves.toMatchObject({ ok: false, error: { code: 'BAD_REQUEST' } })
@@ -37,7 +37,7 @@ describe('IpcRouter', () => {
   })
 
   it('rejects duplicate channels and frees the channel on dispose', () => {
-    const router = new IpcRouter()
+    const router = new IpcRouterImpl()
     const registration = router.register('p:x', () => 1)
 
     expect(() => router.register('p:x', () => 2)).toThrow('IPC channel already registered: p:x')

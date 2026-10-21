@@ -28,7 +28,7 @@ function buildBundledPlugins() {
     const p = spawn('node', [
       path.resolve('node_modules/ts-node/dist/bin.js'),
       '--transpile-only',
-      path.resolve('scripts/build-plugins.ts')
+      path.resolve('scripts/build-plugins.mts')
     ], { stdio: 'inherit' })
 
     p.on('exit', (code: any) => {

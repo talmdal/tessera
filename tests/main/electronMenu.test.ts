@@ -14,7 +14,7 @@ function setup(extra: MenuContribution[] = [], registerCommands?: (context: Plug
 
   const plugin = createPluginContext('p', runtime)
   registerCommands?.(plugin.context)
-  for (const c of extra) plugin.context.extensions.contribute(MENUS_EXTENSION_POINT, c)
+  for (const c of extra) plugin.context.extensions.contribute('p', MENUS_EXTENSION_POINT, c.id, c)
 
   vi.mocked(electron.Menu.buildFromTemplate).mockClear()
   const tracking = applyApplicationMenu(runtime.extensions, runtime.commands)

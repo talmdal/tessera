@@ -5,13 +5,17 @@ export default defineConfig({
   resolve: {
     alias: {
       '@shared': path.resolve(__dirname, 'shared'),
-      '@core': path.resolve(__dirname, 'core')
+      '@core': path.resolve(__dirname, 'core'),
+      '@tessera/types': path.resolve(__dirname, 'tessera-types/index.ts')
     }
   },
   test: {
     // Default environment: jsdom for renderer tests
     environment: 'jsdom',
     globals: true,
+    clearMocks: false,
+    mockReset: false,
+    restoreMocks: false,
     setupFiles: ['./tests/setup/setupTests.ts'],
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     exclude: ['dist', 'node_modules'],

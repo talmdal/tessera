@@ -1,13 +1,13 @@
 import { describe, it, expect, vi } from 'vitest'
 import { PluginContext, createPluginContext } from '../../core/plugins/PluginContext'
 import { PluginManager } from '../../core/plugins/PluginManager'
-import { ServiceRegistry } from '../../core/services/ServiceRegistry'
+import { ServiceRegistryImpl } from '../../core/services/ServiceRegistry'
 import { parseManifest } from '../../shared/plugins/manifest'
 import { MemoryPluginSource, createLogger, createRuntime, manifest } from '../helpers/runtime'
 
 describe('ServiceRegistry', () => {
   it('provides, looks up and removes a service', () => {
-    const registry = new ServiceRegistry()
+    const registry = new ServiceRegistryImpl()
     const store = { open: () => 'opened' }
 
     const registration = registry.provide('vault', 'vault.store', store)
@@ -20,7 +20,7 @@ describe('ServiceRegistry', () => {
   })
 
   it('allows one provider per service and rejects non-objects', () => {
-    const registry = new ServiceRegistry()
+    const registry = new ServiceRegistryImpl()
     registry.provide('sqlite', 'vault.store', {})
 
     expect(() => registry.provide('files', 'vault.store', {})).toThrow('Service "vault.store" is already provided by "sqlite"')
@@ -30,18 +30,21 @@ describe('ServiceRegistry', () => {
 })
 
 describe('plugin context services', () => {
-  it('only lets a plugin provide services declared in its manifest', () => {
+  it('shares the runtime registry, so a provided service is visible to every plugin', () => {
     const runtime = createRuntime()
-    const { context } = createPluginContext('sqlite', runtime, { provides: ['vault.store'] })
+    const sqlite = createPluginContext('sqlite', runtime).context
+    const reports = createPluginContext('reports', runtime).context
 
-    expect(() => context.services.provide('vault.store', {})).not.toThrow()
-    expect(() => context.services.provide('vault.other', {})).toThrow(`declare it in the manifest's services.provides`)
+    sqlite.services.provide('sqlite', 'vault.store', {})
+
+    expect(reports.services.has('vault.store')).toBe(true)
+    expect(runtime.services.providerOf('vault.store')).toBe('sqlite')
   })
 
-  it('removes provided services on deactivation', () => {
+  it('removes a service when its registration is pushed to subscriptions and the plugin deactivates', () => {
     const runtime = createRuntime()
     const scope = createPluginContext('sqlite', runtime, { provides: ['vault.store'] })
-    scope.context.services.provide('vault.store', {})
+    scope.context.subscriptions.push(scope.context.services.provide('sqlite', 'vault.store', {}))
 
     scope.dispose()
 
@@ -63,7 +66,7 @@ describe('PluginManager with services', () => {
         }
       }),
       entry('vault', { provides: ['vault.store'] }, {
-        activate: (context: PluginContext) => { context.services.provide('vault.store', { name: 'sqlite store' }) }
+        activate: (context: PluginContext) => { context.subscriptions.push(context.services.provide('vault', 'vault.store', { name: 'sqlite store' })) }
       })
     ])
 
@@ -110,7 +113,7 @@ describe('PluginManager with services', () => {
     const order: string[] = []
     const source = new MemoryPluginSource([
       entry('vault', { provides: ['vault.store'] }, {
-        activate: (context: PluginContext) => { context.services.provide('vault.store', {}) },
+        activate: (context: PluginContext) => { context.subscriptions.push(context.services.provide('vault', 'vault.store', {})) },
         deactivate: () => { order.push('vault') }
       }),
       entry('reports', { requires: ['vault.store'] }, { activate: vi.fn(), deactivate: () => { order.push('reports') } }),

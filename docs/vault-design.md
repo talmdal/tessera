@@ -320,6 +320,11 @@ framework to deactivate plugins on quit; see below.)*
 
 ## Framework prerequisites
 
+> Since this note was written, a `storage.engine` service (LokiJS), a
+> `StorageEngine` interface and an `app-state` plugin have been added. They
+> sit below the `Store` proposed here. See
+> [storage-api-design.md](storage-api-design.md).
+
 The design depends on these, most of which are already in
 [todo.md](todo.md):
 

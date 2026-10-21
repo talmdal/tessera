@@ -1,4 +1,4 @@
-import { StorageEngine, StorageTransaction } from './StorageEngine'
+import { StorageEngine, StorageTransaction } from '@tessera/types'
 
 export class TransactionManager {
   constructor(private engine: StorageEngine) {}

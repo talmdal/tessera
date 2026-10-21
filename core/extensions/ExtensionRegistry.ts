@@ -1,16 +1,12 @@
 // core/extensions/ExtensionRegistry.ts
 import { Emitter } from '../events'
-import { Disposable } from '../ports'
+import {
+  Disposable, 
+  ExtensionContribution,
+  ExtensionRegistry
+} from '@tessera/types'
 
-export interface ExtensionContribution<T = unknown> {
-  point: string
-  id: string
-  /** Plugin id (or the shell) that made the contribution. */
-  contributor: string
-  impl: T
-}
-
-export class ExtensionRegistry {
+export class ExtensionRegistryImpl implements ExtensionRegistry {
   private contributions: ExtensionContribution[] = []
   private changed = new Emitter<{ point: string }>()
 
@@ -30,7 +26,7 @@ export class ExtensionRegistry {
     }
   }
 
-  getContributions(point: string) {
+  getContributions(point: string): ExtensionContribution[] {
     return this.contributions.filter(c => c.point === point)
   }
 }

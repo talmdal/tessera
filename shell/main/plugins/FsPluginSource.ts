@@ -2,7 +2,8 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Logger, PluginDescriptor, PluginOrigin, PluginSource } from '../../../core/ports'
+import { PluginDescriptor, PluginOrigin, PluginSource } from '../../../core/ports'
+import { Logger } from '@tessera/types'
 
 export interface PluginRoot {
   dir: string

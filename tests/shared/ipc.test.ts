@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { channelFor, isIpcEvent, isIpcRequest } from '../../shared/ipc'
+import { channelFor } from '../../tessera-types'
+import { isIpcEvent, isIpcRequest } from '../../shared/ipc'
 
 describe('IPC contract', () => {
   it('namespaces channels by plugin id', () => {

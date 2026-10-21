@@ -52,7 +52,7 @@ shell or each other; they connect in two ways:
                                         │
           ┌─────────────────────────────┼────────────────────────────┐
           ▼                             ▼                            ▼
- context.commands.register   context.extensions.contribute   context.ipc.handle
+ context.commands.register   context.extensions.contribute   context.ipc.register
           │                    'shell.menus' / 'shell.views'         │
           ▼                             │                            ▼
    menu item clicks ◄── native menu bar │              window.api.invoke('<id>:<event>')
@@ -100,18 +100,19 @@ budget/
 ```js
 exports.activate = (context) => {
   // Backend endpoint, reachable from the renderer as 'budget:summary'
-  context.ipc.handle('summary', async () => ({ month: 'October', remaining: 412.5 }))
+  context.ipc.register('budget:summary', async () => ({ month: 'October', remaining: 412.5 }))
 
   // A command, and a menu that runs it
   context.commands.register('budget.newCategory', () => console.log('[budget] new category'))
-  context.extensions.contribute('shell.menus', { kind: 'menu', id: 'budget.menu', label: '&Budget' })
-  context.extensions.contribute('shell.menus', {
+  context.extensions.contribute('budget', 'shell.menus', 'budget.menu',
+    { kind: 'menu', id: 'budget.menu', label: '&Budget' })
+  context.extensions.contribute('budget', 'shell.menus', 'budget.newCategory', {
     kind: 'item', id: 'budget.newCategory', label: '&New Category…',
     parent: 'budget.menu', command: 'budget.newCategory'
   })
 
   // A view in the main slot, implemented by the renderer remote's ./SummaryView
-  context.extensions.contribute('shell.views', {
+  context.extensions.contribute('budget', 'shell.views', 'budget.summary', {
     id: 'budget.summary', title: 'Budget Summary', slot: 'shell.main', module: './SummaryView'
   })
 }
@@ -244,12 +245,16 @@ source**; there is no watch mode yet.
 
 For each plugin the build:
 
-1. **Bundles** `src/privileged/index.*` into one ES-module file at the
-   manifest's `privileged.entry`, **with the plugin's own dependencies
-   included**. Node built-ins stay external. Source maps are written beside it.
-2. **Writes `package.json`** containing `{"type":"module"}` into the built folder, so
-   the file is read as an ES module wherever it ends up. (Without it, a copy
-   under the user-data folder would be read as CommonJS and fail.)
+1. **Bundles** `src/privileged/index.*` into one **CommonJS** file (esbuild,
+   `platform: node`) at the manifest's `privileged.entry`, **with the plugin's
+   own dependencies included**. Node built-ins and `node_modules` packages
+   (`packages: 'external'`, plus `lokijs`) stay external. The `@core`,
+   `@shared`, `@shell`, `@plugins` and `@tessera/types` aliases resolve to the
+   repository folders. Source maps are written beside the bundle.
+2. **Writes `package.json`** into the built folder (currently
+   `{"type":"cjs"}`; Node's valid value is `commonjs`, so this is a known
+   oddity). The renderer remote is an ES module that the shell fetches over
+   the plugin protocol, not through Node, so it is unaffected.
 3. **Compiles the renderer**, when the manifest has `renderer.expose`: every
    listed `.tsx` / `.ts` module is built with Module Federation
    (`@module-federation/vite`), which **generates `remoteEntry.js`** and its
@@ -268,12 +273,14 @@ A build deletes the plugin's previous output first, so renamed or removed
 files don't linger. One plugin failing to build is reported (the command
 exits non-zero), and the others still build. `modules/` is gitignored.
 
-Write built-in privileged code as an ES module with named exports:
+Write built-in privileged code as TypeScript with named exports. The types
+come from the `@tessera/types` package ([tessera-types/](../tessera-types/)),
+which the core, the shell and plugins all share:
 
 ```ts
-import type { PluginContext } from '../../../core/plugins/PluginContext'
+import type { PluginContext } from '@tessera/types'
 
-export function activate(context: PluginContext) { /* … */ }
+export async function activate(context: PluginContext) { /* … */ }
 export function deactivate() { /* optional */ }
 ```
 
@@ -303,9 +310,10 @@ Contribute it from `activate` with `module: './SummaryView'`, as in
 
 - **Don't bundle React.** Import `react` normally; the build maps it to the
   shell's copy. Using your own copy would break hooks.
-- **`window.api` is typed** inside the repo (`shell/renderer/global.d.ts`). Plugin
-  type-checking is covered by the fixture's tests project today; there is no
-  separate plugin SDK yet.
+- **`window.api` is typed** inside the repo (`TesseraBridge` in
+  [tessera-types/ipc.ts](../tessera-types/ipc.ts); the global declaration is in
+  [tessera-types/global.ts](../tessera-types/global.ts)). There is no separate
+  plugin SDK yet; plugins in the repo import `@tessera/types` directly.
 - **Types are not checked by the build.** It compiles with esbuild, which strips
   types. Run `npx tsc --noEmit` over your plugin to check them.
 - **CSS and assets** imported by a view should be emitted beside the remote
@@ -361,75 +369,79 @@ export function deactivate() { /* optional */ }
 ```
 
 `activate` may be `async`; the shell waits for it to finish. If `activate`
-throws or rejects, the error is logged, **everything the plugin registered
-up to that point is rolled back**, and startup carries on without it.
+throws or rejects, the error is logged, **the registrations the context tracks
+(see [Lifecycle and cleanup](#lifecycle-and-cleanup)) are rolled back**, and
+startup carries on without it.
 
 ### The `PluginContext`
 
-`activate` receives a context limited to your plugin
-([core/plugins/PluginContext.ts](../core/plugins/PluginContext.ts)):
+`activate` receives a `PluginContext`. The interfaces are defined once, in
+[tessera-types/plugins.ts](../tessera-types/plugins.ts), and are the same ones
+the core implements:
 
 ```ts
 interface PluginContext {
   readonly pluginId: string
-  readonly ipc: {
-    handle(event: string, handler: (msg: { channel, data, correlationId? }) => unknown): Disposable
-  }
-  readonly commands: {
-    register(id: string, handler: (...args: unknown[]) => unknown, options?: { enablement?: string }): Disposable
+  readonly ipc: IpcRouter                 // shared router
+  readonly commands: {                    // scoped to your plugin
+    register(id: string, handler: CommandHandler, options?: CommandOptions): Disposable
     has(id: string): boolean
     isEnabled(id: string): boolean
     execute(id: string, ...args: unknown[]): Promise<unknown>
   }
-  readonly contextKeys: {
-    set(key: string, value: boolean | string | number | undefined): void
-    get(key: string): boolean | string | number | undefined
-  }
-  readonly extensions: {
-    contribute(point: string, contribution: { id: string }): Disposable
-    getContributions(point: string): { point, id, contributor, impl }[]
-  }
-  readonly services: {
-    provide(id: string, impl: object): Disposable
-    get<T>(id: string): T
-    has(id: string): boolean
-  }
-  readonly events: {
+  readonly contextKeys: ContextKeyService // shared service
+  readonly extensions: ExtensionRegistry  // shared registry
+  readonly services: ServiceRegistry      // shared registry
+  readonly events: {                      // scoped to your plugin
     emit(event: string, data?: unknown): void   // → window.api.on('<pluginId>:<event>', …) in views
   }
-  readonly lifecycle: {
-    readonly phase: 'starting' | 'started' | 'shuttingDown' | 'shutDown'
-    onStarted(listener: () => void | Promise<void>): Disposable
-    onShuttingDown(listener: (event: { reason: 'user' | 'system', veto(why?: string): void }) => void | Promise<void>): Disposable
-  }
-  readonly subscriptions: Disposable[]
+  readonly lifecycle: AppLifecycle        // shared
+  readonly subscriptions: Disposable[]    // disposed, last first, on deactivation
+  readonly paths: string                  // the application data path
+  readonly logger: Logger
 }
 ```
+
+Most of the context is the application's own registries
+([core/plugins/PluginContext.ts](../core/plugins/PluginContext.ts) builds it
+from the runtime). Only `commands` and `events` are wrapped, to enforce
+naming and to bind events to your plugin id. The calls you will use:
+
+| Member | Call | Notes |
+|---|---|---|
+| `ipc` | `register(channel, handler): Disposable` | Full channel name, by convention `<pluginId>:<event>`. The handler receives `{ channel, data, correlationId? }`. |
+| `extensions` | `contribute(contributor, point, id, impl): Disposable`<br>`getContributions(point)` | Pass your plugin id as `contributor`. `impl` is the contribution object. |
+| `services` | `provide(provider, id, impl): Disposable`<br>`get<T>(id)`, `has(id)`, `providerOf(id)` | Pass your plugin id as `provider`. |
+| `contextKeys` | `set(key, value)`, `get(key)`, `snapshot()`, `onDidChange`, `deleteNamespace(ns)` | `undefined` removes a key. |
+| `lifecycle` | `phase`, `onStarted(listener)`, `onShuttingDown(listener): Disposable`, `onDidChangePhase(listener)` | The shell-only members (`markStarted`, `requestShutdown`, `onShutDown`, `markShutDown`) are on the same object; don't call them. |
 
 ---
 
 ## Naming rules
 
-The framework stops plugins from claiming each other's names:
+The framework enforces naming only where a collision would be hard to undo,
+and relies on convention elsewhere:
 
-| What you register | Must be | Example for plugin `budget` |
+| What you register | Rule | Example for plugin `budget` |
 |---|---|---|
-| Command ids | `budget` or `budget.<anything>` | `budget.newCategory` |
-| Contribution ids (menus, items, groups, views) | `budget` or `budget.<anything>` | `budget.menu`, `budget.summary` |
-| Context keys you set | `budget` or `budget.<anything>` | `budget.hasCategories` |
-| IPC events | any name without `:` | `summary` → channel `budget:summary` |
-| Services you provide | any dotted id **listed in `services.provides`** | `budget.forecast`, or a shared port like `vault.store` |
+| Command ids | **Enforced:** `budget` or `budget.<anything>` | `budget.newCategory` |
+| Events you emit | **Enforced:** any name without `:`; `emit` adds your prefix | `saved` → `budget:saved` |
+| IPC channels | Convention: `<pluginId>:<event>`. Nothing stops you registering another plugin's channel, so don't | `budget:summary` |
+| Contribution ids (menus, items, groups, views) | Convention: `budget` or `budget.<anything>` | `budget.menu`, `budget.summary` |
+| Context keys you set | Convention: `budget` or `budget.<anything>` | `budget.hasCategories` |
+| Services you provide | Any dotted id. Each id has one provider, and registering a second throws | `budget.forecast`, or a shared port like `vault.store` |
 
-Breaking a rule throws; inside `activate`, that rolls your plugin back. You
-can still **refer** to ids you don't own. Placing an item under the shell's
-`shell.tools` menu, executing another plugin's command, reading another
-plugin's context keys, or using another plugin's service is fine.
+Breaking a *command* or *event* rule throws; inside `activate`, that rolls your
+plugin back. You can always **refer** to ids you don't own: placing an item
+under the shell's `shell.tools` menu, executing another plugin's command,
+reading another plugin's context keys, or using another plugin's service.
 
-Service ids are the one exception to the prefix rule. A service id names an
-interface (a port), and different plugins may implement the same one: a
-SQLite plugin and an encrypted-file plugin could both offer `vault.store`.
-Ownership comes from the manifest instead: you can only provide what you
-declare, and only one plugin may provide a given id.
+Service ids name an interface (a port), and different plugins may implement the
+same one: a SQLite plugin and an encrypted-file plugin could both offer
+`vault.store`. List what you provide in the manifest's `services.provides`.
+That list drives activation order, and a warning is logged if you declare a
+service and never provide it. Registering the same id twice throws
+`Service "<id>" is already provided by "<provider>"`.
 
 ---
 
@@ -461,8 +473,8 @@ plugins publish.
 
 1. **Publish state** with `context.contextKeys.set(key, value)` whenever it
    changes. Values are booleans, strings or numbers; `undefined` removes the
-   key. You can set only your own keys (`<pluginId>.*`), and the shell clears
-   them when your plugin deactivates.
+   key. By convention you set only your own keys (`<pluginId>.*`), and the
+   shell clears every key in your namespace when your plugin deactivates.
 2. **Give the command an `enablement` expression** when you register it. The
    command is enabled, and its menu items clickable, only while the
    expression is true.
@@ -498,16 +510,16 @@ exports.activate = (context) => {
   }, { enablement: 'vault.isOpen' })
 
   // The renderer reports edits; the backend owns the state
-  context.ipc.handle('edit', async (msg) => {
+  context.ipc.register('vault:edit', async (msg) => {
     // … apply msg.data …
     keys.set('vault.isDirty', true)
   })
 
   const M = 'shell.menus'
-  context.extensions.contribute(M, { kind: 'group', id: 'vault.file', parent: 'shell.file' })
-  context.extensions.contribute(M, { kind: 'item', id: 'vault.open',  label: '&Open Vault…', parent: 'shell.file', group: 'vault.file', command: 'vault.open',  accelerator: 'CmdOrCtrl+O' })
-  context.extensions.contribute(M, { kind: 'item', id: 'vault.save',  label: '&Save',        parent: 'shell.file', group: 'vault.file', command: 'vault.save',  accelerator: 'CmdOrCtrl+S' })
-  context.extensions.contribute(M, { kind: 'item', id: 'vault.close', label: '&Close Vault', parent: 'shell.file', group: 'vault.file', command: 'vault.close' })
+  context.extensions.contribute('vault', M, 'vault.file', { kind: 'group', id: 'vault.file', parent: 'shell.file' })
+  context.extensions.contribute('vault', M, 'vault.open', { kind: 'item', id: 'vault.open',  label: '&Open Vault…', parent: 'shell.file', group: 'vault.file', command: 'vault.open',  accelerator: 'CmdOrCtrl+O' })
+  context.extensions.contribute('vault', M, 'vault.save', { kind: 'item', id: 'vault.save',  label: '&Save',        parent: 'shell.file', group: 'vault.file', command: 'vault.save',  accelerator: 'CmdOrCtrl+S' })
+  context.extensions.contribute('vault', M, 'vault.close', { kind: 'item', id: 'vault.close', label: '&Close Vault', parent: 'shell.file', group: 'vault.file', command: 'vault.close' })
 }
 ```
 
@@ -585,10 +597,10 @@ as deep as you like.
 
 ```js
 const M = 'shell.menus'
-context.extensions.contribute(M, { kind: 'group', id: 'budget.tools', parent: 'shell.tools', order: 50 })
-context.extensions.contribute(M, { kind: 'menu',  id: 'budget.reports', label: 'Budget &Reports', parent: 'shell.tools', group: 'budget.tools' })
-context.extensions.contribute(M, { kind: 'item',  id: 'budget.reports.monthly', label: '&Monthly', parent: 'budget.reports', command: 'budget.reports.monthly' })
-context.extensions.contribute(M, { kind: 'item',  id: 'budget.reports.annual',  label: '&Annual',  parent: 'budget.reports', command: 'budget.reports.annual' })
+context.extensions.contribute('budget', M, 'budget.tools', { kind: 'group', id: 'budget.tools', parent: 'shell.tools', order: 50 })
+context.extensions.contribute('budget', M, 'budget.reports', { kind: 'menu',  id: 'budget.reports', label: 'Budget &Reports', parent: 'shell.tools', group: 'budget.tools' })
+context.extensions.contribute('budget', M, 'budget.reports.monthly', { kind: 'item',  id: 'budget.reports.monthly', label: '&Monthly', parent: 'budget.reports', command: 'budget.reports.monthly' })
+context.extensions.contribute('budget', M, 'budget.reports.annual', { kind: 'item',  id: 'budget.reports.annual',  label: '&Annual',  parent: 'budget.reports', command: 'budget.reports.annual' })
 ```
 
 Result:
@@ -625,7 +637,7 @@ The renderer has no Node access. When your view needs data or side effects
 **Privileged side:**
 
 ```js
-context.ipc.handle('accounts.list', async (msg) => {
+context.ipc.register('budget:accounts.list', async (msg) => {
   // msg = { channel: 'budget:accounts.list', data, correlationId }
   return await loadAccounts(msg.data.includeClosed)
 })
@@ -637,7 +649,7 @@ context.ipc.handle('accounts.list', async (msg) => {
 const accounts = await window.api.invoke('budget:accounts.list', { includeClosed: false })
 ```
 
-- The channel is always `<pluginId>:<event>`.
+- By convention the channel is `<pluginId>:<event>`, and you pass the whole name to `register`.
 - `data` and the return value must be structured-cloneable: plain objects,
   arrays, primitives, `Date`, `Map` and so on. No functions or class
   instances with behaviour.
@@ -728,7 +740,7 @@ and provide it from `activate`:
 
 ```js
 exports.activate = (context) => {
-  context.services.provide('vault.store', {
+  context.services.provide('vault', 'vault.store', {
     async getAccounts() { /* … */ },
     async getTransactions(accountId, range) { /* … */ },
     async addTransaction(accountId, tx) { /* … */ }
@@ -739,9 +751,12 @@ exports.activate = (context) => {
 - The service must be an object (or function). Its methods are called
   directly, in the same process, so they can take and return anything,
   including class instances and callbacks. Unlike IPC, nothing is copied.
-- You can only provide ids listed in `services.provides`; anything else
-  throws. If you declare a service but never provide it, a warning is
-  logged and the plugins that require it are skipped.
+- Declare every id you provide in `services.provides`. If you declare a
+  service but never provide it, a warning is logged and the plugins that
+  require it are skipped. (The context does not currently reject an
+  undeclared `provide`, but activation ordering only knows about declared ids.)
+- `provide` returns a `Disposable`. Push it onto `context.subscriptions` so the
+  service is removed when your plugin deactivates.
 - Each id has **one** provider. If two plugins declare the same id, the one
   discovered first wins and the other is skipped.
 
@@ -766,7 +781,7 @@ then look it up. **Required services are always available inside your
 exports.activate = (context) => {
   const store = context.services.get('vault.store')
 
-  context.ipc.handle('net-worth', async () => {
+  context.ipc.register('reports:net-worth', async () => {
     const accounts = await store.getAccounts()
     return { accounts: accounts.length, total: accounts.reduce((sum, a) => sum + a.balance, 0) }
   })
@@ -950,7 +965,8 @@ save, flushing buffers. Rules:
 - After the listeners, plugins deactivate (dependents before the plugins they
   depend on), and the shell does its final flushes.
 
-Your listeners are removed automatically when your plugin deactivates.
+`onShuttingDown` returns a `Disposable`. Push it onto `context.subscriptions`
+if the listener should be removed when your plugin deactivates.
 
 > Quitting is not guaranteed to run any of this: a crash, a force-quit or a
 > forced OS shutdown skips it. Save important data as it changes, and use
@@ -973,16 +989,31 @@ Your listeners are removed automatically when your plugin deactivates.
    [Application lifecycle](#application-lifecycle)).
 6. The renderer fetches the view list and lazy-loads views as slots render.
 
-Everything you register through the context (IPC handlers, commands,
-contributions and services) returns a `Disposable`, and the context **tracks
-it for you**. When your plugin is deactivated:
+The context **tracks** what you register through `context.commands.register`,
+and everything you push onto `context.subscriptions`. The IPC router, the
+extension registry, the service registry and the lifecycle are shared, so their
+registrations are **not** tracked automatically. Each call returns a
+`Disposable`, and you push it yourself:
+
+```js
+context.subscriptions.push(
+  context.ipc.register('vault:edit', handler),
+  context.extensions.contribute('vault', 'shell.menus', 'vault.menu', { kind: 'menu', id: 'vault.menu', label: '&Vault' }),
+  context.services.provide('vault', 'vault.store', store),
+  context.lifecycle.onShuttingDown(flush)
+)
+```
+
+When your plugin is deactivated (or `activate` throws):
 
 1. Every active plugin that **requires a service you provide** is
    deactivated first.
 2. The shell calls your `deactivate()`, if any.
-3. Everything you registered is disposed, in reverse order, and every
-   context key you set is cleared. Menu items bound to your commands become
-   disabled, and your services disappear.
+3. Everything tracked is disposed, in reverse order, and every context key in
+   your namespace is cleared. Menu items bound to your commands become
+   disabled, and any service you pushed disappears.
+
+Registrations you did not push stay in place until the app exits.
 
 For resources you create yourself (timers, watchers, connections), push a
 disposable so they're released too:
@@ -1017,8 +1048,9 @@ DevTools console (Tools › Toggle Developer Tools).
 | Plugin does nothing | `Skipping "<id>": requires service "…", but its provider "…" was skipped` / `required service "…" is not available` | The provider was skipped or failed to activate; look for its own message just before |
 | Plugin does nothing | `Skipping "<id>": service "…" is also provided by "…"` | Two plugins declare the same service id; only the first is used |
 | Plugin does nothing | `Skipping "<id>": has a circular service dependency` | Plugins require each other's services, directly or indirectly |
-| `cannot provide service "…": declare it in the manifest's services.provides` | `[plugins] Failed to activate` | `provide` was called with an id missing from `services.provides` |
-| `declares service "…" but did not provide it` | `[plugins]` warning | `activate` never called `context.services.provide` for a declared id |
+| `Service "…" is already provided by "…"` | `[plugins] Failed to activate` | Two plugins provide the same id, or a plugin provided it twice |
+| `declares service "…" but did not provide it` | `[plugins]` warning | `activate` never called `context.services.provide` for a declared id, or passed the arguments in the wrong order (it is `provide(provider, id, impl)`) |
+| `cannot register command "…": ids must start with "<id>."` | `[plugins] Failed to activate` | A command id doesn't start with your plugin id. An IPC-style handler (`'app.state:get'`) belongs on `context.ipc.register`, not `commands.register` |
 | `Service not available: <id>` | the thrown error | `get` for a service that has no provider; add it to `services.requires`, or check `has` first |
 | Menu missing or misplaced | `[menus] …` | Unknown parent, wrong `kind`, duplicate id; or the menu has no items, so it was dropped |
 | Menu item greyed out | none | Its command isn't registered or has a typo; or its `enablement` is false. Check the keys with `context.contextKeys.get` |
@@ -1042,12 +1074,14 @@ DevTools console (Tools › Toggle Developer Tools).
 | Views extension point | `shell.views` | [shared/views/types.ts](../shared/views/types.ts) |
 | Main slot | `shell.main` | [shared/views/types.ts](../shared/views/types.ts) |
 | Manifest schema and validation | `parseManifest` | [shared/plugins/manifest.ts](../shared/plugins/manifest.ts) |
-| Plugin context | `PluginContext` | [core/plugins/PluginContext.ts](../core/plugins/PluginContext.ts) |
-| Service registry | `ServiceRegistry` | [core/services/ServiceRegistry.ts](../core/services/ServiceRegistry.ts) |
+| Plugin context (interface) | `PluginContext` | [tessera-types/plugins.ts](../tessera-types/plugins.ts) |
+| Plugin context (implementation) | `createPluginContext` | [core/plugins/PluginContext.ts](../core/plugins/PluginContext.ts) |
+| Service registry | `ServiceRegistry` (interface), `ServiceRegistryImpl` | [tessera-types/service.ts](../tessera-types/service.ts), [core/services/ServiceRegistry.ts](../core/services/ServiceRegistry.ts) |
 | Activation ordering | `planActivation` | [core/plugins/activationPlan.ts](../core/plugins/activationPlan.ts) |
 | Service id format | `SERVICE_ID_PATTERN`: dotted, e.g. `vault.store` | [shared/plugins/manifest.ts](../shared/plugins/manifest.ts) |
 | Command enablement | `enablement` option | [core/commands/CommandRegistry.ts](../core/commands/CommandRegistry.ts) |
 | Enablement expression syntax | `parseWhen` / `evaluateWhen` | [shared/context/when.ts](../shared/context/when.ts) |
-| Renderer bridge | `window.api.invoke` | [shared/ipc.ts](../shared/ipc.ts) |
+| Renderer bridge | `window.api.invoke` (`TesseraBridge`) | [tessera-types/ipc.ts](../tessera-types/ipc.ts), [shell/preload/preload.ts](../shell/preload/preload.ts) |
+| IPC envelope and guards | `isIpcRequest`, `isIpcEvent` | [shared/ipc.ts](../shared/ipc.ts) |
 | Plugin file protocol | `tessera-plugin://<id>/…` | [shell/main/plugins/pluginProtocol.ts](../shell/main/plugins/pluginProtocol.ts) |
 | Shared federation modules | `react`, `react/jsx-runtime`, `react-dom` | [shell/renderer/views/federationViewLoader.ts](../shell/renderer/views/federationViewLoader.ts) |
