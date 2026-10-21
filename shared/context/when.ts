@@ -1,4 +1,5 @@
 // shared/context/when.ts
+import { ContextKeyValue } from "@tessera/types"
 //
 // Boolean expressions over context keys, used for command enablement:
 //
@@ -8,7 +9,6 @@
 // A bare key is true when its value is truthy. `==` and `!=` compare a key
 // with a string, number or boolean literal. Operators, loosest first: ||, &&, !
 
-export type ContextKeyValue = boolean | string | number
 
 export type WhenExpression =
   | { type: 'key', key: string }

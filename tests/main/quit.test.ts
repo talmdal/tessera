@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { AppLifecycle } from '../../core/lifecycle/AppLifecycle'
+import { AppLifecycleImpl } from '../../core/lifecycle/AppLifecycle'
 import { QuitEvent, installQuitHandling } from '../../shell/main/lifecycle/quit'
 import { createLogger } from '../helpers/runtime'
 
@@ -7,7 +7,7 @@ function setup(deactivateAll: () => Promise<void> = async () => {}) {
   let beforeQuitListener!: (event: QuitEvent) => void
   let systemListener!: (event?: QuitEvent) => void
   const app = { on: vi.fn((_event: 'before-quit', fn: typeof beforeQuitListener) => { beforeQuitListener = fn }), quit: vi.fn() }
-  const lifecycle = new AppLifecycle()
+  const lifecycle = new AppLifecycleImpl()
   const log = createLogger()
   installQuitHandling(app, lifecycle, { deactivateAll: vi.fn(deactivateAll) }, log, [listener => { systemListener = listener }])
 

@@ -1,7 +1,5 @@
 // core/events.ts
-import { Disposable } from './ports'
-
-export type Event<T> = (listener: (value: T) => void) => Disposable
+import { Disposable, Event } from '@tessera/types'
 
 export class Emitter<T> {
   private listeners = new Set<(value: T) => void>()

@@ -1,5 +1,6 @@
 // tests/helpers/runtime.ts
-import { PluginRuntime, createPluginRuntime } from '../../core/plugins/PluginContext'
+import { createPluginRuntime } from '../../core/plugins/PluginContext'
+import type { PluginRuntime } from '@tessera/types'
 import { Logger, PluginDescriptor, PluginSource } from '../../core/ports'
 
 export function createRuntime(): PluginRuntime {

@@ -2,17 +2,23 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+const pathName = import.meta.dirname
+
 export default defineConfig({
-  root: __dirname,
+  root: pathName,
   plugins: [react()],
 
   server: {
     port: 5173,
     strictPort: true
   },
-
+  resolve: {
+    alias: {
+      '@tessera/types': path.resolve(pathName, '../../tessera-types/index.ts')
+    }
+  },
   build: {
-    outDir: path.resolve(__dirname, '../../dist'),
+    outDir: path.resolve(pathName, '../../dist'),
     emptyOutDir: false
   }
 })

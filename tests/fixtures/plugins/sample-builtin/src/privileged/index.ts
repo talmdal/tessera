@@ -1,9 +1,7 @@
-import type { PluginContext } from '../../../../../../core/plugins/PluginContext'
+import type { PluginContext } from '@tessera/types'
 import { greeting } from './greeting'
 
 export function activate(context: PluginContext) {
-  context.ipc.handle('hello', async () => greeting('a built-in plugin'))
-  context.extensions.contribute('shell.views', {
-    id: 'sample-builtin.hello', title: 'Hello', slot: 'shell.main', module: './HelloView'
-  })
+  context.ipc.register('sample-builtin:hello', async () => greeting('a built-in plugin'))
+  context.extensions.contribute('sample-builtin', 'shell.views', 'sample-builtin.hello', greeting)
 }

@@ -1,14 +1,18 @@
 import { defineConfig } from 'vite'
 import path from 'node:path'
 
+const pathName = import.meta.dirname
+
 export default defineConfig({
   resolve: {
     alias: {
-      '@shared': path.resolve(__dirname, '../../shared'),
-      '@core': path.resolve(__dirname, '../../core'),
-      '@shell': path.resolve(__dirname, '..'),
-      '@plugins': path.resolve(__dirname, '../../plugins'),
-      '@extensions': path.resolve(__dirname, '../../extension-registry')
+      '@shared': path.resolve(pathName, '../../shared'),
+      '@core': path.resolve(pathName, '../../core'),
+      '@shell': path.resolve(pathName, '..'),
+      '@plugins': path.resolve(pathName, '../../plugins'),
+      '@extensions': path.resolve(pathName, '../../extension-registry'),
+      '@tessera/types': path.resolve(pathName, '../../tessera-types/index.ts'),
+      '@tessera/types/*': path.resolve(pathName, '../../tessera-types/*'),
     }
   },
 
@@ -16,24 +20,29 @@ export default defineConfig({
     resolve: {
       // @ts-ignore - Vite runtime supports this, TS types do not
       alias: {
-        '@shared': path.resolve(__dirname, '../../shared'),
-        '@core': path.resolve(__dirname, '../../core'),
-        '@shell': path.resolve(__dirname, '..'),
-        '@plugins': path.resolve(__dirname, '../../plugins'),
-        '@extensions': path.resolve(__dirname, '../../extension-registry')
+        '@shared': path.resolve(pathName, '../../shared'),
+        '@core': path.resolve(pathName, '../../core'),
+        '@shell': path.resolve(pathName, '..'),
+        '@plugins': path.resolve(pathName, '../../plugins'),
+        '@extensions': path.resolve(pathName, '../../extension-registry'),
+        '@tessera/types': path.resolve(pathName, '../../tessera-types/index.ts'),
+        '@tessera/types/*': path.resolve(pathName, '../../tessera-types/*'),
       }
     }
   },
-
+  optimizeDeps: {
+    exclude: ['lokijs']
+  },
   build: {
     ssr: true,
     outDir: 'dist',
     emptyOutDir: false,
     rollupOptions: {
-      input: path.resolve(__dirname, 'app.ts'),
+      input: path.resolve(pathName, 'app.ts'),
+      external: ['lokijs'],
       output: {
         entryFileNames: 'app.js',
-        format: 'es'
+        format: 'cjs'
       }
     }
   }

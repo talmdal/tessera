@@ -17,7 +17,7 @@ describe('a built-in plugin view built from TSX', () => {
 
   beforeAll(() => {
     execFileSync(process.execPath, [
-      path.join(repo, 'node_modules/ts-node/dist/bin.js'), '--transpile-only', path.join(repo, 'scripts/build-plugins.ts'),
+      path.join(repo, 'node_modules/ts-node/dist/bin-esm.js'), '--transpile-only', path.join(repo, 'scripts/build-plugins.mts'),
       '--src', path.join(repo, 'tests/fixtures/plugins'), '--out', out
     ], { cwd: repo, stdio: 'pipe' })
   }, 90_000)

@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["**/*.ts", "**/*.tsx", "**/*.d.ts", "../../tessera/types/index.ts"]
+}

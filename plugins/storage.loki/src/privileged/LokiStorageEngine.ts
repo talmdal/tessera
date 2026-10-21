@@ -1,5 +1,9 @@
-import { StorageEngine, StorageTransaction, StorageEngineCapabilities, Query } from '../../../../core/storage/StorageEngine'
+import { StorageEngine, StorageTransaction, StorageEngineCapabilities, Query } from '@tessera/types'
 import Loki from 'lokijs'
+import type { Collection } from 'lokijs'
+import { LokiFsAdapter } from 'lokijs';
+
+const adapter = new LokiFsAdapter();
 
 const isPredicate = (query: Query): query is (doc: any) => boolean =>
   typeof query === 'function'
@@ -9,13 +13,28 @@ export class LokiStorageEngine implements StorageEngine {
   private db: Loki
   private collections: Map<string, Collection<any>> = new Map()
 
-  constructor(private path: string) {
-    this.db = new Loki(path, { autosave: true, autosaveInterval: 2000 })
+  constructor(private dbPath: string) {
+    console.log(`Creating database at path ${dbPath}`)
+
+    this.db = new Loki(dbPath, {
+      adapter: adapter,
+      autoload: false,
+      autosave: true,
+      autosaveInterval: 2000
+    })
   }
 
-  async init(): Promise<void> {
-    return new Promise(resolve => {
-      this.db.loadDatabase({}, () => resolve())
+  async init(): Promise<void> {  // Load the adapter module directly
+    await new Promise<void>((resolve, reject) => {
+      this.db.loadDatabase({}, (err?: Error) => {
+        if (err) {
+          console.log(`Manual load failed: ${JSON.stringify(err)}`);
+          return reject(err)
+        }
+
+        console.log('Manual load complete');
+        resolve()
+      })
     })
   }
 

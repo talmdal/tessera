@@ -30,12 +30,12 @@ vi.mock('electron', () => {
     path.join(pluginDir, 'privileged/index.js'),
     `
       exports.activate = (context) => {
-        context.ipc.handle('ping', async () => 'pong')
+        context.ipc.register('test-plugin:ping', async () => 'pong')
         context.commands.register('test-plugin.hello', () => 'hello')
         // Negative order must not move it ahead of File
-        context.extensions.contribute('shell.menus', { kind: 'menu', id: 'test-plugin.menu', label: 'Test', order: -100 })
-        context.extensions.contribute('shell.menus', { kind: 'item', id: 'test-plugin.hello', label: 'Hello', parent: 'test-plugin.menu', command: 'test-plugin.hello' })
-        context.extensions.contribute('shell.views', { id: 'test-plugin.hello', title: 'Hello', slot: 'shell.main', module: './HelloView' })
+        context.extensions.contribute('test-plugin', 'shell.menus', 'test-plugin.menu', { kind: 'menu', id: 'test-plugin.menu', label: 'Test', order: -100 })
+        context.extensions.contribute('test-plugin', 'shell.menus', 'test-plugin.hello', { kind: 'item', id: 'test-plugin.hello', label: 'Hello', parent: 'test-plugin.menu', command: 'test-plugin.hello' })
+        context.extensions.contribute('test-plugin', 'shell.views', 'test-plugin.hello', { id: 'test-plugin.hello', title: 'Hello', slot: 'shell.main', module: './HelloView' })
       }
     `
   )
@@ -86,12 +86,12 @@ vi.mock('electron', () => {
       handle: vi.fn()
     },
 
-    BrowserWindow: Object.assign(vi.fn(() => ({
+    BrowserWindow: Object.assign(vi.fn(function () { return {
       loadURL: vi.fn(),
     getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: { openDevTools: vi.fn() }
-    })), { getAllWindows: () => [liveWindow] }),
+    } }), { getAllWindows: () => [liveWindow] }),
 
     app: {
       getVersion: () => '1.2.3',

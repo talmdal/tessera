@@ -1,17 +1,12 @@
 // core/services/ServiceRegistry.ts
-import { Disposable } from '../ports'
-
-interface Registration {
-  provider: string
-  impl: unknown
-}
+import { Disposable, ServiceRegistry, ServiceRegistration } from '@tessera/types'
 
 /**
  * Services are objects with behaviour that one plugin provides and others
  * call, e.g. "vault.store". Each id has exactly one provider at a time.
  */
-export class ServiceRegistry {
-  private services = new Map<string, Registration>()
+export class ServiceRegistryImpl implements ServiceRegistry {
+  private services = new Map<string, ServiceRegistration>()
 
   provide(provider: string, id: string, impl: unknown): Disposable {
     const existing = this.services.get(id)
@@ -20,7 +15,7 @@ export class ServiceRegistry {
       throw new Error(`Service "${id}" must be an object or function`)
     }
 
-    const registration = { provider, impl }
+    const registration: ServiceRegistration = { provider, impl }
     this.services.set(id, registration)
     return {
       dispose: () => {

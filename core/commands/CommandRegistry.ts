@@ -1,32 +1,22 @@
 // core/commands/CommandRegistry.ts
 import { WhenExpression, evaluateWhen, parseWhen } from '../../shared/context/when'
-import { ContextKeyService } from '../context/ContextKeyService'
+import { ContextKeyServiceImpl } from '../context/ContextKeyService'
 import { Emitter } from '../events'
-import { Disposable } from '../ports'
-
-export type CommandHandler = (...args: unknown[]) => unknown
-
-export interface CommandOptions {
-  /**
-   * Context-key expression, e.g. "vault.isOpen && vault.isDirty". The command
-   * is disabled, and refuses to execute, while it evaluates to false.
-   */
-  enablement?: string
-}
+import { CommandRegistry, CommandHandler, CommandOptions, Disposable } from '@tessera/types'
 
 interface Entry {
   handler: CommandHandler
   enablement?: WhenExpression
 }
 
-export class CommandRegistry {
+export class CommandRegistryImpl implements CommandRegistry {
   private entries = new Map<string, Entry>()
   private changed = new Emitter<void>()
 
   /** Fires when a command is added or removed, or when enablement may have changed. */
   readonly onDidChange = this.changed.event
 
-  constructor(private readonly contextKeys: ContextKeyService = new ContextKeyService()) {
+  constructor(private readonly contextKeys: ContextKeyServiceImpl = new ContextKeyServiceImpl()) {
     contextKeys.onDidChange(() => this.changed.fire())
   }
 

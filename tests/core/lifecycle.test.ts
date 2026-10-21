@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { AppLifecycle } from '../../core/lifecycle/AppLifecycle'
+import { AppLifecycleImpl } from '../../core/lifecycle/AppLifecycle'
 import { shutdownApp } from '../../core/lifecycle/shutdown'
 import { PluginContext, createPluginContext } from '../../core/plugins/PluginContext'
 import { PluginManager } from '../../core/plugins/PluginManager'
@@ -9,7 +9,7 @@ afterEach(() => { vi.useRealTimers() })
 
 describe('AppLifecycle', () => {
   it('moves through the phases', async () => {
-    const lifecycle = new AppLifecycle()
+    const lifecycle = new AppLifecycleImpl()
     const phases = [lifecycle.phase]
 
     await lifecycle.markStarted(); phases.push(lifecycle.phase)
@@ -20,7 +20,7 @@ describe('AppLifecycle', () => {
   })
 
   it('runs onStarted listeners once started, and immediately for late subscribers', async () => {
-    const lifecycle = new AppLifecycle()
+    const lifecycle = new AppLifecycleImpl()
     const early = vi.fn()
     lifecycle.onStarted(early)
     expect(early).not.toHaveBeenCalled()
@@ -36,7 +36,7 @@ describe('AppLifecycle', () => {
 
   it('isolates failing listeners and lets a disposed listener go', async () => {
     const log = createLogger()
-    const lifecycle = new AppLifecycle({ log })
+    const lifecycle = new AppLifecycleImpl({ log })
     const after = vi.fn()
     const removed = vi.fn()
     lifecycle.onStarted(() => { throw new Error('boom') })
@@ -52,7 +52,7 @@ describe('AppLifecycle', () => {
   })
 
   it('runs ShuttingDown listeners one at a time, in registration order, then allows shutdown', async () => {
-    const lifecycle = new AppLifecycle()
+    const lifecycle = new AppLifecycleImpl()
     const order: string[] = []
     lifecycle.onShuttingDown(async () => { order.push('a:start'); await Promise.resolve(); order.push('a:end') })
     lifecycle.onShuttingDown(() => { order.push('b') })
@@ -62,7 +62,7 @@ describe('AppLifecycle', () => {
   })
 
   it('lets a listener veto a user shutdown, skips later listeners, and returns to the previous phase', async () => {
-    const lifecycle = new AppLifecycle({ log: createLogger() })
+    const lifecycle = new AppLifecycleImpl({ log: createLogger() })
     const later = vi.fn()
     await lifecycle.markStarted()
     lifecycle.onShuttingDown(event => event.veto('unsaved changes'))
@@ -75,7 +75,7 @@ describe('AppLifecycle', () => {
 
   it('ignores a veto of a system shutdown', async () => {
     const log = createLogger()
-    const lifecycle = new AppLifecycle({ log })
+    const lifecycle = new AppLifecycleImpl({ log })
     lifecycle.onShuttingDown(event => event.veto())
 
     expect(await lifecycle.requestShutdown('system')).toBe(true)
@@ -85,7 +85,7 @@ describe('AppLifecycle', () => {
   it('carries on after the time limit, and ignores a veto that arrives late', async () => {
     vi.useFakeTimers()
     const log = createLogger()
-    const lifecycle = new AppLifecycle({ log, shutdownTimeoutMs: 1000 })
+    const lifecycle = new AppLifecycleImpl({ log, shutdownTimeoutMs: 1000 })
     lifecycle.onShuttingDown(event => new Promise<void>(resolve => setTimeout(() => { event.veto(); resolve() }, 5000)))
 
     const result = lifecycle.requestShutdown()
@@ -98,7 +98,7 @@ describe('AppLifecycle', () => {
   })
 
   it('shares one run between concurrent requests, and a vetoed request can be retried', async () => {
-    const lifecycle = new AppLifecycle()
+    const lifecycle = new AppLifecycleImpl()
     let calls = 0
     lifecycle.onShuttingDown(event => { if (++calls === 1) event.veto() })
 
@@ -111,7 +111,7 @@ describe('AppLifecycle', () => {
 
   it('runs onShutDown listeners last, once, and survives their errors', async () => {
     const log = createLogger()
-    const lifecycle = new AppLifecycle({ log })
+    const lifecycle = new AppLifecycleImpl({ log })
     const flush = vi.fn()
     lifecycle.onShutDown(() => { throw new Error('flush failed') })
     lifecycle.onShutDown(flush)
@@ -151,7 +151,7 @@ describe('plugins and the application lifecycle', () => {
     const source = new MemoryPluginSource([
       entry('vault', {
         activate: (c: PluginContext) => {
-          c.services.provide('vault.store', {})
+          c.subscriptions.push(c.services.provide('vault', 'vault.store', {}))
           c.lifecycle.onShuttingDown(() => { events.push('vault: shutting down') })
         },
         deactivate: () => { events.push('vault: deactivate') }
@@ -191,7 +191,7 @@ describe('plugins and the application lifecycle', () => {
     const runtime = createRuntime()
     const scope = createPluginContext('alpha', runtime)
     const listener = vi.fn()
-    scope.context.lifecycle.onShuttingDown(listener)
+    scope.context.subscriptions.push(scope.context.lifecycle.onShuttingDown(listener))
     expect(scope.context.lifecycle.phase).toBe('starting')
 
     scope.dispose()
