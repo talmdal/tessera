@@ -1,107 +1,34 @@
 // core/plugins/PluginContext.ts
-import type { ContextKeyValue } from '../../shared/context/when'
-import { channelFor } from '../../shared/ipc'
-import { CommandHandler, CommandOptions, CommandRegistry } from '../commands/CommandRegistry'
-import { ContextKeyService } from '../context/ContextKeyService'
-import { ExtensionContribution, ExtensionRegistry } from '../extensions/ExtensionRegistry'
-import { EventHub } from '../ipc/EventHub'
-import { IpcHandler, IpcRouter } from '../ipc/IpcRouter'
-import { AppLifecycle, AppPhase, ShutdownEvent } from '../lifecycle/AppLifecycle'
-import { Disposable, Logger } from '../ports'
-import { ServiceRegistry } from '../services/ServiceRegistry'
-
-/** Process-wide registries that plugin contexts are scoped views of. */
-export interface PluginRuntime {
-  ipc: IpcRouter
-  extensions: ExtensionRegistry
-  commands: CommandRegistry
-  contextKeys: ContextKeyService
-  services: ServiceRegistry
-  lifecycle: AppLifecycle
-  events: EventHub
-  paths: string
-  logger: Logger
-}
+import { channelFor } from '../../tessera-types'
+import { ContextKeyServiceImpl } from '../context/ContextKeyService'
+import {
+  Disposable,
+  PluginRuntime,
+  PluginContext,
+  PluginScope,
+  Logger
+} from '@tessera/types'
+import { ServiceRegistryImpl } from '../services/ServiceRegistry'
+import { IpcRouterImpl } from '@core/ipc/IpcRouter'
+import { ExtensionRegistryImpl } from '@core/extensions/ExtensionRegistry'
+import { CommandRegistryImpl } from '@core/commands/CommandRegistry'
+import { EventHubImpl } from '@core/ipc/EventHub'
+import { AppLifecycleImpl } from '@core/lifecycle/AppLifecycle'
 
 /** Creates the registries, wired so command enablement follows context keys. */
 export function createPluginRuntime(path?: string, log?: Logger): PluginRuntime {
-  const contextKeys = new ContextKeyService()
+  const contextKeys = new ContextKeyServiceImpl()
   return {
-    ipc: new IpcRouter(log),
-    extensions: new ExtensionRegistry(),
-    commands: new CommandRegistry(contextKeys),
+    ipc: new IpcRouterImpl(log),
+    extensions: new ExtensionRegistryImpl(),
+    commands: new CommandRegistryImpl(contextKeys),
     contextKeys,
-    services: new ServiceRegistry(),
-    lifecycle: new AppLifecycle({ log }),
-    events: new EventHub(log),
+    services: new ServiceRegistryImpl(),
+    lifecycle: new AppLifecycleImpl({ log }),
+    events: new EventHubImpl(log),
     paths: path ?? '/tmp/tessera-test',
     logger: log ? log : console
   }
-}
-
-/**
- * What a plugin sees. Every id it registers must be its plugin id or start
- * with `<pluginId>.`, and IPC handlers are bound to `<pluginId>:<event>`, so a
- * plugin cannot claim another plugin's (or the shell's) names. Everything
- * registered through the context is undone when the plugin is deactivated.
- */
-export interface PluginContext {
-  readonly pluginId: string
-  readonly ipc: {
-    handle<TReq, TRes>(event: string, handler: IpcHandler<TReq, TRes>): Disposable
-  }
-  readonly commands: {
-    register(id: string, handler: CommandHandler, options?: CommandOptions): Disposable
-    has(id: string): boolean
-    isEnabled(id: string): boolean
-    execute(id: string, ...args: unknown[]): Promise<unknown>
-  }
-  /** State read by enablement expressions. Plugins may set only their own keys; all are removed on deactivation. */
-  readonly contextKeys: {
-    set(key: string, value: ContextKeyValue | undefined): void
-    get(key: string): ContextKeyValue | undefined
-  }
-  readonly extensions: {
-    contribute<T extends { id: string }>(point: string, contribution: T): Disposable
-    getContributions(point: string): ExtensionContribution[]
-  }
-  /**
-   * Objects other plugins call, e.g. "vault.store". Declare what you provide in
-   * the manifest's services.provides, and what you need in services.requires so
-   * you activate after the provider.
-   */
-  readonly services: {
-    provide<T extends object>(id: string, impl: T): Disposable
-    get<T = unknown>(id: string): T
-    has(id: string): boolean
-  }
-  /**
-   * Application lifecycle. `onStarted` runs once every plugin has activated
-   * (immediately if the app has already started). `onShuttingDown` runs when
-   * the app is asked to quit, before any plugin deactivates; it may be async
-   * and may `veto()` a user-initiated quit. Listeners are removed when your
-   * plugin deactivates.
-   */
-  /**
-   * Push events to the renderer. `emit('saved', data)` reaches views as
-   * `window.api.on('<pluginId>:saved', listener)`. `data` must be
-   * structured-cloneable (plain objects, arrays, primitives).
-   */
-  readonly events: {
-    emit(event: string, data?: unknown): void
-  }
-  readonly lifecycle: {
-    readonly phase: AppPhase
-    onStarted(listener: () => void | Promise<void>): Disposable
-    onShuttingDown(listener: (event: ShutdownEvent) => void | Promise<void>): Disposable
-  }
-  /** Disposed, last first, on deactivation. Plugins may push their own disposables. */
-  readonly subscriptions: Disposable[]
-}
-
-export interface PluginScope {
-  context: PluginContext
-  dispose(): void
 }
 
 export function isOwnedId(pluginId: string, id: string) {
@@ -129,12 +56,7 @@ export function createPluginContext(pluginId: string, runtime: PluginRuntime, op
 
   const context: PluginContext = {
     pluginId,
-    ipc: {
-      handle: (event, handler) => {
-        if (!event || event.includes(':')) throw new Error(`Plugin "${pluginId}" used invalid IPC event "${event}"`)
-        return track(runtime.ipc.register(channelFor(pluginId, event), handler))
-      }
-    },
+    ipc: runtime.ipc,
     commands: {
       register: (id, handler, options) => {
         assertOwned('command', id)
@@ -144,42 +66,19 @@ export function createPluginContext(pluginId: string, runtime: PluginRuntime, op
       isEnabled: id => runtime.commands.isEnabled(id),
       execute: (id, ...args) => runtime.commands.execute(id, ...args)
     },
-    extensions: {
-      contribute: (point, contribution) => {
-        assertOwned(`${point} contribution`, contribution?.id)
-        return track(runtime.extensions.contribute(pluginId, point, contribution.id, contribution))
-      },
-      getContributions: point => runtime.extensions.getContributions(point)
-    },
-    contextKeys: {
-      set: (key, value) => {
-        assertOwned('context key', key)
-        runtime.contextKeys.set(key, value)
-      },
-      get: key => runtime.contextKeys.get(key)
-    },
-    services: {
-      provide: (id, impl) => {
-        if (options.provides && !options.provides.includes(id)) {
-          throw new Error(`Plugin "${pluginId}" cannot provide service "${id}": declare it in the manifest's services.provides`)
-        }
-        return track(runtime.services.provide(pluginId, id, impl))
-      },
-      get: id => runtime.services.get(id),
-      has: id => runtime.services.has(id)
-    },
-    lifecycle: {
-      get phase() { return runtime.lifecycle.phase },
-      onStarted: listener => track(runtime.lifecycle.onStarted(listener)),
-      onShuttingDown: listener => track(runtime.lifecycle.onShuttingDown(listener))
-    },
+    extensions: runtime.extensions,
+    contextKeys: runtime.contextKeys,
+    services: runtime.services,
+    lifecycle: runtime.lifecycle,
     events: {
       emit: (event, data) => {
         if (!event || event.includes(':')) throw new Error(`Plugin "${pluginId}" used invalid event name "${event}"`)
         runtime.events.publish(channelFor(pluginId, event), data)
       }
     },
-    subscriptions
+    subscriptions,
+    paths: runtime.paths,
+    logger: runtime.logger
   }
 
   // Disposed last, so a plugin's commands are gone before its state is cleared.

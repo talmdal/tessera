@@ -72,7 +72,7 @@ describe('PluginManager', () => {
     const runtime = createRuntime()
     const order: string[] = []
     const make = (id: string) => ({
-      activate: (context: PluginContext) => { context.ipc.handle('ping', () => id) },
+      activate: (context: PluginContext) => { context.subscriptions.push(context.ipc.register(`${id}:ping`, () => id)) },
       deactivate: () => { order.push(id) }
     })
     const manager = new PluginManager(

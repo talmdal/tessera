@@ -1,24 +1,16 @@
 // core/lifecycle/AppLifecycle.ts
-import type { AppPhase } from '../../shared/shellEvents'
-import { Disposable, Logger } from '../ports'
+import type {
+  AppPhase, 
+  AppLifecycle,
+  Disposable,
+  Logger,
+  ShutdownReason,
+  StartedListener, 
+  ShuttingDownListener, 
+  ShutDownListener,
+  ShutdownEvent
+} from '@tessera/types'
 
-export type { AppPhase }
-
-export type ShutdownReason = 'user' | 'system'
-
-export interface ShutdownEvent {
-  readonly reason: ShutdownReason
-  /**
-   * Cancels the shutdown, e.g. the user chose "Cancel" on an unsaved-changes
-   * prompt. Honoured only for a `'user'` shutdown; an OS-initiated shutdown
-   * can't be refused, so the call is ignored (and logged).
-   */
-  veto(why?: string): void
-}
-
-export type StartedListener = () => void | Promise<void>
-export type ShuttingDownListener = (event: ShutdownEvent) => void | Promise<void>
-export type ShutDownListener = () => void | Promise<void>
 
 export interface AppLifecycleOptions {
   log?: Logger
@@ -35,7 +27,7 @@ export interface AppLifecycleOptions {
  *
  * A listener that throws is logged and the others still run.
  */
-export class AppLifecycle {
+export class AppLifecycleImpl implements AppLifecycle {
   private current: AppPhase = 'starting'
   private started = new Set<StartedListener>()
   private shuttingDown = new Set<ShuttingDownListener>()

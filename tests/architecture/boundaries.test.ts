@@ -10,6 +10,7 @@ function sourceFiles(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const full = path.join(dir, entry.name)
     if (entry.isDirectory()) return sourceFiles(full)
+    if (/.config.ts$/.test(entry.name)) return []
     return /\.tsx?$/.test(entry.name) ? [full] : []
   })
 }

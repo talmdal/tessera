@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { EventHub } from '../../core/ipc/EventHub'
+import { EventHubImpl } from '../../core/ipc/EventHub'
 import { createPluginContext } from '../../core/plugins/PluginContext'
 import { forwardEventsToWindows } from '../../shell/main/events/forwardEvents'
 import { registerShellEvents } from '../../shell/main/events/shellEvents'
@@ -9,7 +9,7 @@ const fakeWindow = (destroyed = false, send: (...args: any[]) => unknown = vi.fn
 
 describe('forwardEventsToWindows', () => {
   it('sends each event to every live window on the push channel', () => {
-    const hub = new EventHub()
+    const hub = new EventHubImpl()
     const open = fakeWindow()
     const closed = fakeWindow(true)
     forwardEventsToWindows(hub, () => [open, closed], createLogger())
@@ -21,7 +21,7 @@ describe('forwardEventsToWindows', () => {
   })
 
   it('logs a payload Electron cannot send, and still reaches the other windows', () => {
-    const hub = new EventHub()
+    const hub = new EventHubImpl()
     const log = createLogger()
     const broken = fakeWindow(false, vi.fn(() => { throw new Error('could not be cloned') }))
     const fine = fakeWindow()
@@ -34,7 +34,7 @@ describe('forwardEventsToWindows', () => {
   })
 
   it('stops forwarding when disposed', () => {
-    const hub = new EventHub()
+    const hub = new EventHubImpl()
     const win = fakeWindow()
     forwardEventsToWindows(hub, () => [win], createLogger()).dispose()
 

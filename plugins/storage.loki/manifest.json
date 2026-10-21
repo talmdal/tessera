@@ -1,5 +1,5 @@
 {
-  "id": "storage.loki",
+  "id": "storage-loki",
   "name": "LokiJS Storage Engine",
   "version": "0.1.0",
   "privileged": { "entry": "privileged/index.js" },

@@ -8,7 +8,7 @@ off, or delete them, as they land.
 
 - [ ] **Configurable shutdown time limit.** It is fixed at 10 seconds.
 - [ ] **Build tooling for user-installed plugins.** Built-in plugins get
-      TSX compilation and the federation remote from `scripts/build-plugins.ts`.
+      TSX compilation and the federation remote from `scripts/build-plugins.mts`.
       Third-party authors have no equivalent; package it as a small CLI or
       SDK (with the `PluginContext`, `window.api` and view-prop types).
 - [ ] **Type-check plugin source.** The build strips types (esbuild). Add a
@@ -18,7 +18,7 @@ off, or delete them, as they land.
       TSX view. Check stylesheets, images, several exposed modules and shared
       third-party libraries.
 - [ ] **Keep the shared React range in sync.** `SHARED_REACT_RANGE` in
-      `scripts/build-plugins.ts` must match the shell's React; derive it from
+      `scripts/build-plugins.mts` must match the shell's React; derive it from
       `package.json` or the shell's loader instead.
 - [ ] **Built-in plugins: watch mode.** Rebuild and reload on source changes
       during `npm run dev`.
@@ -45,6 +45,27 @@ off, or delete them, as they land.
       model before third-party plugins are supported.
 - [ ] **Plugin SDK package.** Publish the `PluginContext` typings and
       contract types so plugin authors don't copy them from the repo.
+
+## Plugin context and cleanup
+
+- [ ] **Ownership and cleanup for the shared registries.** The plugin context
+      hands plugins the shared `ipc`, `extensions`, `services`,
+      `contextKeys` and `lifecycle`. Only `commands` (id prefix) and
+      `events` are scoped, so a plugin can register another plugin's IPC
+      channel, contribution id, context key or service id, and its
+      registrations are not removed on deactivation unless it pushes the
+      returned `Disposable` onto `context.subscriptions`. `storage-loki` and
+      `app-state` don't yet. Decide whether to enforce this in the core or
+      keep it as convention, and update the plugin guide to match.
+- [ ] **`services.provides` is not enforced.** `createPluginContext` still
+      accepts a `provides` option, but nothing checks it; only the
+      "declared but not provided" warning remains.
+- [ ] **Built plugin `package.json`.** The build writes `{"type":"cjs"}`;
+      Node's valid value is `commonjs`. Changing it breaks loading the ESM
+      renderer remote in tests, so decide how to separate the two.
+- [ ] **Plugins import core code.** `app-state` imports
+      `core/storage/TransactionManager` by relative path. Move shared
+      storage helpers behind `@tessera/types` or a service.
 
 ## Services
 
@@ -147,6 +168,17 @@ Design: [settings-design.md](settings-design.md). Nothing here is built yet.
 - [ ] **Clean `dist/` deliberately.** None of the three builds empties
       `dist/` any more, so files from renamed or removed bundles stay
       there. Add a `clean` step, or give each bundle its own output folder.
+- [ ] **Stale imports from the restructure.** `tsc --noEmit -p shell` and
+      `-p tests` report errors: modules still import `Logger`, `Disposable`
+      and `PluginContext` from `core/ports` and `core/plugins/PluginContext`
+      (they now live in `@tessera/types`), and `core/lifecycle/shutdown.ts`
+      imports `AppLifecycle` from the implementation file. `lokijs` has no
+      type declarations. These are type-only, so the app still runs.
+- [ ] **`core/vite.config.ts` sits in `core/`**, and the boundary test has to
+      skip `*.config.ts` files to allow it.
+- [ ] **Debug logging.** `PluginManager`, `ServiceRegistryImpl` and the
+      `storage-loki` plugin still print `console.log` diagnostics, including
+      the whole plugin context.
 - [ ] **`tsc -b` emits `.js` next to sources.** The tsconfigs have no
       `noEmit` or `outDir`, and project references lack `composite: true`.
 - [ ] **Path aliases are inconsistent.** In `shell/preload/vite.config.ts`,
@@ -156,7 +188,7 @@ Design: [settings-design.md](settings-design.md). Nothing here is built yet.
 - [ ] **`@types/node` 26 vs Electron 30.** The type clash is currently
       hidden by `skipLibCheck`; align the Node types with Electron's Node
       version.
-- [ ] **`scripts/dev.ts`:** it launches Electron on every stdout chunk
+- [ ] **`scripts/dev.mts`:** it launches Electron on every stdout chunk
       containing `http://localhost:` (it could start more than one), and it
       swallows the renderer dev server's stdout.
 
@@ -167,6 +199,10 @@ Design: [settings-design.md](settings-design.md). Nothing here is built yet.
       it in as an e2e suite, or as a project run skill.
 - [ ] **One Electron mock.** `tests/main/app.test.ts` defines its own inline
       mock alongside the global one in `tests/setup/mockElectron.ts`.
+- [ ] **Vitest mock defaults.** `vitest.config.ts` sets `clearMocks`,
+      `mockReset` and `restoreMocks` to `false` because Vitest 5 resets
+      mocks before each test, which discards the calls made when the preload
+      script is imported.
 - [ ] **Linting.** ESLint isn't configured.
 - [ ] **CI.** Run tests, type-checks and the architecture boundary test on
       every push.

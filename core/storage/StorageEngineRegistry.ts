@@ -1,4 +1,4 @@
-import { StorageEngine } from './StorageEngine'
+import { StorageEngine } from '@tessera/types'
 
 export class StorageEngineRegistry {
   private engines: Map<string, () => StorageEngine> = new Map()

@@ -1,14 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
-import { ContextKeyService } from '../../core/context/ContextKeyService'
-import { ExtensionRegistry } from '../../core/extensions/ExtensionRegistry'
-import { AppLifecycle } from '../../core/lifecycle/AppLifecycle'
-import { EventHub } from '../../core/ipc/EventHub'
+import { ContextKeyServiceImpl } from '../../core/context/ContextKeyService'
+import { ExtensionRegistryImpl } from '../../core/extensions/ExtensionRegistry'
+import { AppLifecycleImpl } from '../../core/lifecycle/AppLifecycle'
+import { EventHubImpl } from '../../core/ipc/EventHub'
 import { createPluginContext } from '../../core/plugins/PluginContext'
 import { createLogger, createRuntime } from '../helpers/runtime'
 
 describe('EventHub', () => {
   it('delivers published events to every subscriber until they dispose', () => {
-    const hub = new EventHub()
+    const hub = new EventHubImpl()
     const a = vi.fn()
     const b = vi.fn()
     hub.subscribe(a)
@@ -22,7 +22,7 @@ describe('EventHub', () => {
 
   it('isolates a failing subscriber', () => {
     const log = createLogger()
-    const hub = new EventHub(log)
+    const hub = new EventHubImpl(log)
     const after = vi.fn()
     hub.subscribe(() => { throw new Error('boom') })
     hub.subscribe(after)
@@ -55,14 +55,14 @@ describe('plugin events', () => {
 
 describe('change notifications', () => {
   it('AppLifecycle reports every phase change, including a vetoed shutdown returning', async () => {
-    const lifecycle = new AppLifecycle()
+    const lifecycle = new AppLifecycleImpl()
     const phases: string[] = []
     lifecycle.onDidChangePhase(phase => phases.push(phase))
     lifecycle.onShuttingDown(event => event.veto())
 
     await lifecycle.markStarted()
     await lifecycle.requestShutdown()
-    const retry = new AppLifecycle()
+    const retry = new AppLifecycleImpl()
     retry.onDidChangePhase(phase => phases.push(`retry:${phase}`))
     await retry.markStarted()
     await retry.requestShutdown()
@@ -73,7 +73,7 @@ describe('change notifications', () => {
 
   it('AppLifecycle isolates a failing phase listener and lets one be removed', async () => {
     const log = createLogger()
-    const lifecycle = new AppLifecycle({ log })
+    const lifecycle = new AppLifecycleImpl({ log })
     const kept = vi.fn()
     const removed = vi.fn()
     lifecycle.onDidChangePhase(() => { throw new Error('boom') })
@@ -88,7 +88,7 @@ describe('change notifications', () => {
   })
 
   it('ExtensionRegistry reports contributions being added and removed, once each', () => {
-    const registry = new ExtensionRegistry()
+    const registry = new ExtensionRegistryImpl()
     const changes: string[] = []
     registry.onDidChange(({ point }) => changes.push(point))
 
@@ -100,7 +100,7 @@ describe('change notifications', () => {
   })
 
   it('ContextKeyService.snapshot returns a copy of all keys', () => {
-    const keys = new ContextKeyService()
+    const keys = new ContextKeyServiceImpl()
     keys.set('vault.isOpen', true)
     keys.set('vault.name', 'home')
 

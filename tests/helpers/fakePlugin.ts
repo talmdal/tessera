@@ -21,7 +21,7 @@ export function writeFakePlugin(modulesDir: string, id = 'test-plugin', dirName 
     path.join(pluginDir, 'privileged', 'index.js'),
     `
       exports.activate = (context) => {
-        context.ipc.handle('ping', async () => 'pong')
+        context.ipc.register('${id}:ping', async () => 'pong')
       }
     `
   )

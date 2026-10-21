@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PluginManager } from '../../core/plugins/PluginManager'
-import { buildPlugins } from '../../scripts/build-plugins'
+import { buildPlugins } from '../../scripts/build-plugins.mts'
 import { FsPluginSource } from '../../shell/main/plugins/FsPluginSource'
 import { writeFakePlugin } from '../helpers/fakePlugin'
 import { createLogger, createRuntime } from '../helpers/runtime'
@@ -41,7 +41,7 @@ describe('building bundled plugins', () => {
     expect(results).toEqual([{ id: 'sample-builtin', ok: true }])
     const built = path.join(out, 'sample-builtin')
     expect(fs.readdirSync(built).sort()).toEqual(['manifest.json', 'package.json', 'privileged', 'renderer'])
-    expect(JSON.parse(fs.readFileSync(path.join(built, 'package.json'), 'utf8'))).toEqual({ type: 'module' })
+    expect(JSON.parse(fs.readFileSync(path.join(built, 'package.json'), 'utf8'))).toEqual({ type: 'cjs' })
 
     const code = fs.readFileSync(path.join(built, 'privileged/index.js'), 'utf8')
     expect(code).toContain('Hello from')           // ./greeting was bundled in
