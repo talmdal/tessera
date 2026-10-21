@@ -62,4 +62,57 @@ describe('TransactionManager', () => {
 
     await engine.close()
   })
+
+  it('upsert inserts when missing', async () => {
+    const engine = create()
+    await engine.init()
+
+    const tm = new TransactionManager(engine)
+
+    await tm.run(async tx => {
+      await tx.upsert('settings', { key: 'theme' }, { key: 'theme', value: 'dark' })
+    })
+
+    const { $loki, meta, ...result } = await engine.getOne('settings', { key: 'theme' }) as any
+    expect(result).toEqual({ key: 'theme', value: 'dark' })
+
+    await engine.close()
+  })
+
+  it('upsert updates when present', async () => {
+    const engine = create()
+    await engine.init()
+
+    await engine.insert('settings', { key: 'theme', value: 'light' })
+
+    const tm = new TransactionManager(engine)
+
+    await tm.run(async tx => {
+      await tx.upsert('settings', { key: 'theme' }, { key: 'theme', value: 'dark' })
+    })
+
+    const  { $loki, meta, ...result } = await engine.getOne('settings', { key: 'theme' }) as any
+    expect(result).toEqual({ key: 'theme', value: 'dark' })
+
+    await engine.close()
+  })
+
+  it('rollback discards upsert changes', async () => {
+    const engine = create()
+    await engine.init()
+
+    const tm = new TransactionManager(engine)
+
+    await expect(async () => {
+      await tm.run(async tx => {
+        await tx.upsert('settings', { key: 'theme' }, { key: 'theme', value: 'dark' })
+        throw new Error('boom')
+      })
+    }).rejects.toThrow()
+
+    const result = await engine.getOne('settings', { key: 'theme' })
+    expect(result).toBeNull()
+
+    await engine.close()
+  })
 })
