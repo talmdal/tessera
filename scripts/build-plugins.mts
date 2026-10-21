@@ -1,25 +1,12 @@
-// Builds bundled plugins from plugins/<id>/ into modules/<id>/, the layout the
-// app (and an installed user plugin) loads:
-//
-//   plugins/<id>/manifest.json            copied; its entries name the built paths
-//   plugins/<id>/src/privileged/index.ts  bundled to modules/<id>/<privileged.entry>
-//   plugins/<id>/src/renderer/*.tsx       compiled with Module Federation into the
-//                                         folder of <renderer.entry>, for every module
-//                                         listed in manifest renderer.expose
-//   plugins/<id>/renderer/**              (no renderer.expose) copied as-is
-//
-// Usage: ts-node --transpile-only scripts/build-plugins.ts [--src <dir>] [--out <dir>] [<plugin-id>...]
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { build } from 'vite'
+import esbuild from 'esbuild'
+import { build as viteBuild } from 'vite'
 
 export interface BuildOptions {
-  /** Directory containing one folder per plugin. */
   pluginsDir: string
-  /** Directory the built plugins are written to. */
   outDir: string
-  /** Build only these plugin ids. */
   only?: string[]
   log?: (message: string) => void
 }
@@ -30,10 +17,12 @@ export interface BuildResult {
   error?: string
 }
 
-const SOURCE_CANDIDATES = ['src/privileged/index.ts', 'src/privileged/index.js', 'src/privileged/index.mjs']
+const SOURCE_CANDIDATES = [
+  'src/privileged/index.ts',
+  'src/privileged/index.js',
+  'src/privileged/index.mjs'
+]
 
-// The shell provides these to plugin remotes as singletons (shell/renderer/views/federationViewLoader.ts).
-// Plugins use the shell's copies and bundle no fallbacks. The range must match the shell's React.
 const SHARED_REACT_RANGE = '^18.2.0'
 const SHARED_MODULES = ['react', 'react/jsx-runtime', 'react-dom']
 
@@ -63,20 +52,24 @@ export async function buildPlugins({ pluginsDir, outDir, only, log = () => {} }:
 async function buildPlugin(srcDir: string, outDir: string): Promise<string> {
   const manifestPath = path.join(srcDir, 'manifest.json')
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-  const id: unknown = manifest.id
-  const entry: unknown = manifest.privileged?.entry
-  if (typeof id !== 'string' || typeof entry !== 'string') throw new Error('manifest.json needs "id" and "privileged.entry"')
+  const id = manifest.id
+  const entry = manifest.privileged?.entry
+
+  if (typeof id !== 'string' || typeof entry !== 'string') {
+    throw new Error('manifest.json needs "id" and "privileged.entry"')
+  }
 
   const source = SOURCE_CANDIDATES.map(c => path.join(srcDir, c)).find(fs.existsSync)
-  if (!source) throw new Error(`no privileged source found (looked for ${SOURCE_CANDIDATES.join(', ')})`)
+  if (!source) throw new Error(`no privileged source found (${SOURCE_CANDIDATES.join(', ')})`)
 
-  const rendererEntry: unknown = manifest.renderer?.entry
+  const rendererEntry = manifest.renderer?.entry
   const expose = manifest.renderer?.expose
   const staticRenderer = path.join(srcDir, 'renderer')
+
   if (expose !== undefined) {
     if (typeof rendererEntry !== 'string') throw new Error('renderer.expose needs renderer.entry')
     if (fs.existsSync(staticRenderer)) {
-      throw new Error('renderer/ exists alongside renderer.expose; remove one (the build would overwrite renderer/)')
+      throw new Error('renderer/ exists alongside renderer.expose; remove one')
     }
     checkExposes(srcDir, expose)
   }
@@ -85,36 +78,40 @@ async function buildPlugin(srcDir: string, outDir: string): Promise<string> {
   fs.rmSync(pluginOut, { recursive: true, force: true })
   fs.mkdirSync(pluginOut, { recursive: true })
 
-  // Privileged code: one ES-module file, with the plugin's own dependencies
-  // bundled in. Node built-ins stay external.
   const entryOut = path.resolve(pluginOut, entry)
-  await build({
-    configFile: false,
-    logLevel: 'warn',
-    root: srcDir,
-    ssr: { noExternal: true },
-    build: {
-      ssr: source,
-      target: 'node20',
-      outDir: path.dirname(entryOut),
-      emptyOutDir: false,
-      minify: false,
-      sourcemap: true,
-      rollupOptions: { output: { format: 'es', entryFileNames: path.basename(entryOut) } }
+
+  // ⭐ PRIVILEGED BUILD USING ESBUILD
+  await esbuild.build({
+    entryPoints: [source],
+    outfile: entryOut,
+    bundle: true,
+    format: 'cjs',
+    platform: 'node',
+    target: 'node20',
+    sourcemap: true,
+    packages: 'external',
+    external: [
+      'lokijs',
+      'lokijs/src/loki-fs-sync-adapter.js'
+    ],
+    alias: {
+      '@core': path.resolve(process.cwd(), 'core'),
+      '@shared': path.resolve(process.cwd(), 'shared'),
+      '@shell': path.resolve(process.cwd(), 'shell'),
+      '@plugins': path.resolve(process.cwd(), 'plugins'),
+      '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts')
     }
   })
-  if (!fs.existsSync(entryOut)) throw new Error(`build did not produce ${entry}`)
 
-  // A "type" marker beside the code: without it, the ES-module output would be
-  // read as CommonJS when the folder is copied under the user-data directory.
-  fs.writeFileSync(path.join(pluginOut, 'package.json'), JSON.stringify({ type: 'module' }) + '\n')
+  fs.writeFileSync(path.join(pluginOut, 'package.json'), JSON.stringify({ type: 'cjs' }) + '\n')
 
-  // renderer.expose is build-time only; the built manifest is what the app reads.
   if (manifest.renderer) delete manifest.renderer.expose
   fs.writeFileSync(path.join(pluginOut, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
 
   if (expose !== undefined) {
-    await withoutTestEnv(() => buildRenderer(srcDir, id, path.resolve(pluginOut, rendererEntry as string), expose))
+    await withoutTestEnv(() =>
+      buildRenderer(srcDir, id, path.resolve(pluginOut, rendererEntry), expose)
+    )
   } else if (fs.existsSync(staticRenderer)) {
     fs.cpSync(staticRenderer, path.join(pluginOut, 'renderer'), { recursive: true })
   }
@@ -126,11 +123,6 @@ async function buildPlugin(srcDir: string, outDir: string): Promise<string> {
   return id
 }
 
-/**
- * @module-federation/vite builds nothing when it detects a test run (NODE_ENV=test,
- * VITEST or JEST_WORKER_ID). Plugin builds are real builds even when the tests start
- * them, so hide those variables while one runs.
- */
 async function withoutTestEnv<T>(work: () => Promise<T>): Promise<T> {
   const names = ['NODE_ENV', 'VITEST', 'JEST_WORKER_ID']
   const saved = names.map(name => [name, process.env[name]] as const)
@@ -149,24 +141,19 @@ function checkExposes(srcDir: string, expose: unknown) {
   if (typeof expose !== 'object' || expose === null || Array.isArray(expose) || Object.keys(expose).length === 0) {
     throw new Error('renderer.expose must map module names (like "./MyView") to source files')
   }
-  for (const [name, file] of Object.entries(expose)) {
+  for (const [name, file] of Object.entries(expose as Record<string, string>)) {
     if (!name.startsWith('./')) throw new Error(`renderer.expose key "${name}" must start with "./"`)
-    if (typeof file !== 'string' || !fs.existsSync(path.resolve(srcDir, file))) {
-      throw new Error(`renderer.expose "${name}": source file "${String(file)}" not found`)
+    if (!fs.existsSync(path.resolve(srcDir, file))) {
+      throw new Error(`renderer.expose "${name}": source file "${file}" not found`)
     }
   }
 }
 
-/**
- * Compiles the exposed TSX/TS modules into a Module Federation remote
- * (an ES-module container) at `entryOut`, with chunks and assets beside it.
- */
 async function buildRenderer(srcDir: string, id: string, entryOut: string, expose: Record<string, string>) {
   const { federation } = await import('@module-federation/vite')
 
-  // A remote has no page of its own, but Vite needs some build input.
   const stub = '\0tessera-stub-entry'
-  await build({
+  await viteBuild({
     configFile: false,
     logLevel: 'warn',
     root: srcDir,
@@ -179,9 +166,15 @@ async function buildRenderer(srcDir: string, id: string, entryOut: string, expos
       federation({
         name: id.replace(/[^A-Za-z0-9_$]/g, '_'),
         filename: path.basename(entryOut),
-        exposes: Object.fromEntries(Object.entries(expose).map(([name, file]) => [name, path.resolve(srcDir, file)])),
-        shared: Object.fromEntries(SHARED_MODULES.map(name =>
-          [name, { singleton: true, requiredVersion: SHARED_REACT_RANGE, import: false }])),
+        exposes: Object.fromEntries(
+          Object.entries(expose).map(([name, file]) => [name, path.resolve(srcDir, file)])
+        ),
+        shared: Object.fromEntries(
+          SHARED_MODULES.map(name => [
+            name,
+            { singleton: true, requiredVersion: SHARED_REACT_RANGE, import: false }
+          ])
+        ),
         dts: false
       })
     ],
@@ -193,7 +186,9 @@ async function buildRenderer(srcDir: string, id: string, entryOut: string, expos
       minify: false,
       rollupOptions: {
         input: 'tessera-stub-entry',
-        onwarn: (warning, warn) => { if (warning.code !== 'EMPTY_BUNDLE') warn(warning) }
+        onwarn: (warning, warn) => {
+          if (warning.code !== 'EMPTY_BUNDLE') warn(warning)
+        }
       }
     }
   })
@@ -208,7 +203,12 @@ async function buildRenderer(srcDir: string, id: string, entryOut: string, expos
 
 function parseArgs(argv: string[]): BuildOptions {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-  const options: BuildOptions = { pluginsDir: path.join(root, 'plugins'), outDir: path.join(root, 'modules'), only: [], log: m => console.log(`[plugins] ${m}`) }
+  const options: BuildOptions = {
+    pluginsDir: path.join(root, 'plugins'),
+    outDir: path.join(root, 'modules'),
+    only: [],
+    log: m => console.log(`[plugins] ${m}`)
+  }
 
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--src') options.pluginsDir = path.resolve(argv[++i])

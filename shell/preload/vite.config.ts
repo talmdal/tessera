@@ -1,24 +1,26 @@
 import { defineConfig } from 'vite'
 import path from 'path'
 
+const pathName = import.meta.dirname
+
 export default defineConfig({
-  root: __dirname,
+  root: pathName,
   resolve: {
     alias: {
-      '@shared': path.resolve(__dirname, '..'),
-      '@core': path.resolve(__dirname, '../../core'),
-      '@shell': path.resolve(__dirname, '..'),
-      '@plugins': path.resolve(__dirname, '../../plugins'),
-      '@extensions': path.resolve(__dirname, '../../extension-registry')
+      '@shared': path.resolve(pathName, '..'),
+      '@core': path.resolve(pathName, '../../core'),
+      '@shell': path.resolve(pathName, '..'),
+      '@plugins': path.resolve(pathName, '../../plugins'),
+      '@extensions': path.resolve(pathName, '../../extension-registry')
     }
   },
   build: {
     ssr: true,
-    outDir: path.resolve(__dirname, '../../dist'),
+    outDir: path.resolve(pathName, '../../dist'),
     emptyOutDir: false,
 
     rollupOptions: {
-      input: path.resolve(__dirname, 'preload.ts'),
+      input: path.resolve(pathName, 'preload.ts'),
       output: {
         entryFileNames: 'preload.js',
         format: 'cjs'

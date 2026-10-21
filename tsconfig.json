@@ -4,6 +4,7 @@
     { "path": "./core" },
     { "path": "./shell" },
     { "path": "./shared" },
-    { "path": "./scripts" }
+    { "path": "./scripts" },
+    { "path": "./plugins" } 
   ]
 }

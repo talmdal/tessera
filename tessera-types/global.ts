@@ -1,4 +1,4 @@
-import type { TesseraBridge } from '../../shared/ipc'
+import type { TesseraBridge } from '.'
 
 declare global {
   interface Window {

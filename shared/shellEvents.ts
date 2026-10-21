@@ -4,14 +4,11 @@
 // (request/response) and follow (push events). Each piece of state has a
 // snapshot request and a "changed" event; readers load the snapshot once, then
 // apply the events.
-import type { ContextKeyValue } from './context/when'
-import { channelFor } from './ipc'
+import type { AppPhase, ContextKeyValue } from '@tessera/types'
+import { channelFor } from '@tessera/types'
 import { SHELL_CONTRIBUTOR_ID } from './plugins/manifest'
 
 const shell = (event: string) => channelFor(SHELL_CONTRIBUTOR_ID, event)
-
-/** starting → started → shuttingDown → shutDown. A vetoed shutdown returns to `started`. */
-export type AppPhase = 'starting' | 'started' | 'shuttingDown' | 'shutDown'
 
 // Application lifecycle
 export const LIFECYCLE_GET_EVENT = 'lifecycle.get'

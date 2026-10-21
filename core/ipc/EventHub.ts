@@ -1,15 +1,18 @@
 // core/ipc/EventHub.ts
-import { IpcEvent } from '../../shared/ipc'
-import { Disposable, Logger } from '../ports'
-
-export type EventListener = (event: IpcEvent) => void
+import {
+  IpcEvent,
+  Disposable,
+  EventHub,
+  EventListener,
+  Logger
+} from '../../tessera-types'
 
 /**
  * Where main-process code publishes events meant for the renderer. An adapter
  * (shell/main/events) subscribes and delivers them to the windows. A listener
  * that throws is logged and the others still get the event.
  */
-export class EventHub {
+export class EventHubImpl implements EventHub {
   private listeners = new Set<EventListener>()
 
   constructor(private readonly log?: Logger) {}

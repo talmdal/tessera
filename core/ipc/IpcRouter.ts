@@ -1,22 +1,19 @@
 // core/ipc/IpcRouter.ts
-import { IpcResponse, isIpcRequest } from '../../shared/ipc'
-import { Disposable, Logger } from '../ports'
-
-export interface IpcMessage<T = unknown> {
-  channel: string
-  data: T
-  correlationId?: string
-}
-
-export type IpcHandler<TReq = unknown, TRes = unknown> =
-  (msg: IpcMessage<TReq>) => Promise<TRes> | TRes
+import { 
+  IpcResponse, 
+  IpcRouter, 
+  IpcHandler,
+  Disposable, 
+  Logger
+} from '../../tessera-types'
+import { isIpcRequest } from '../../shared/ipc'
 
 /**
  * Routes requests arriving on the single invoke channel to handlers by logical
  * channel. Handlers are looked up per request, so handlers registered after
  * startup are reachable immediately.
  */
-export class IpcRouter {
+export class IpcRouterImpl implements IpcRouter {
   private handlers = new Map<string, IpcHandler<any, any>>()
 
   constructor(private readonly log?: Logger) {}

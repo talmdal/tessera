@@ -3,15 +3,7 @@
 // Ports the core depends on. Adapters live in shell/main. Nothing in core/ may
 // import electron or node:* — tests/architecture enforces this.
 
-export interface Disposable {
-  dispose(): void
-}
-
-export interface Logger {
-  info(message: string): void
-  warn(message: string): void
-  error(message: string, error?: unknown): void
-}
+import { PluginManifest } from "@shared/plugins/manifest"
 
 /** Where a plugin was found: shipped with the app, or installed by the user. */
 export type PluginOrigin = 'bundled' | 'user'
@@ -19,7 +11,7 @@ export type PluginOrigin = 'bundled' | 'user'
 /** A plugin found by a PluginSource. `location` is opaque to the core. */
 export interface PluginDescriptor {
   location: string
-  manifest: unknown
+  manifest: PluginManifest
   origin?: PluginOrigin
 }
 

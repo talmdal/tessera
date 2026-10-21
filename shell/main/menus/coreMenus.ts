@@ -1,6 +1,6 @@
 // shell/main/menus/coreMenus.ts
 import { app, BrowserWindow, dialog } from 'electron'
-import { PluginContext } from '../../../core/plugins/PluginContext'
+import { PluginContext } from '@tessera/types'
 import {
   FILE_MENU,
   HELP_MENU,
@@ -52,6 +52,6 @@ export function registerCoreMenus(context: PluginContext) {
     dialog.showMessageBox({ type: 'info', title: 'About Tessera', message: `Tessera ${app.getVersion()}` }))
 
   for (const contribution of coreMenus) {
-    context.extensions.contribute(MENUS_EXTENSION_POINT, contribution)
+    context.extensions.contribute(context.pluginId, MENUS_EXTENSION_POINT, contribution.id, contribution)
   }
 }

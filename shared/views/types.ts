@@ -1,5 +1,5 @@
 // shared/views/types.ts
-import { channelFor } from '../ipc'
+import { channelFor } from '@tessera/types'
 import { SHELL_CONTRIBUTOR_ID } from '../plugins/manifest'
 
 /** Extension point that view contributions are registered under. */

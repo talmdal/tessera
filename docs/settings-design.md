@@ -78,7 +78,7 @@ in either of these.
  ───────────────────                        ────────────────────────
  context.settings.register(defaults, …)     ./VaultSettingsPage  (a React component)
  context.extensions.contribute(                    ▲
-   'shell.settings.pages', {...})                  │ props: value, defaults, onChange,
+   id, 'shell.settings.pages', pageId, {...})      │ props: value, defaults, onChange,
         │                                          │        onValidityChange, disabled
         ▼                                          │
  ┌───────────────────────────────────┐   IPC   ┌───┴───────────────────────────────┐
@@ -98,7 +98,7 @@ in either of these.
 |---|---|---|
 | `JsonPersistence` | port in `core/`, JSON-file adapter in `shell/main` | Atomic, debounced writes of small JSON documents; flush on quit |
 | `SettingsService` | `core/` | Registered defaults, merge, validate, migrate, commit, reset, change events |
-| `context.settings` | plugin context | Each plugin's scoped view of the service |
+| `context.settings` | plugin context | Each plugin's scoped view of the service. Not in `PluginContext` today; it would be added to [tessera-types/plugins.ts](../tessera-types/plugins.ts) |
 | `shell:settings.*` IPC | `shell/main` | Lets the dialog read and commit values |
 | Settings dialog | `shell/renderer` | Navigation, search, page hosting, draft and button handling |
 | `shell.settings.pages` | extension point | Plugins contribute pages |
@@ -156,7 +156,7 @@ interface SettingsHandle<T> {
 ### Contributing a page
 
 ```js
-context.extensions.contribute('shell.settings.pages', {
+context.extensions.contribute('vault', 'shell.settings.pages', 'vault.settings', {
   id: 'vault.settings',                  // plugin-prefixed, like every contribution
   title: 'Vault',
   parent: 'shell.settings.general',      // a category, or another page

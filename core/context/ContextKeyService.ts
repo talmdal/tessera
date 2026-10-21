@@ -1,12 +1,12 @@
 // core/context/ContextKeyService.ts
-import type { ContextKeyValue } from '../../shared/context/when'
+import type { ContextKeyService, ContextKeyValue } from '@tessera/types'
 import { Emitter } from '../events'
 
 /**
  * Named pieces of application state ("is a vault open?") that enablement
  * expressions read. Plugins write only their own keys via PluginContext.
  */
-export class ContextKeyService {
+export class ContextKeyServiceImpl implements ContextKeyService {
   private values = new Map<string, ContextKeyValue>()
   private changed = new Emitter<string[]>()
 

@@ -13,7 +13,9 @@
       "@shell/*": ["shell/*"],
       "@plugins/*": ["plugins/*"],
       "@shared/*": ["shared/*"],
-      "@extensions/*": ["extension-registry/*"]
+      "@extensions/*": ["extension-registry/*"],
+      "@tessera/types": ["tessera-types/index.ts"],
+      "@tessera/types/*": ["tessera-types/*"]
     }
   }
 }

@@ -1,11 +1,22 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { LokiStorageEngine } from './LokiStorageEngine'
-import { PluginRuntime } from '../../../../core/plugins/PluginContext'
+import { PluginContext } from '@tessera/types'
 
-export async function activate(context: PluginRuntime) {
-  const engine = new LokiStorageEngine(context.paths)
+export async function activate(context: PluginContext) {
+  console.info(`activate loki storage: ${JSON.stringify(context)}`)
+
+  const root = context.paths // e.g. %APPDATA%/tessera
+  const storageDir = path.join(root, 'storage')
+
+  // Ensure directory exists
+  fs.mkdirSync(storageDir, { recursive: true })
+
+  const dbPath = path.join(storageDir, 'tessera.json')
+  const engine = new LokiStorageEngine(dbPath)
   await engine.init()
 
-  context.services.provide('storage.engine', 'storage.loki', engine)
+  context.services.provide('storage-loki', 'storage.engine', engine)
 
   // Clean shutdown
   context.lifecycle.onShuttingDown(async () => {
