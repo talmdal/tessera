@@ -571,9 +571,11 @@ Extension point: **`shell.menus`**. There are three kinds of contribution
 
 ### Where things go
 
-**On the menu bar, the order is fixed:** `File`, then all plugin menus, then
-`Tools`, then `Help`. `order` only sorts your menu among the other plugin
-menus. It can't move a menu before File or after Tools.
+**On the menu bar, the order is fixed:** `File`, then `View`, then all plugin
+menus, then `Tools`, then `Help`. `order` only sorts your menu among the other
+plugin menus. It can't move a menu before File or after Tools. The `View`
+menu (`shell.view`) holds the window-layout commands, and plugins add their
+own page-opening items to it.
 
 **Inside a menu**, entries are placed in **groups**:
 
@@ -698,6 +700,8 @@ current value and an event for changes:
 | Application phase | `shell:lifecycle.get` → `'starting' \| 'started' \| 'shuttingDown' \| 'shutDown'` | `shell:lifecycle.changed` → `{ phase }` |
 | Context keys | `shell:contextKeys.snapshot` → `{ [key]: value }` | `shell:contextKeys.changed` → `{ [key]: value \| null }` (`null` = removed) |
 | The set of views | `shell:views.list` → views | `shell:views.changed` (no payload; the shell reloads the list itself) |
+| The set of bar items | `shell:bar.items.list` → items, with `enabled` flags | `shell:bar.items.changed` (no payload) |
+| This window's layout | `shell:layout.get` → `LayoutState` | `shell:layout.changed` → `LayoutState` (ignore other windows' ids), `shell:layout.revealed` → `{ windowId, viewId, slot }` |
 
 `shuttingDown` is **informational**: the window may close right after it, and
 a view can't delay or veto the quit. If the quit is vetoed, the phase returns to
@@ -822,39 +826,101 @@ provider.
 
 ## Contributing views
 
-Extension point: **`shell.views`** ([shared/views/types.ts](../shared/views/types.ts)):
+Extension point: **`shell.views`** (`ViewContribution` in
+[tessera-types/views.ts](../tessera-types/views.ts); slot ids in
+[shared/views/types.ts](../shared/views/types.ts)):
 
 ```ts
 {
   id: string        // 'budget.summary'
-  title: string     // shown while loading and in error messages; the section's accessible name
-  slot: string      // where to render, currently 'shell.main'
+  title: string     // tab label, rail tooltip, loading and error messages
+  slot: string      // where to render (see the slot table)
   module: string    // a module your renderer remote exposes, starting with './'
+  icon?: string     // REQUIRED for bar slots: './file.svg' in your renderer folder, or a shell icon name
   order?: number    // sorts views within the slot; default 0
+  when?: string     // context-key expression; the view is absent while it is false
 }
 ```
 
 You contribute views from the **privileged** side, as data. The component
-itself lives in your renderer remote, and the shell only fetches it when a
-slot that shows the view is rendered.
+itself lives in your renderer remote, and the shell only fetches it when the
+view is first shown.
+
+The window manager lays the window out as a main content area with a bar on
+each side (see [window-manager-design.md](window-manager-design.md)):
 
 | Slot | Where |
 |---|---|
-| `shell.main` | The window's main content area. The welcome text shows only when no view targets it. |
+| `shell.main` | The centre. One view is shown at a time, chosen by the `shell.layout.reveal` command; the welcome text shows only when no view targets it. |
+| `shell.left`, `shell.right`, `shell.top`, `shell.bottom` | The bars. Views in a bar are **tabs**; a bar is hidden entirely while nothing targets it, and the user can collapse it to a rail of view icons. |
 
-In a slot:
+In a bar:
 
-- Views render in order, each in its own `<section>` with a "Loading …"
-  placeholder.
+- The bar appears as soon as your view is present (contributed, plugin
+  active, `when` true) and disappears when nothing is left.
+- Your `icon` is shown on the view's tab and on the collapsed rail, where
+  clicking it expands the bar on your view. Icons are either files in your
+  renderer folder (`'./icons/accounts.svg'`, monochrome SVG, painted with the
+  theme colour) or a name from the shell's set
+  ([shared/layout/icons.ts](../shared/layout/icons.ts)).
+- A shown view stays mounted when its tab is inactive or the bar collapses,
+  so its state survives; a view that has never been shown is not loaded.
 - **Each view has its own error boundary.** If your module fails to load, has
   no component, or throws while rendering, only your view shows
   "*title* could not be displayed." The error goes to the renderer console
   as `[views] …`.
 - A view is skipped, with a `[views]` warning in the main process, if your
-  manifest has no `renderer.entry`, its `module` doesn't start with `./`, or
-  its id is a duplicate.
+  manifest has no `renderer.entry`, its `module` doesn't start with `./`,
+  its `slot` is unknown, a bar view has no `icon`, its `when` doesn't parse,
+  or its id is a duplicate.
+
+To open one of your views programmatically (after opening a vault, from a
+menu item, from a click in a navigation view), execute the shell's command:
+
+```js
+await context.commands.execute('shell.layout.reveal', 'budget.summary')
+```
+
+It makes the view active in its slot, expands its bar if collapsed, and
+focuses it. From a view, use
+`window.api.invoke('shell:commands.execute', { id: 'budget.show' })` to run a
+command (usually one of your own that ends in a reveal).
 
 Views currently receive **no props**. Use `window.api.invoke` to get data.
+
+**A complete example** is the built-in
+[`plugins/layout.sample/`](../plugins/layout.sample/): a view in every slot,
+a button in each bar view that `invoke`s the plugin's privileged code, which
+pushes the new state back with `context.events.emit` (every view re-renders
+from it) and switches the content page with `shell.layout.reveal`. Its
+[end-to-end test](../tests/plugins/layout.sample/endToEnd.test.tsx) shows the
+whole loop running without Electron.
+
+### Bar items: buttons and status text
+
+Extension point: **`shell.bar.items`** (`BarItemContribution` in
+[tessera-types/layout.ts](../tessera-types/layout.ts)). For things a bar shows
+directly, with no React component and no renderer remote: a button bound to a
+command, or a piece of status text driven by context keys.
+
+```js
+const B = 'shell.bar.items'
+// A toolbar button: enabled exactly when its command is enabled, like a menu item
+context.extensions.contribute('vault', B, 'vault.toolbar.save', {
+  kind: 'button', id: 'vault.toolbar.save', slot: 'shell.top',
+  label: 'Save', icon: 'save', command: 'vault.save', tooltip: 'Save the vault'
+})
+// Status text: {key} is replaced with that context key's value, live
+context.extensions.contribute('vault', B, 'vault.status.name', {
+  kind: 'text', id: 'vault.status.name', slot: 'shell.bottom',
+  text: 'Vault: {vault.name}', when: 'vault.isOpen', align: 'end'
+})
+```
+
+Items take `slot` (bar slots only), `align: 'start' | 'end'`, `order`, `when`,
+`tooltip` and `icon`, and are validated like views (invalid ones are skipped
+with a `[layout]` warning). A bar with only items is content-sized, so a
+status bar is as tall as its text.
 
 ---
 
@@ -1069,10 +1135,18 @@ DevTools console (Tools › Toggle Developer Tools).
 | Concept | Value | Defined in |
 |---|---|---|
 | Menus extension point | `shell.menus` | [shared/menus/types.ts](../shared/menus/types.ts) |
-| Reserved top-level menus | `shell.file`, `shell.tools`, `shell.help` | [shared/menus/types.ts](../shared/menus/types.ts) |
+| Reserved top-level menus | `shell.file`, `shell.view`, `shell.tools`, `shell.help` | [shared/menus/types.ts](../shared/menus/types.ts) |
 | Default menu group | `additions` | [shared/menus/types.ts](../shared/menus/types.ts) |
 | Views extension point | `shell.views` | [shared/views/types.ts](../shared/views/types.ts) |
-| Main slot | `shell.main` | [shared/views/types.ts](../shared/views/types.ts) |
+| View contribution and descriptor | `ViewContribution`, `ViewDescriptor` | [tessera-types/views.ts](../tessera-types/views.ts) |
+| Slots | `shell.main`, `shell.top`, `shell.bottom`, `shell.left`, `shell.right` | [shared/views/types.ts](../shared/views/types.ts) |
+| Bar items extension point | `shell.bar.items` | [shared/layout/types.ts](../shared/layout/types.ts) |
+| Bar item contribution and descriptor | `BarItemContribution`, `BarItemDescriptor` | [tessera-types/layout.ts](../tessera-types/layout.ts) |
+| Layout state and IPC payloads | `LayoutState`, `LayoutSlotSetRequest`, `LayoutRevealedEvent`, `CommandsExecuteRequest` | [tessera-types/layout.ts](../tessera-types/layout.ts) |
+| Layout channels and defaults | `shell:layout.*`, `shell:bar.items.*`, `shell:commands.execute` | [shared/layout/types.ts](../shared/layout/types.ts) |
+| Layout commands | `shell.layout.toggle.<side>`, `.collapseAll`, `.expandAll`, `.reset`, `.reveal` | [shell/main/layout/registerLayout.ts](../shell/main/layout/registerLayout.ts) |
+| Layout context keys | `shell.layout.<side>.hasContent` / `.collapsed` / `.visible` / `.activeView`, `shell.layout.main.activeView` | [shell/main/layout/registerLayout.ts](../shell/main/layout/registerLayout.ts) |
+| Shell icon set | names | [shared/layout/icons.ts](../shared/layout/icons.ts) |
 | Manifest schema and validation | `parseManifest` | [shared/plugins/manifest.ts](../shared/plugins/manifest.ts) |
 | Plugin context (interface) | `PluginContext` | [tessera-types/plugins.ts](../tessera-types/plugins.ts) |
 | Plugin context (implementation) | `createPluginContext` | [core/plugins/PluginContext.ts](../core/plugins/PluginContext.ts) |

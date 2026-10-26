@@ -11,6 +11,7 @@ import {
   MenuNode,
   SubmenuNode,
   TOOLS_MENU,
+  VIEW_MENU,
   isReservedTopLevelMenu
 } from './types'
 
@@ -35,8 +36,8 @@ const byEntryOrder = (a: Entry, b: Entry) =>
 /**
  * Turns flat `shell.menus` contributions into a menu tree.
  *
- * The menu bar is always File, then contributed top-level menus (sorted by
- * order), then Tools, then Help. Within a menu, entries are bucketed by group
+ * The menu bar is always File, then View, then contributed top-level menus
+ * (sorted by order), then Tools, then Help. Within a menu, entries are bucketed by group
  * and each group is surrounded by separators; renderers are expected to run
  * `normalizeMenuNodes` to consolidate them.
  */
@@ -141,7 +142,7 @@ export function resolveMenus(contributions: readonly unknown[]): MenuModel {
     .filter(e => !isReservedTopLevelMenu(e.def.id))
     .sort(byEntryOrder)
 
-  const menus = [reservedEntry(FILE_MENU), ...contributed, reservedEntry(TOOLS_MENU), reservedEntry(HELP_MENU)]
+  const menus = [reservedEntry(FILE_MENU), reservedEntry(VIEW_MENU), ...contributed, reservedEntry(TOOLS_MENU), reservedEntry(HELP_MENU)]
     .filter((e): e is Entry => e !== undefined)
     .map(e => build(e.def as MenuDefinition))
 

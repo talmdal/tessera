@@ -1,9 +1,19 @@
 import { Disposable } from "."
 
+/**
+ * Where a request came from, attributed by the platform adapter (never by the
+ * renderer itself, so a window cannot act as another one). Absent when the
+ * request did not come from a window, e.g. in tests that call dispatch directly.
+ */
+export interface IpcSender {
+  windowId: number
+}
+
 export interface IpcMessage<T = unknown> {
   channel: string
   data: T
   correlationId?: string
+  sender?: IpcSender
 }
 
 export type IpcHandler<TReq = unknown, TRes = unknown> =
@@ -30,8 +40,12 @@ export interface IpcEvent<T = unknown> {
 /** API the preload exposes to the renderer as `window.api`. */
 export interface TesseraBridge {
   invoke<TRes = unknown, TReq = unknown>(channel: string, data?: TReq): Promise<TRes>
-  /** Listens for a push event from the main process. Returns a function that stops listening. */
-  on<T = unknown>(name: string, listener: (event: string , data: T) => void): () => void
+  /**
+   * Listens for a push event from the main process. The listener receives
+   * only the event's data (never Electron's event object). Returns a function
+   * that stops listening.
+   */
+  on<T = unknown>(name: string, listener: (data: T) => void): () => void
   // send(channel: string, data?: any): void
 }
 
@@ -45,5 +59,5 @@ export interface IpcRouter {
 
   has(channel: string): boolean
 
-  dispatch(request: unknown): Promise<IpcResponse> 
+  dispatch(request: unknown, sender?: IpcSender): Promise<IpcResponse>
 }

@@ -21,17 +21,27 @@ platform.
   (commands and anything pushed onto `context.subscriptions`) when a plugin
   is deactivated.
 - **Menu bar extension point** (`shell.menus`): hierarchical menus, groups
-  separated automatically, and fixed positions for `File`, then plugin
-  menus, then `Tools`, then `Help`.
+  separated automatically, and fixed positions for `File` and `View`, then
+  plugin menus, then `Tools` and `Help`.
 - **Commands with live enablement:** menu items follow their command's
   `enablement` expression over **context keys**, such as
   `vault.isOpen && vault.isDirty`, and update while the app runs.
 - **Views extension point** (`shell.views`): plugin UI is written as
   `.tsx` and loaded at runtime as a **Module Federation** remote. Views
   share the shell's React, and each is isolated by its own error boundary.
+- **Window manager:** a main content area with a collapsible, tabbed bar on
+  each side (`shell.left`, `shell.right`, `shell.top`, `shell.bottom`). A bar
+  is hidden entirely while nothing targets it, collapses to a rail of view
+  icons, and is resizable. Views can carry a `when` visibility expression, a
+  lighter `shell.bar.items` point adds toolbar buttons and status text bound
+  to commands and context keys, and the per-window layout state is owned by
+  the main process and mirrored over IPC (`shell:layout.*`). See
+  [docs/window-manager-design.md](docs/window-manager-design.md).
 - **Built-in plugins:** source in `plugins/<id>/`, built (TypeScript and
   TSX) into `modules/<id>/` with `npm run build:plugins`, and loaded before
-  user-installed plugins.
+  user-installed plugins. `plugins/layout.sample/` is the worked example: a
+  view in every slot, bar buttons whose requests are handled in privileged
+  code, and pushed state that updates every view and switches the page.
 - **Services:** plugins provide and require services, such as `vault.store`,
   declared in their manifest. Two exist today: `storage.engine` (provided by
   the `storage-loki` plugin) and `app.state` (provided by `app-state`, which
@@ -54,11 +64,13 @@ and Electron and the file system sit behind adapters.
 tessera-types/
           The common interfaces (@tessera/types): PluginContext, the registry
           interfaces (IPC, commands, extensions, context keys, services,
-          lifecycle, events), StorageEngine and AppState. The core implements
-          them, the shell composes them, and plugins are written against them.
-shared/   Contracts any process may import: IPC envelope guards, manifest
-          schema, menu and view contracts, enablement expressions. No
-          platform code.
+          lifecycle, events), StorageEngine, AppState, and the window
+          manager's contracts (ViewContribution, LayoutState, bar items,
+          request and event payloads). The core implements them, the shell
+          composes them, and plugins are written against them.
+shared/   Values any process may import: IPC envelope guards, manifest
+          schema, menu contracts, slot ids and channel names, contribution
+          resolvers, enablement expressions. No platform code.
 core/     Main-process application core: plugin manager, plugin context,
           and the registry implementations (IPC, extensions, commands,
           context keys, services, lifecycle, events) plus the storage engine
@@ -167,8 +179,9 @@ tests/                Vitest suites, mirroring the source folders, plus
                       architecture boundary tests and fixtures
 docs/                 Plugin guide, design notes and open-work list
 plugins/              Source of bundled (built-in) plugins, one folder each:
-                      app.state (application state) and storage.loki
-                      (LokiJS storage engine)
+                      app.state (application state), storage.loki (LokiJS
+                      storage engine) and layout.sample (a view in every
+                      slot of the window manager; the worked example)
 modules/              Build output of plugins/ (gitignored); loaded at startup
 ```
 
@@ -183,6 +196,10 @@ modules/              Build output of plugins/ (gitignored); loaded at startup
   lower-level `StorageEngine` it would build on already exists)
 - [docs/settings-design.md](docs/settings-design.md): proposed settings
   framework where plugins own their settings shape and pages
+- [docs/window-manager-design.md](docs/window-manager-design.md): the window
+  manager (implemented), a central content area with collapsible bars on each
+  side, the slots and bar items plugins contribute to, and the IPC that
+  drives it
 - [docs/todo.md](docs/todo.md): known gaps and planned work
 
 ## License

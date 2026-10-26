@@ -1,7 +1,6 @@
 // shell/renderer/views/ports.ts
+import type { ViewDescriptor } from '@tessera/types'
 import type { ComponentType } from 'react'
-import type { ViewDescriptor } from '../../../shared/views/types'
-
 /** Where the renderer learns which views exist. */
 export interface ViewSource {
   listViews(): Promise<ViewDescriptor[]>

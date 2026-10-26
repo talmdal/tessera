@@ -5,6 +5,6 @@ export interface Disposable {
 
 export interface Logger {
   info(message: string): void
-  warn(message: string): void
+  warn(message: string, error?: unknown): void
   error(message: string, error?: unknown): void
 }
