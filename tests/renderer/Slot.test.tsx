@@ -1,7 +1,7 @@
+import type { ViewDescriptor } from '@tessera/types'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { ComponentType } from 'react'
-import type { ViewDescriptor } from '../../shared/views/types'
 import type { ViewLoader, ViewSource } from '../../shell/renderer/views/ports'
 import { Slot, ViewsProvider } from '../../shell/renderer/views/ViewsProvider'
 

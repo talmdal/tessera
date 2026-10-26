@@ -1,9 +1,9 @@
+import type { ViewDescriptor } from '@tessera/types'
 import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { render, screen } from '@testing-library/react'
-import type { ViewDescriptor } from '../../shared/views/types'
 import { createFederationViewLoader } from '../../shell/renderer/views/federationViewLoader'
 import { createTempModulesDir } from '../helpers/tempModules'
 

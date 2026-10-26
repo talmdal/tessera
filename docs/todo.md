@@ -102,8 +102,6 @@ Designs: [vault-design.md](vault-design.md) and
 
 Design: [settings-design.md](settings-design.md). Nothing here is built yet.
 
-- [ ] **`JsonPersistence` port and adapter**: atomic, debounced writes,
-      flushed on quit; shared by state and settings.
 - [ ] **State store** (`context.state`): per-plugin opaque key/value for
       recent files, window bounds and similar.
 - [ ] **Settings core** (`context.settings`): defaults, versioned
@@ -116,12 +114,13 @@ Design: [settings-design.md](settings-design.md). Nothing here is built yet.
 
 ## Menus, commands and context keys
 
-- [ ] **Visibility.** Items can be disabled but not hidden; add a `when`
-      expression for visibility.
+- [ ] **Visibility.** Menu items can be disabled but not hidden; add a `when`
+      expression for visibility. (Views and bar items already have `when`;
+      see [window-manager-design.md](window-manager-design.md).)
 - [ ] **Dynamic labels**, e.g. `Save "Home Vault"`.
 - [ ] **Checkbox and radio items.**
-- [ ] **Context menus and toolbars** as extension points bound to the same
-      commands.
+- [ ] **Context menus** as an extension point bound to the same commands.
+      (Toolbars exist: `shell.bar.items` buttons in the top bar.)
 - [ ] **Menu structure changes at runtime.** The structure is built once,
       after activation; only enabled state is live.
 - [ ] **Context keys in the renderer**, so views can enable buttons from the
@@ -131,22 +130,38 @@ Design: [settings-design.md](settings-design.md). Nothing here is built yet.
 
 ## Views and the renderer
 
-- [ ] **Slot layouts.** `<Slot>` stacks views one after another. Add a real
-      layout (tabs or navigation for the main area) and more slots (sidebar,
-      status bar).
+The window manager ([window-manager-design.md](window-manager-design.md)) is
+implemented: five slots, tabbed collapsible bars, bar items, per-window layout
+state over IPC. Its remaining work:
+
+- [ ] **Persist layout preferences.** `LayoutService` has a
+      `LayoutPersistence` port, but no adapter until `JsonPersistence`
+      exists, so sizes, collapsed flags and active tabs last one session.
+- [ ] **Remove `useSidebarState`** (and its `sidebar` key) from the
+      `app-state` plugin; the window manager supersedes it.
+- [ ] **Grow the shell icon set** (or bundle Codicons wholesale): names in
+      `shared/layout/icons.ts`, glyphs in
+      `shell/renderer/layout/iconGlyphs.ts`.
+- [ ] **A tab strip for the main area.** Today one main view shows at a
+      time, chosen by `shell.layout.reveal`; tabs and history are a
+      follow-up design.
+- [ ] **Tell views when they are hidden.** Inactive tabs and collapsed bars
+      keep views mounted; a view that polls keeps polling.
 - [ ] **View props and context.** Views receive nothing from the shell;
       they use `window.api` directly.
-- [ ] **Refresh views at runtime.** The renderer fetches the view list once.
 - [ ] **Renderer takes part in shutdown.** `shuttingDown` reaches views as an
       event only. Views can't delay or veto a quit (say, to flush an editor);
       that needs an acknowledgement round trip with a time limit.
 - [ ] **Hooks and typings for plugin views.** `useAppPhase` and
       `useContextKey` exist for shell components only. Offer them (and typed
       `window.api.on`) to plugin views through the SDK.
-- [ ] **Events to one window.** Pushed events go to every open window; add
-      targeting if multiple windows are supported.
-- [ ] **Push more shell state.** Candidates: plugin list changes, settings
-      changes, a "settings dialog open" request.
+- [ ] **Events to one window.** Pushed events go to every open window.
+      Per-window layout events carry a `windowId` and other windows ignore
+      them; targeted delivery would be an optimisation with no contract
+      change.
+- [ ] **Push more shell state.** The layout and bar items are pushed now;
+      remaining candidates: plugin list changes, settings changes, a
+      "settings dialog open" request.
 - [ ] **Example plugin with a real federation build**, e.g.
       `@module-federation/vite`, checked into the repo. Then the plugin
       guide can show tested build config instead of requirements only.
@@ -157,8 +172,9 @@ Design: [settings-design.md](settings-design.md). Nothing here is built yet.
       must allow the `tessera-plugin:` scheme.
 - [ ] **Set `contextIsolation` and `sandbox` explicitly** on the
       `BrowserWindow` (they're currently the defaults).
-- [ ] **Validate IPC senders.** The invoke handler doesn't check which frame
-      or window a request came from.
+- [ ] **Validate IPC senders.** The adapter now attributes every request to
+      its window (`IpcMessage.sender`), and the layout handlers require it;
+      other handlers don't check it yet, and frames aren't distinguished.
 
 ## Build and packaging
 

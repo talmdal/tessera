@@ -1,4 +1,5 @@
 // shell/renderer/views/ViewsProvider.tsx
+import type { ViewDescriptor } from '@tessera/types'
 import {
   Component,
   ComponentType,
@@ -13,7 +14,6 @@ import {
   useMemo,
   useState
 } from 'react'
-import type { ViewDescriptor } from '../../../shared/views/types'
 import { ViewLoader, ViewSource } from './ports'
 
 interface ViewsContextValue {
@@ -71,8 +71,49 @@ export function ViewsProvider({ source, loader, children }: {
 }
 
 /**
+ * The view catalogue: every contributed view, present or not (presence is the
+ * layout's business), and the lazy component for each.
+ */
+export function useViewCatalogue(): ViewsContextValue & { byId: Map<string, ViewDescriptor> } {
+  const context = useContext(ViewsContext)
+  if (!context) throw new Error('View hooks must be used inside <ViewsProvider>')
+  const byId = useMemo(
+    () => new Map((context.views ?? []).map(view => [view.id, view])),
+    [context.views]
+  )
+  return { ...context, byId }
+}
+
+/**
+ * One view in its own section: lazy-loaded, labelled, focusable (for reveal)
+ * and isolated by an error boundary. `hidden` keeps an inactive tab mounted,
+ * so its state survives switching, without showing it.
+ */
+export function ViewHost({ view, componentFor, hidden = false }: {
+  view: ViewDescriptor
+  componentFor(view: ViewDescriptor): LazyExoticComponent<ComponentType>
+  hidden?: boolean
+  /** React's list key; only here because the repo compiles without @types/react. */
+  key?: string
+}) {
+  const View = componentFor(view)
+  return (
+    <section aria-label={view.title} data-view-id={view.id} tabIndex={-1} hidden={hidden}>
+      <ViewBoundary view={view}>
+        <Suspense fallback={<p>Loading {view.title}…</p>}>
+          <View />
+        </Suspense>
+      </ViewBoundary>
+    </section>
+  )
+}
+
+/**
  * Renders the views contributed to a slot, in order. Each view loads and fails
  * independently; `fallback` is shown when the slot has no views.
+ *
+ * The window manager renders slots itself (with presence and tabs); <Slot> is
+ * the plain form, rendering every view in the catalogue that targets the slot.
  */
 export function Slot({ id, fallback = null }: { id: string, fallback?: ReactNode }) {
   const context = useContext(ViewsContext)
@@ -86,18 +127,7 @@ export function Slot({ id, fallback = null }: { id: string, fallback?: ReactNode
 
   return (
     <>
-      {inSlot.map(view => {
-        const View = componentFor(view)
-        return (
-          <section key={view.id} aria-label={view.title} data-view-id={view.id}>
-            <ViewBoundary view={view}>
-              <Suspense fallback={<p>Loading {view.title}…</p>}>
-                <View />
-              </Suspense>
-            </ViewBoundary>
-          </section>
-        )
-      })}
+      {inSlot.map(view => <ViewHost key={view.id} view={view} componentFor={componentFor} />)}
     </>
   )
 }

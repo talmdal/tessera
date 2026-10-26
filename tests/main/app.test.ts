@@ -87,11 +87,16 @@ vi.mock('electron', () => {
     },
 
     BrowserWindow: Object.assign(vi.fn(function () { return {
+      id: 1,
       loadURL: vi.fn(),
-    getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
+      getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: { openDevTools: vi.fn() }
-    } }), { getAllWindows: () => [liveWindow] }),
+    } }), {
+      getAllWindows: () => [liveWindow],
+      getFocusedWindow: () => null,
+      fromWebContents: () => null
+    }),
 
     app: {
       getVersion: () => '1.2.3',
@@ -132,7 +137,7 @@ describe('main process (dynamic plugin system)', () => {
     await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
 
     const template = vi.mocked(electron.Menu.buildFromTemplate).mock.calls[0][0]
-    expect(template.map(m => m.label)).toEqual(['&File', 'Test', '&Tools', '&Help'])
+    expect(template.map(m => m.label)).toEqual(['&File', '&View', 'Test', '&Tools', '&Help'])
   })
 
   it('lists plugin views with the URL of the plugin remote entry', async () => {

@@ -1,6 +1,6 @@
+import type { ViewDescriptor } from '@tessera/types'
 import { describe, it, expect, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
-import type { ViewDescriptor } from '../../shared/views/types'
 import { createRemoteState } from '../../shell/renderer/state/remoteState'
 import { ShellStateProvider, useAppPhase, useContextKey } from '../../shell/renderer/state/ShellState'
 import { Slot, ViewsProvider } from '../../shell/renderer/views/ViewsProvider'
