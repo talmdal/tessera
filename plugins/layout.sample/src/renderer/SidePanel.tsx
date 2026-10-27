@@ -17,11 +17,11 @@ export function SidePanel({ side }: { side: Side }) {
   }
 
   return (
-    <div style={{ padding: 10, fontSize: 13, display: 'flex', flexDirection: 'column', gap: 8 }} data-sample-panel={side}>
+    <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }} data-sample-panel={side}>
       <div>
         This is the <strong>{side}</strong> bar.
       </div>
-      <div style={{ padding: '6px 8px', borderRadius: 4, background: isLast ? '#fff3c4' : '#e8e8e8' }}>
+      <div style={{ padding: '6px 8px', borderRadius: 4, background: isLast ? 'var(--shell-selectionBackground)' : 'var(--shell-bar-hoverBackground)' }}>
         Pressed <strong data-sample-count={side}>{count}</strong> {count === 1 ? 'time' : 'times'}
         {isLast && ' · most recent'}
       </div>

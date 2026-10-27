@@ -1,0 +1,98 @@
+/* shell/renderer/theme/themeChooser.css
+ *
+ * The theme chooser: a modal over the whole window. Every colour and font is
+ * a theme variable, so the dialog previews the theme it is choosing.
+ */
+
+.tc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--shell-overlay-background);
+}
+
+.tc-dialog {
+  min-width: 380px;
+  max-width: 520px;
+  max-height: 80vh;
+  overflow: auto;
+  padding: 16px 20px;
+  border: 1px solid var(--shell-dialog-border);
+  border-radius: 6px;
+  background: var(--shell-dialog-background);
+  color: var(--shell-foreground);
+  box-shadow: 0 8px 32px var(--shell-dialog-shadow);
+  outline: none;
+}
+
+.tc-dialog h2 {
+  margin: 0 0 12px;
+  font-size: var(--shell-font-sizeLarge);
+}
+
+.tc-dialog h3 {
+  margin: 12px 0 4px;
+  font-size: var(--shell-font-sizeSmall);
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--shell-foregroundMuted);
+}
+
+.tc-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.tc-option:hover { background: var(--shell-bar-hoverBackground); }
+
+.tc-option-meta {
+  color: var(--shell-foregroundMuted);
+  font-size: var(--shell-font-sizeSmall);
+}
+
+.tc-system {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 10px;
+  align-items: center;
+  margin: 4px 0 4px 28px;
+}
+
+.tc-select {
+  padding: 3px 6px;
+  border: 1px solid var(--shell-input-border);
+  border-radius: 3px;
+  background: var(--shell-input-background);
+  color: var(--shell-input-foreground);
+}
+
+.tc-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.tc-button {
+  padding: 5px 14px;
+  border: 1px solid var(--shell-input-border);
+  border-radius: 3px;
+  background: var(--shell-input-background);
+  color: inherit;
+  cursor: pointer;
+}
+
+.tc-button-primary {
+  border-color: transparent;
+  background: var(--shell-button-background);
+  color: var(--shell-button-foreground);
+}
+
+.tc-button-primary:hover { background: var(--shell-button-hoverBackground); }

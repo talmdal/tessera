@@ -47,4 +47,5 @@ export default function Dashboard() {
   )
 }
 
-const cell = { border: '1px solid #ccc', padding: '4px 12px', textAlign: 'left' as const }
+// Colours come from the theme's variables, never literals (see docs/style-manager-design.md).
+const cell = { border: '1px solid var(--shell-border)', padding: '4px 12px', textAlign: 'left' as const }

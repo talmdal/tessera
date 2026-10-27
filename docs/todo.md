@@ -166,6 +166,23 @@ state over IPC. Its remaining work:
       `@module-federation/vite`, checked into the repo. Then the plugin
       guide can show tested build config instead of requirements only.
 
+## Style manager (phases 4–5)
+
+Design: [style-manager-design.md](style-manager-design.md). Implemented:
+tokens, themes, the `shell.colors` and `shell.themes` extension points,
+`ThemeService`, the theme IPC, `<StyleManager>` and the CSS variables, the
+`theme.sample` plugin, the `shell.theme.*` commands and context keys, the
+View › Theme menu, the theme chooser dialog, follow-system over
+`nativeTheme`, and persistence through `app.state`.
+
+- [ ] **Appearance settings page** once `shell.settings.pages` exists, to
+      edit the global and per-theme colour customisations (the resolver
+      and the preference already carry them).
+- [ ] **Follow-ups:** tick the active theme in View › Theme once checkbox
+      menu items exist; list themes contributed after startup once the menu
+      can change at runtime (the chooser already does); `useTheme` in the
+      plugin SDK; theme-aware native chrome with a custom title bar.
+
 ## Security
 
 - [ ] **Content-Security-Policy.** None is set (Electron warns in dev). It

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { emptyLayout } from '../../shared/layout/types'
+import { builtinThemeState } from '../../shared/theme/builtin'
 import App from '../../shell/renderer/App'
 import { BarItemsProvider } from '../../shell/renderer/layout/BarItemsProvider'
 import { ShellStateProvider } from '../../shell/renderer/state/ShellState'
@@ -12,6 +13,7 @@ const bridge = {
     if (channel === 'shell:lifecycle.get') return 'started'
     if (channel === 'shell:contextKeys.snapshot') return {}
     if (channel === 'shell:layout.get') return emptyLayout(7)
+    if (channel === 'shell:theme.get') return builtinThemeState('light')
     throw new Error(`Unexpected request ${channel}`)
   }),
   on: vi.fn(() => () => {})

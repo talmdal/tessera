@@ -1,7 +1,13 @@
 import { WindowManager } from './layout/WindowManager'
+import { ThemeChooser } from './theme/ThemeChooser'
 
 export default function App() {
-  return <WindowManager fallback={<Welcome />} />
+  return (
+    <>
+      <WindowManager fallback={<Welcome />} />
+      <ThemeChooser />
+    </>
+  )
 }
 
 /** Shown when no plugin contributes a view to the main slot. */

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { BarItemsProvider, createIpcBarItemSource } from './layout/BarItemsProvider'
 import { ShellStateProvider } from './state/ShellState'
+import { StyleManager } from './theme/StyleManager'
 import { createFederationViewLoader } from './views/federationViewLoader'
 import { createIpcViewSource } from './views/ipcViewSource'
 import { ViewsProvider } from './views/ViewsProvider'
@@ -14,10 +15,12 @@ const barItems = createIpcBarItemSource(window.api)
 const root = createRoot(document.getElementById('root')!)
 root.render(
   <ShellStateProvider bridge={window.api}>
-    <ViewsProvider source={source} loader={loader}>
-      <BarItemsProvider source={barItems}>
-        <App />
-      </BarItemsProvider>
-    </ViewsProvider>
+    <StyleManager>
+      <ViewsProvider source={source} loader={loader}>
+        <BarItemsProvider source={barItems}>
+          <App />
+        </BarItemsProvider>
+      </ViewsProvider>
+    </StyleManager>
   </ShellStateProvider>
 )
