@@ -1,8 +1,8 @@
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import esbuild from 'esbuild'
-import { build as viteBuild } from 'vite'
 
 export interface BuildOptions {
   pluginsDir: string
@@ -29,10 +29,20 @@ const SHARED_MODULES = ['react', 'react/jsx-runtime', 'react-dom']
 export async function buildPlugins({ pluginsDir, outDir, only, log = () => {} }: BuildOptions): Promise<BuildResult[]> {
   if (!fs.existsSync(pluginsDir)) return []
 
+  // `only` names plugins by manifest id ("layout-sample") or by folder ("layout.sample").
+  const wanted = (folder: string) => {
+    if (!only?.length) return true
+    if (only.includes(folder)) return true
+    try {
+      return only.includes(JSON.parse(fs.readFileSync(path.join(pluginsDir, folder, 'manifest.json'), 'utf8')).id)
+    } catch {
+      return false
+    }
+  }
   const folders = fs.readdirSync(pluginsDir, { withFileTypes: true })
     .filter(d => d.isDirectory() && fs.existsSync(path.join(pluginsDir, d.name, 'manifest.json')))
     .map(d => d.name)
-    .filter(name => !only?.length || only.includes(name))
+    .filter(wanted)
 
   const results: BuildResult[] = []
   for (const folder of folders) {
@@ -109,9 +119,7 @@ async function buildPlugin(srcDir: string, outDir: string): Promise<string> {
   fs.writeFileSync(path.join(pluginOut, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
 
   if (expose !== undefined) {
-    await withoutTestEnv(() =>
-      buildRenderer(srcDir, id, path.resolve(pluginOut, rendererEntry), expose)
-    )
+    await buildRenderer(srcDir, id, path.resolve(pluginOut, rendererEntry), expose)
   } else if (fs.existsSync(staticRenderer)) {
     fs.cpSync(staticRenderer, path.join(pluginOut, 'renderer'), { recursive: true })
   }
@@ -121,20 +129,6 @@ async function buildPlugin(srcDir: string, outDir: string): Promise<string> {
   }
 
   return id
-}
-
-async function withoutTestEnv<T>(work: () => Promise<T>): Promise<T> {
-  const names = ['NODE_ENV', 'VITEST', 'JEST_WORKER_ID']
-  const saved = names.map(name => [name, process.env[name]] as const)
-  for (const name of names) delete process.env[name]
-  try {
-    return await work()
-  } finally {
-    for (const [name, value] of saved) {
-      if (value === undefined) delete process.env[name]
-      else process.env[name] = value
-    }
-  }
 }
 
 function checkExposes(srcDir: string, expose: unknown) {
@@ -149,56 +143,35 @@ function checkExposes(srcDir: string, expose: unknown) {
   }
 }
 
-async function buildRenderer(srcDir: string, id: string, entryOut: string, expose: Record<string, string>) {
-  const { federation } = await import('@module-federation/vite')
+const RENDERER_BUILDER = path.join(path.dirname(fileURLToPath(import.meta.url)), 'build-renderer.mjs')
 
-  const stub = '\0tessera-stub-entry'
-  await viteBuild({
-    configFile: false,
-    logLevel: 'warn',
-    root: srcDir,
-    plugins: [
-      {
-        name: 'tessera-stub-entry',
-        resolveId: source => source === 'tessera-stub-entry' ? stub : null,
-        load: source => source === stub ? 'export {}' : null
-      },
-      federation({
-        name: id.replace(/[^A-Za-z0-9_$]/g, '_'),
-        filename: path.basename(entryOut),
-        exposes: Object.fromEntries(
-          Object.entries(expose).map(([name, file]) => [name, path.resolve(srcDir, file)])
-        ),
-        shared: Object.fromEntries(
-          SHARED_MODULES.map(name => [
-            name,
-            { singleton: true, requiredVersion: SHARED_REACT_RANGE, import: false }
-          ])
-        ),
-        dts: false
-      })
-    ],
-    esbuild: { jsx: 'automatic' },
-    build: {
-      target: 'esnext',
-      outDir: path.dirname(entryOut),
-      emptyOutDir: true,
-      minify: false,
-      rollupOptions: {
-        input: 'tessera-stub-entry',
-        onwarn: (warning, warn) => {
-          if (warning.code !== 'EMPTY_BUNDLE') warn(warning)
-        }
+/**
+ * Builds the renderer remote in a Node process of its own (see
+ * build-renderer.mjs for why), with the test runner's environment variables
+ * removed so Vite builds for production. The job travels on stdin, which
+ * needs no quoting on any platform.
+ */
+function buildRenderer(srcDir: string, id: string, entryOut: string, expose: Record<string, string>) {
+  const env = { ...process.env }
+  for (const name of ['NODE_ENV', 'VITEST', 'JEST_WORKER_ID']) delete env[name]
+
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(process.execPath, [RENDERER_BUILDER], { env, stdio: ['pipe', 'inherit', 'pipe'] })
+    let stderr = ''
+    child.stderr.on('data', chunk => { stderr += chunk })
+    child.on('error', reject)
+    child.on('close', code => {
+      if (code === 0) {
+        if (stderr.trim()) process.stderr.write(stderr)      // Vite warnings
+        resolve()
+      } else {
+        reject(new Error(`renderer build failed (exit code ${code})${stderr.trim() ? `:\n${stderr.trim()}` : ''}`))
       }
-    }
+    })
+    child.stdin.end(JSON.stringify({
+      srcDir, id, entryOut, expose, shared: SHARED_MODULES, sharedVersion: SHARED_REACT_RANGE
+    }))
   })
-
-  const assets = path.join(path.dirname(entryOut), 'assets')
-  if (fs.existsSync(assets)) {
-    for (const file of fs.readdirSync(assets)) {
-      if (file.startsWith('_tessera-stub-entry')) fs.rmSync(path.join(assets, file))
-    }
-  }
 }
 
 function parseArgs(argv: string[]): BuildOptions {

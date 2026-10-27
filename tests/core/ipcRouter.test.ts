@@ -14,6 +14,14 @@ describe('IpcRouter', () => {
     })
   })
 
+  it('passes the adapter-supplied sender to the handler', async () => {
+    const router = new IpcRouterImpl()
+    router.register('p:who', async msg => msg.sender?.windowId ?? 'nobody')
+
+    await expect(router.dispatch({ channel: 'p:who' }, { windowId: 7 })).resolves.toMatchObject({ ok: true, data: 7 })
+    await expect(router.dispatch({ channel: 'p:who' })).resolves.toMatchObject({ ok: true, data: 'nobody' })
+  })
+
   it('reaches handlers registered after dispatching started', async () => {
     const router = new IpcRouterImpl()
     expect((await router.dispatch({ channel: 'p:late' })).ok).toBe(false)

@@ -19,6 +19,7 @@ extension points.
 - [IPC between your view and your privileged code](#ipc-between-your-view-and-your-privileged-code)
 - [Providing and using services](#providing-and-using-services)
 - [Contributing views](#contributing-views)
+- [Contributing colours and themes](#contributing-colours-and-themes)
 - [The renderer remote](#the-renderer-remote)
 - [Application lifecycle](#application-lifecycle)
 - [Lifecycle and cleanup](#lifecycle-and-cleanup)
@@ -235,7 +236,7 @@ You never write `remoteEntry.js`. The build generates it (see below).
 
 ```bash
 npm run build:plugins                  # every plugin under plugins/ → modules/
-npm run build:plugins -- budget        # only these plugin ids
+npm run build:plugins -- budget        # only these plugins, by id or by folder name
 npm run build:plugins -- --src <dir> --out <dir>
 ```
 
@@ -261,6 +262,10 @@ For each plugin the build:
    chunks in the folder of `renderer.entry`. React, `react/jsx-runtime` and
    `react-dom` are shared with the shell as singletons, and **no copy of React
    is bundled**. JSX uses the automatic runtime, so no `import React` is needed.
+   Each renderer is built in a Node process of its own
+   (`scripts/build-renderer.mjs`), because the federation plugin keeps
+   per-process state and a second remote built in the same process comes
+   out incomplete.
 4. **Writes the manifest** to the built folder, without `renderer.expose`.
 5. **Checks** that the manifest's `renderer.entry`, if any, was produced.
 
@@ -319,6 +324,10 @@ Contribute it from `activate` with `module: './SummaryView'`, as in
 - **CSS and assets** imported by a view should be emitted beside the remote
   entry and served through the plugin protocol, but **this is untested**: the
   sample view has no stylesheet. Check it before relying on it.
+- **Colours and fonts come from the theme.** Write
+  `color: var(--shell-foregroundMuted)` rather than a literal, and the view
+  follows a theme switch with no code; see
+  [Contributing colours and themes](#contributing-colours-and-themes).
 
 ---
 
@@ -571,9 +580,11 @@ Extension point: **`shell.menus`**. There are three kinds of contribution
 
 ### Where things go
 
-**On the menu bar, the order is fixed:** `File`, then all plugin menus, then
-`Tools`, then `Help`. `order` only sorts your menu among the other plugin
-menus. It can't move a menu before File or after Tools.
+**On the menu bar, the order is fixed:** `File`, then `View`, then all plugin
+menus, then `Tools`, then `Help`. `order` only sorts your menu among the other
+plugin menus. It can't move a menu before File or after Tools. The `View`
+menu (`shell.view`) holds the window-layout commands, and plugins add their
+own page-opening items to it.
 
 **Inside a menu**, entries are placed in **groups**:
 
@@ -698,6 +709,8 @@ current value and an event for changes:
 | Application phase | `shell:lifecycle.get` → `'starting' \| 'started' \| 'shuttingDown' \| 'shutDown'` | `shell:lifecycle.changed` → `{ phase }` |
 | Context keys | `shell:contextKeys.snapshot` → `{ [key]: value }` | `shell:contextKeys.changed` → `{ [key]: value \| null }` (`null` = removed) |
 | The set of views | `shell:views.list` → views | `shell:views.changed` (no payload; the shell reloads the list itself) |
+| The set of bar items | `shell:bar.items.list` → items, with `enabled` flags | `shell:bar.items.changed` (no payload) |
+| This window's layout | `shell:layout.get` → `LayoutState` | `shell:layout.changed` → `LayoutState` (ignore other windows' ids), `shell:layout.revealed` → `{ windowId, viewId, slot }` |
 
 `shuttingDown` is **informational**: the window may close right after it, and
 a view can't delay or veto the quit. If the quit is vetoed, the phase returns to
@@ -822,39 +835,206 @@ provider.
 
 ## Contributing views
 
-Extension point: **`shell.views`** ([shared/views/types.ts](../shared/views/types.ts)):
+Extension point: **`shell.views`** (`ViewContribution` in
+[tessera-types/views.ts](../tessera-types/views.ts); slot ids in
+[shared/views/types.ts](../shared/views/types.ts)):
 
 ```ts
 {
   id: string        // 'budget.summary'
-  title: string     // shown while loading and in error messages; the section's accessible name
-  slot: string      // where to render, currently 'shell.main'
+  title: string     // tab label, rail tooltip, loading and error messages
+  slot: string      // where to render (see the slot table)
   module: string    // a module your renderer remote exposes, starting with './'
+  icon?: string     // REQUIRED for bar slots: './file.svg' in your renderer folder, or a shell icon name
   order?: number    // sorts views within the slot; default 0
+  when?: string     // context-key expression; the view is absent while it is false
 }
 ```
 
 You contribute views from the **privileged** side, as data. The component
-itself lives in your renderer remote, and the shell only fetches it when a
-slot that shows the view is rendered.
+itself lives in your renderer remote, and the shell only fetches it when the
+view is first shown.
+
+The window manager lays the window out as a main content area with a bar on
+each side (see [window-manager-design.md](window-manager-design.md)):
 
 | Slot | Where |
 |---|---|
-| `shell.main` | The window's main content area. The welcome text shows only when no view targets it. |
+| `shell.main` | The centre. One view is shown at a time, chosen by the `shell.layout.reveal` command; the welcome text shows only when no view targets it. |
+| `shell.left`, `shell.right`, `shell.top`, `shell.bottom` | The bars. Views in a bar are **tabs**; a bar is hidden entirely while nothing targets it, and the user can collapse it to a rail of view icons. |
 
-In a slot:
+In a bar:
 
-- Views render in order, each in its own `<section>` with a "Loading …"
-  placeholder.
+- The bar appears as soon as your view is present (contributed, plugin
+  active, `when` true) and disappears when nothing is left.
+- Your `icon` is shown on the view's tab and on the collapsed rail, where
+  clicking it expands the bar on your view. Icons are either files in your
+  renderer folder (`'./icons/accounts.svg'`, monochrome SVG, painted with the
+  theme colour) or a name from the shell's set
+  ([shared/layout/icons.ts](../shared/layout/icons.ts)).
+- A shown view stays mounted when its tab is inactive or the bar collapses,
+  so its state survives; a view that has never been shown is not loaded.
 - **Each view has its own error boundary.** If your module fails to load, has
   no component, or throws while rendering, only your view shows
   "*title* could not be displayed." The error goes to the renderer console
   as `[views] …`.
 - A view is skipped, with a `[views]` warning in the main process, if your
-  manifest has no `renderer.entry`, its `module` doesn't start with `./`, or
-  its id is a duplicate.
+  manifest has no `renderer.entry`, its `module` doesn't start with `./`,
+  its `slot` is unknown, a bar view has no `icon`, its `when` doesn't parse,
+  or its id is a duplicate.
+
+To open one of your views programmatically (after opening a vault, from a
+menu item, from a click in a navigation view), execute the shell's command:
+
+```js
+await context.commands.execute('shell.layout.reveal', 'budget.summary')
+```
+
+It makes the view active in its slot, expands its bar if collapsed, and
+focuses it. From a view, use
+`window.api.invoke('shell:commands.execute', { id: 'budget.show' })` to run a
+command (usually one of your own that ends in a reveal).
 
 Views currently receive **no props**. Use `window.api.invoke` to get data.
+
+**A complete example** is the built-in
+[`plugins/layout.sample/`](../plugins/layout.sample/): a view in every slot,
+a button in each bar view that `invoke`s the plugin's privileged code, which
+pushes the new state back with `context.events.emit` (every view re-renders
+from it) and switches the content page with `shell.layout.reveal`. Its
+[end-to-end test](../tests/plugins/layout.sample/endToEnd.test.tsx) shows the
+whole loop running without Electron.
+
+### Bar items: buttons and status text
+
+Extension point: **`shell.bar.items`** (`BarItemContribution` in
+[tessera-types/layout.ts](../tessera-types/layout.ts)). For things a bar shows
+directly, with no React component and no renderer remote: a button bound to a
+command, or a piece of status text driven by context keys.
+
+```js
+const B = 'shell.bar.items'
+// A toolbar button: enabled exactly when its command is enabled, like a menu item
+context.extensions.contribute('vault', B, 'vault.toolbar.save', {
+  kind: 'button', id: 'vault.toolbar.save', slot: 'shell.top',
+  label: 'Save', icon: 'save', command: 'vault.save', tooltip: 'Save the vault'
+})
+// Status text: {key} is replaced with that context key's value, live
+context.extensions.contribute('vault', B, 'vault.status.name', {
+  kind: 'text', id: 'vault.status.name', slot: 'shell.bottom',
+  text: 'Vault: {vault.name}', when: 'vault.isOpen', align: 'end'
+})
+```
+
+Items take `slot` (bar slots only), `align: 'start' | 'end'`, `order`, `when`,
+`tooltip` and `icon`, and are validated like views (invalid ones are skipped
+with a `[layout]` warning). A bar with only items is content-sized, so a
+status bar is as tall as its text.
+
+---
+
+## Contributing colours and themes
+
+The shell never draws a colour literal: every colour is a named **token**
+(`shell.accent`, `shell.bar.background`) that the active **theme** gives a
+value, and the result reaches every view as a CSS variable
+(`--shell-accent`). Plugins take part at both ends. The design is in
+[style-manager-design.md](style-manager-design.md); the built-in
+[`plugins/theme.sample/`](../plugins/theme.sample/) does everything below.
+
+### Using the theme in a view
+
+Nothing to register. Write `var(--<token with dots as dashes>)` in a
+stylesheet or an inline style, and the view follows every theme switch:
+
+```tsx
+<td style={{ borderColor: 'var(--shell-border)', color: 'var(--shell-foregroundMuted)' }}>…</td>
+<tr style={{ background: 'var(--accounts-reconciled)' }}>…</tr>
+```
+
+Text colour, background and fonts are inherited from the document, so most
+views need nothing at all. The shell's tokens are listed in
+[shared/theme/tokens.ts](../shared/theme/tokens.ts) and its fonts in
+[shared/theme/typography.ts](../shared/theme/typography.ts)
+(`--shell-font-family`, `--shell-font-size`, `--shell-font-sizeSmall`,
+`--shell-font-monoFamily`). Code that needs the value itself (a chart on a
+canvas) requests the snapshot and listens for changes:
+
+```ts
+const theme = await window.api.invoke<ThemeState>('shell:theme.get')
+theme.colors['accounts.positiveAmount']                       // '#107c10'
+window.api.on<ThemeState>('shell:theme.changed', next => redraw(next.colors))
+```
+
+### Contributing a colour token
+
+Extension point: **`shell.colors`** (`ColorContribution` in
+[tessera-types/theme.ts](../tessera-types/theme.ts)). A token is a colour
+your views use, with a default for light and for dark themes, so it looks
+right in any theme its author never saw. Any theme may override it.
+
+```js
+const C = 'shell.colors'
+context.subscriptions.push(
+  context.extensions.contribute('accounts', C, 'accounts.positiveAmount', {
+    id: 'accounts.positiveAmount', description: 'Credits in a register',
+    defaults: { light: '#107c10', dark: '#89d185' }
+  }),
+  context.extensions.contribute('accounts', C, 'accounts.negativeAmount', {
+    id: 'accounts.negativeAmount', description: 'Debits in a register',
+    defaults: 'shell.error'                   // a reference: follows whatever the theme says
+  })
+)
+```
+
+- `id` is dotted and must start with your plugin id; `description` is
+  required (a future picker shows it).
+- A default is a hex colour (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`) or
+  the id of another token, whose value is used instead. One value serves
+  both kinds; an object gives one per kind.
+- Your views read it as `var(--accounts-positiveAmount)`.
+
+### Contributing a theme
+
+Extension point: **`shell.themes`** (`ThemeContribution` in
+[tessera-types/theme.ts](../tessera-types/theme.ts)). A theme is a colour
+palette over the token catalogue: a label, a kind, and the tokens it sets.
+Whatever it leaves out comes from the theme it `extends`, then from each
+token's default for the kind, so a theme that only tints the shell is a
+few lines.
+
+```js
+context.subscriptions.push(
+  context.extensions.contribute('money-classic', 'shell.themes', 'money-classic.sepia', {
+    id: 'money-classic.sepia', label: 'Money Classic', kind: 'light', extends: 'shell.light',
+    colors: {
+      'shell.background': '#fbf6ea',
+      'shell.bar.background': '#efe6cf',
+      'shell.accent': '#7a5c1e',
+      'accounts.positiveAmount': '#3f6b1c'    // another plugin's token; fine
+    }
+  })
+)
+```
+
+- `kind` is `light` or `dark`; `extends` must name a theme of the same
+  kind (default: the shell's theme of that kind, `shell.light` or
+  `shell.dark`).
+- `colors` values are hex colours or token references, like defaults. A
+  token the catalogue does not know is kept and applies if that token's
+  plugin is activated later, in whatever order.
+- One invalid value skips the whole theme with a `[theme]` warning, since
+  a half-applied theme is worse than none.
+- The user picks themes from View › Theme, or the chooser dialog
+  (View › Theme › Choose Theme…, or the `shell.theme.choose` command); the
+  choice is kept across restarts. If your plugin is deactivated while your
+  theme is active, the shell falls back to its own theme of the same kind
+  and returns to yours when it is back.
+- Your views and bar items can run the shell's theme commands:
+  `shell.theme.choose`, `shell.theme.toggleDark`, `shell.theme.useSystem`,
+  and `shell.theme.select` with a theme id or `'system'`. The context keys
+  `shell.theme.active`, `shell.theme.kind` and `shell.theme.system` are
+  there for `when` and `enablement`.
 
 ---
 
@@ -1061,6 +1241,11 @@ DevTools console (Tools › Toggle Developer Tools).
 | "*title* could not be displayed." | `[views] View "<id>" failed` in DevTools | Remote entry not found, module not exposed, no default export, or a render error |
 | "Invalid hook call" | DevTools | Your remote bundles its own React; mark React as shared |
 | `invoke` rejects with `NO_HANDLER` | none | Channel typo, or the handler isn't registered; channels are `<pluginId>:<event>` |
+| Colour token or theme missing | `[theme] … ignored: "<id>" may only contribute …` | The token or theme id doesn't start with your plugin id |
+| Colour token or theme missing | `[theme] … has an invalid default/colour "…"` | Not a hex colour or a token id (`red`, `rgb(…)` are rejected) |
+| Theme missing | `[theme] Theme "…" cannot extend "…"` / `is part of an extends cycle` | `extends` names a theme of the other kind, or the chain loops |
+| A token has no CSS variable | `[theme] Colour token "…" references unknown token "…"` / `reference cycle` | A default or theme value references a token that doesn't exist, or references loop |
+| Your theme stopped applying | `[theme] Theme "…" is not available; using "shell.…"` | Your plugin was deactivated; the shell fell back and will return to your theme when it's back |
 
 ---
 
@@ -1069,10 +1254,25 @@ DevTools console (Tools › Toggle Developer Tools).
 | Concept | Value | Defined in |
 |---|---|---|
 | Menus extension point | `shell.menus` | [shared/menus/types.ts](../shared/menus/types.ts) |
-| Reserved top-level menus | `shell.file`, `shell.tools`, `shell.help` | [shared/menus/types.ts](../shared/menus/types.ts) |
+| Reserved top-level menus | `shell.file`, `shell.view`, `shell.tools`, `shell.help` | [shared/menus/types.ts](../shared/menus/types.ts) |
 | Default menu group | `additions` | [shared/menus/types.ts](../shared/menus/types.ts) |
 | Views extension point | `shell.views` | [shared/views/types.ts](../shared/views/types.ts) |
-| Main slot | `shell.main` | [shared/views/types.ts](../shared/views/types.ts) |
+| View contribution and descriptor | `ViewContribution`, `ViewDescriptor` | [tessera-types/views.ts](../tessera-types/views.ts) |
+| Slots | `shell.main`, `shell.top`, `shell.bottom`, `shell.left`, `shell.right` | [shared/views/types.ts](../shared/views/types.ts) |
+| Bar items extension point | `shell.bar.items` | [shared/layout/types.ts](../shared/layout/types.ts) |
+| Bar item contribution and descriptor | `BarItemContribution`, `BarItemDescriptor` | [tessera-types/layout.ts](../tessera-types/layout.ts) |
+| Layout state and IPC payloads | `LayoutState`, `LayoutSlotSetRequest`, `LayoutRevealedEvent`, `CommandsExecuteRequest` | [tessera-types/layout.ts](../tessera-types/layout.ts) |
+| Layout channels and defaults | `shell:layout.*`, `shell:bar.items.*`, `shell:commands.execute` | [shared/layout/types.ts](../shared/layout/types.ts) |
+| Layout commands | `shell.layout.toggle.<side>`, `.collapseAll`, `.expandAll`, `.reset`, `.reveal` | [shell/main/layout/registerLayout.ts](../shell/main/layout/registerLayout.ts) |
+| Layout context keys | `shell.layout.<side>.hasContent` / `.collapsed` / `.visible` / `.activeView`, `shell.layout.main.activeView` | [shell/main/layout/registerLayout.ts](../shell/main/layout/registerLayout.ts) |
+| Shell icon set | names | [shared/layout/icons.ts](../shared/layout/icons.ts) |
+| Colour tokens extension point | `shell.colors` | [shared/theme/types.ts](../shared/theme/types.ts) |
+| Themes extension point | `shell.themes` | [shared/theme/types.ts](../shared/theme/types.ts) |
+| Token and theme contributions, theme state | `ColorContribution`, `ThemeContribution`, `ThemeState` | [tessera-types/theme.ts](../tessera-types/theme.ts) |
+| Shell colour tokens and fonts | `shell.*` tokens → `--shell-*` variables | [shared/theme/tokens.ts](../shared/theme/tokens.ts), [shared/theme/typography.ts](../shared/theme/typography.ts) |
+| Theme channels | `shell:theme.get`, `shell:theme.set`, `shell:theme.changed` | [shared/theme/types.ts](../shared/theme/types.ts) |
+| Theme commands and context keys | `shell.theme.choose` / `.toggleDark` / `.useSystem` / `.select`; `shell.theme.active` / `.kind` / `.system` | [shell/main/theme/registerTheme.ts](../shell/main/theme/registerTheme.ts) |
+| Built-in themes | `shell.light`, `shell.dark` | [shared/theme/themes.ts](../shared/theme/themes.ts) |
 | Manifest schema and validation | `parseManifest` | [shared/plugins/manifest.ts](../shared/plugins/manifest.ts) |
 | Plugin context (interface) | `PluginContext` | [tessera-types/plugins.ts](../tessera-types/plugins.ts) |
 | Plugin context (implementation) | `createPluginContext` | [core/plugins/PluginContext.ts](../core/plugins/PluginContext.ts) |

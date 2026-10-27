@@ -1,6 +1,6 @@
 // shell/main/views/viewsIpc.ts
 import { PluginContext, Logger } from '@tessera/types'
-import { resolveViews } from '../../../shared/views/resolveViews'
+import { ViewResources, resolveViews } from '../../../shared/views/resolveViews'
 import { VIEWS_EXTENSION_POINT, VIEWS_LIST_CHANNEL } from '../../../shared/views/types'
 
 /**
@@ -9,11 +9,11 @@ import { VIEWS_EXTENSION_POINT, VIEWS_LIST_CHANNEL } from '../../../shared/views
  */
 export function registerViewsIpc(
   shell: PluginContext,
-  remoteEntryFor: (pluginId: string) => string | undefined,
+  resources: ViewResources,
   log: Logger
 ) {
   shell.ipc.register(VIEWS_LIST_CHANNEL, () => {
-    const { views, diagnostics } = resolveViews(shell.extensions.getContributions(VIEWS_EXTENSION_POINT), remoteEntryFor)
+    const { views, diagnostics } = resolveViews(shell.extensions.getContributions(VIEWS_EXTENSION_POINT), resources)
     for (const message of diagnostics) log.warn(`[views] ${message}`)
     return views
   })

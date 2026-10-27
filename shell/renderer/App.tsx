@@ -1,15 +1,16 @@
-import { MAIN_SLOT } from '../../shared/views/types'
-import { Slot } from './views/ViewsProvider'
+import { WindowManager } from './layout/WindowManager'
+import { ThemeChooser } from './theme/ThemeChooser'
 
 export default function App() {
   return (
-    <main style={{ padding: 20 }}>
-      <Slot id={MAIN_SLOT} fallback={<Welcome />} />
-    </main>
+    <>
+      <WindowManager fallback={<Welcome />} />
+      <ThemeChooser />
+    </>
   )
 }
 
-/** Shown when no plugin contributes to the main slot. */
+/** Shown when no plugin contributes a view to the main slot. */
 function Welcome() {
   return (
     <>

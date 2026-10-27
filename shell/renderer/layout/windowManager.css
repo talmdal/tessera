@@ -1,0 +1,212 @@
+/* shell/renderer/layout/windowManager.css
+ *
+ * The frame: centre plus four bars. Top and bottom span the full width; left
+ * and right sit between them. Hidden bars render no element at all, so the
+ * auto tracks collapse to nothing.
+ *
+ * Colours and fonts are the theme's variables (shared/theme/tokens.ts,
+ * shared/theme/typography.ts), set on <html> by <StyleManager>; no literals
+ * here. See docs/style-manager-design.md.
+ */
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+.wm {
+  display: grid;
+  height: 100%;
+  grid-template-areas:
+    "top    top    top"
+    "left   main   right"
+    "bottom bottom bottom";
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.wm-main {
+  grid-area: main;
+  overflow: auto;
+  padding: 20px;
+  outline: none;
+}
+
+/* ---- Bars ---- */
+
+.wm-bar, .wm-rail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--shell-bar-background);
+  position: relative;
+  outline: none;
+}
+
+.wm-bar-top,    .wm-rail-top    { grid-area: top;    border-bottom: 1px solid var(--shell-bar-border); }
+.wm-bar-bottom, .wm-rail-bottom { grid-area: bottom; border-top:    1px solid var(--shell-bar-border); }
+.wm-bar-left,   .wm-rail-left   { grid-area: left;   border-right:  1px solid var(--shell-bar-border); }
+.wm-bar-right,  .wm-rail-right  { grid-area: right;  border-left:   1px solid var(--shell-bar-border); }
+
+.wm-bar-views {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.wm-bar-views > section {
+  outline: none;
+  height: 100%;
+}
+
+/* ---- Icons ---- */
+
+.wm-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  vertical-align: middle;
+}
+
+.wm-icon-mask {
+  background-color: currentColor;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+/* ---- Item strip ---- */
+
+.wm-item-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+}
+
+.wm-item-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wm-item-group-end {
+  margin-left: auto;
+}
+
+.wm-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--shell-font-sizeSmall);
+  padding: 3px 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+}
+
+button.wm-item:not(:disabled) { cursor: pointer; }
+button.wm-item:not(:disabled):hover { background: var(--shell-bar-hoverBackground); }
+button.wm-item:disabled { opacity: 0.45; }
+
+/* ---- Tab strip ---- */
+
+.wm-tab-strip {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--shell-tab-border);
+}
+
+.wm-tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.wm-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--shell-font-sizeSmall);
+  padding: 5px 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wm-tab-active {
+  border-bottom-color: var(--shell-tab-activeBorder);
+  font-weight: 600;
+}
+
+/* When the bar is too narrow for titles, icons remain. */
+.wm-bar-left .wm-tab .wm-tab-title,
+.wm-bar-right .wm-tab .wm-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wm-collapse, .wm-rail-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  flex: none;
+}
+
+.wm-collapse:hover, .wm-rail-button:hover { background: var(--shell-bar-hoverBackground); }
+
+/* ---- Rail (collapsed bar) ---- */
+
+.wm-rail-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+}
+
+.wm-rail-left .wm-rail-tools, .wm-rail-right .wm-rail-tools {
+  flex-direction: column;
+}
+
+.wm-rail-left, .wm-rail-right { width: 40px; }
+.wm-rail-top, .wm-rail-bottom { height: 40px; justify-content: center; }
+
+.wm-rail-active {
+  background: var(--shell-bar-activeBackground);
+  box-shadow: inset 2px 0 0 var(--shell-bar-activeIndicator);
+}
+
+/* ---- Splitter ---- */
+
+.wm-splitter {
+  position: absolute;
+  z-index: 1;
+  background: transparent;
+}
+
+.wm-splitter:hover, .wm-splitter:focus-visible {
+  background: var(--shell-accent);
+  outline: none;
+}
+
+.wm-splitter-left   { top: 0; bottom: 0; right: -3px; width: 6px;  cursor: col-resize; }
+.wm-splitter-right  { top: 0; bottom: 0; left: -3px;  width: 6px;  cursor: col-resize; }
+.wm-splitter-top    { left: 0; right: 0; bottom: -3px; height: 6px; cursor: row-resize; }
+.wm-splitter-bottom { left: 0; right: 0; top: -3px;    height: 6px; cursor: row-resize; }

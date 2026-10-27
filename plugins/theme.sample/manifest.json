@@ -1,0 +1,12 @@
+{
+  "id": "theme-sample",
+  "name": "Theme Sample",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./Swatches": "src/renderer/Swatches.tsx"
+    }
+  }
+}

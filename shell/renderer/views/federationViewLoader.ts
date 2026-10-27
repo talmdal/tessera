@@ -1,10 +1,10 @@
 // shell/renderer/views/federationViewLoader.ts
+import type { ViewDescriptor } from '@tessera/types'
 import { createInstance, ModuleFederation } from '@module-federation/runtime'
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
 import * as JsxRuntime from 'react/jsx-runtime'
 import type { ComponentType } from 'react'
-import type { ViewDescriptor } from '../../../shared/views/types'
 import { ViewLoader } from './ports'
 
 const singleton = (lib: object, version: string) => ({
