@@ -1,0 +1,40 @@
+/* shell/renderer/theme/base.css
+ *
+ * What the document inherits from the theme: background, text, fonts, focus
+ * and links, all from the variables <StyleManager> sets on <html>. No colour
+ * or font literal belongs here or in any other shell stylesheet; they live
+ * in shared/theme/tokens.ts and shared/theme/typography.ts, and a test
+ * (tests/architecture/styles.test.ts) keeps it that way.
+ */
+
+html {
+  background: var(--shell-background);
+  color: var(--shell-foreground);
+  font-family: var(--shell-font-family);
+  font-size: var(--shell-font-size);
+}
+
+body {
+  background: inherit;
+  color: inherit;
+  font: inherit;
+}
+
+a {
+  color: var(--shell-link);
+}
+
+code, pre, kbd, samp {
+  font-family: var(--shell-font-monoFamily);
+}
+
+/* Keyboard focus on controls takes the theme's colour instead of the browser's. */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--shell-focusBorder);
+  outline-offset: -2px;
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}

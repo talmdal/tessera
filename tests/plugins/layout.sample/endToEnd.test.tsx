@@ -20,6 +20,8 @@ import { ViewsProvider } from '../../../shell/renderer/views/ViewsProvider'
 import { createLayoutContent } from '../../../shell/main/layout/layoutContent'
 import { registerLayout } from '../../../shell/main/layout/registerLayout'
 import { registerShellEvents } from '../../../shell/main/events/shellEvents'
+import { fixedAppearance } from '../../../shell/main/theme/nativeAppearance'
+import { registerTheme } from '../../../shell/main/theme/registerTheme'
 import { registerViewsIpc } from '../../../shell/main/views/viewsIpc'
 import { activate } from '../../../plugins/layout.sample/src/privileged/index'
 import Dashboard from '../../../plugins/layout.sample/src/renderer/Dashboard'
@@ -49,6 +51,7 @@ function boot() {
   }
 
   registerShellEvents(shell, runtime)
+  registerTheme(shell, runtime, { appearance: fixedAppearance(), log })
   registerViewsIpc(shell, resources, log)
   const content = createLayoutContent(runtime.extensions, resources, log)
   const service = new LayoutService(content.source, runtime.contextKeys, { log })

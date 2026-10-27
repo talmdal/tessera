@@ -19,6 +19,7 @@ extension points.
 - [IPC between your view and your privileged code](#ipc-between-your-view-and-your-privileged-code)
 - [Providing and using services](#providing-and-using-services)
 - [Contributing views](#contributing-views)
+- [Contributing colours and themes](#contributing-colours-and-themes)
 - [The renderer remote](#the-renderer-remote)
 - [Application lifecycle](#application-lifecycle)
 - [Lifecycle and cleanup](#lifecycle-and-cleanup)
@@ -235,7 +236,7 @@ You never write `remoteEntry.js`. The build generates it (see below).
 
 ```bash
 npm run build:plugins                  # every plugin under plugins/ → modules/
-npm run build:plugins -- budget        # only these plugin ids
+npm run build:plugins -- budget        # only these plugins, by id or by folder name
 npm run build:plugins -- --src <dir> --out <dir>
 ```
 
@@ -261,6 +262,10 @@ For each plugin the build:
    chunks in the folder of `renderer.entry`. React, `react/jsx-runtime` and
    `react-dom` are shared with the shell as singletons, and **no copy of React
    is bundled**. JSX uses the automatic runtime, so no `import React` is needed.
+   Each renderer is built in a Node process of its own
+   (`scripts/build-renderer.mjs`), because the federation plugin keeps
+   per-process state and a second remote built in the same process comes
+   out incomplete.
 4. **Writes the manifest** to the built folder, without `renderer.expose`.
 5. **Checks** that the manifest's `renderer.entry`, if any, was produced.
 
@@ -319,6 +324,10 @@ Contribute it from `activate` with `module: './SummaryView'`, as in
 - **CSS and assets** imported by a view should be emitted beside the remote
   entry and served through the plugin protocol, but **this is untested**: the
   sample view has no stylesheet. Check it before relying on it.
+- **Colours and fonts come from the theme.** Write
+  `color: var(--shell-foregroundMuted)` rather than a literal, and the view
+  follows a theme switch with no code; see
+  [Contributing colours and themes](#contributing-colours-and-themes).
 
 ---
 
@@ -924,6 +933,111 @@ status bar is as tall as its text.
 
 ---
 
+## Contributing colours and themes
+
+The shell never draws a colour literal: every colour is a named **token**
+(`shell.accent`, `shell.bar.background`) that the active **theme** gives a
+value, and the result reaches every view as a CSS variable
+(`--shell-accent`). Plugins take part at both ends. The design is in
+[style-manager-design.md](style-manager-design.md); the built-in
+[`plugins/theme.sample/`](../plugins/theme.sample/) does everything below.
+
+### Using the theme in a view
+
+Nothing to register. Write `var(--<token with dots as dashes>)` in a
+stylesheet or an inline style, and the view follows every theme switch:
+
+```tsx
+<td style={{ borderColor: 'var(--shell-border)', color: 'var(--shell-foregroundMuted)' }}>…</td>
+<tr style={{ background: 'var(--accounts-reconciled)' }}>…</tr>
+```
+
+Text colour, background and fonts are inherited from the document, so most
+views need nothing at all. The shell's tokens are listed in
+[shared/theme/tokens.ts](../shared/theme/tokens.ts) and its fonts in
+[shared/theme/typography.ts](../shared/theme/typography.ts)
+(`--shell-font-family`, `--shell-font-size`, `--shell-font-sizeSmall`,
+`--shell-font-monoFamily`). Code that needs the value itself (a chart on a
+canvas) requests the snapshot and listens for changes:
+
+```ts
+const theme = await window.api.invoke<ThemeState>('shell:theme.get')
+theme.colors['accounts.positiveAmount']                       // '#107c10'
+window.api.on<ThemeState>('shell:theme.changed', next => redraw(next.colors))
+```
+
+### Contributing a colour token
+
+Extension point: **`shell.colors`** (`ColorContribution` in
+[tessera-types/theme.ts](../tessera-types/theme.ts)). A token is a colour
+your views use, with a default for light and for dark themes, so it looks
+right in any theme its author never saw. Any theme may override it.
+
+```js
+const C = 'shell.colors'
+context.subscriptions.push(
+  context.extensions.contribute('accounts', C, 'accounts.positiveAmount', {
+    id: 'accounts.positiveAmount', description: 'Credits in a register',
+    defaults: { light: '#107c10', dark: '#89d185' }
+  }),
+  context.extensions.contribute('accounts', C, 'accounts.negativeAmount', {
+    id: 'accounts.negativeAmount', description: 'Debits in a register',
+    defaults: 'shell.error'                   // a reference: follows whatever the theme says
+  })
+)
+```
+
+- `id` is dotted and must start with your plugin id; `description` is
+  required (a future picker shows it).
+- A default is a hex colour (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`) or
+  the id of another token, whose value is used instead. One value serves
+  both kinds; an object gives one per kind.
+- Your views read it as `var(--accounts-positiveAmount)`.
+
+### Contributing a theme
+
+Extension point: **`shell.themes`** (`ThemeContribution` in
+[tessera-types/theme.ts](../tessera-types/theme.ts)). A theme is a colour
+palette over the token catalogue: a label, a kind, and the tokens it sets.
+Whatever it leaves out comes from the theme it `extends`, then from each
+token's default for the kind, so a theme that only tints the shell is a
+few lines.
+
+```js
+context.subscriptions.push(
+  context.extensions.contribute('money-classic', 'shell.themes', 'money-classic.sepia', {
+    id: 'money-classic.sepia', label: 'Money Classic', kind: 'light', extends: 'shell.light',
+    colors: {
+      'shell.background': '#fbf6ea',
+      'shell.bar.background': '#efe6cf',
+      'shell.accent': '#7a5c1e',
+      'accounts.positiveAmount': '#3f6b1c'    // another plugin's token; fine
+    }
+  })
+)
+```
+
+- `kind` is `light` or `dark`; `extends` must name a theme of the same
+  kind (default: the shell's theme of that kind, `shell.light` or
+  `shell.dark`).
+- `colors` values are hex colours or token references, like defaults. A
+  token the catalogue does not know is kept and applies if that token's
+  plugin is activated later, in whatever order.
+- One invalid value skips the whole theme with a `[theme]` warning, since
+  a half-applied theme is worse than none.
+- The user picks themes from View › Theme, or the chooser dialog
+  (View › Theme › Choose Theme…, or the `shell.theme.choose` command); the
+  choice is kept across restarts. If your plugin is deactivated while your
+  theme is active, the shell falls back to its own theme of the same kind
+  and returns to yours when it is back.
+- Your views and bar items can run the shell's theme commands:
+  `shell.theme.choose`, `shell.theme.toggleDark`, `shell.theme.useSystem`,
+  and `shell.theme.select` with a theme id or `'system'`. The context keys
+  `shell.theme.active`, `shell.theme.kind` and `shell.theme.system` are
+  there for `when` and `enablement`.
+
+---
+
 ## The renderer remote
 
 Your `renderer.entry` must be a **Module Federation remote entry in ES-module
@@ -1127,6 +1241,11 @@ DevTools console (Tools › Toggle Developer Tools).
 | "*title* could not be displayed." | `[views] View "<id>" failed` in DevTools | Remote entry not found, module not exposed, no default export, or a render error |
 | "Invalid hook call" | DevTools | Your remote bundles its own React; mark React as shared |
 | `invoke` rejects with `NO_HANDLER` | none | Channel typo, or the handler isn't registered; channels are `<pluginId>:<event>` |
+| Colour token or theme missing | `[theme] … ignored: "<id>" may only contribute …` | The token or theme id doesn't start with your plugin id |
+| Colour token or theme missing | `[theme] … has an invalid default/colour "…"` | Not a hex colour or a token id (`red`, `rgb(…)` are rejected) |
+| Theme missing | `[theme] Theme "…" cannot extend "…"` / `is part of an extends cycle` | `extends` names a theme of the other kind, or the chain loops |
+| A token has no CSS variable | `[theme] Colour token "…" references unknown token "…"` / `reference cycle` | A default or theme value references a token that doesn't exist, or references loop |
+| Your theme stopped applying | `[theme] Theme "…" is not available; using "shell.…"` | Your plugin was deactivated; the shell fell back and will return to your theme when it's back |
 
 ---
 
@@ -1147,6 +1266,13 @@ DevTools console (Tools › Toggle Developer Tools).
 | Layout commands | `shell.layout.toggle.<side>`, `.collapseAll`, `.expandAll`, `.reset`, `.reveal` | [shell/main/layout/registerLayout.ts](../shell/main/layout/registerLayout.ts) |
 | Layout context keys | `shell.layout.<side>.hasContent` / `.collapsed` / `.visible` / `.activeView`, `shell.layout.main.activeView` | [shell/main/layout/registerLayout.ts](../shell/main/layout/registerLayout.ts) |
 | Shell icon set | names | [shared/layout/icons.ts](../shared/layout/icons.ts) |
+| Colour tokens extension point | `shell.colors` | [shared/theme/types.ts](../shared/theme/types.ts) |
+| Themes extension point | `shell.themes` | [shared/theme/types.ts](../shared/theme/types.ts) |
+| Token and theme contributions, theme state | `ColorContribution`, `ThemeContribution`, `ThemeState` | [tessera-types/theme.ts](../tessera-types/theme.ts) |
+| Shell colour tokens and fonts | `shell.*` tokens → `--shell-*` variables | [shared/theme/tokens.ts](../shared/theme/tokens.ts), [shared/theme/typography.ts](../shared/theme/typography.ts) |
+| Theme channels | `shell:theme.get`, `shell:theme.set`, `shell:theme.changed` | [shared/theme/types.ts](../shared/theme/types.ts) |
+| Theme commands and context keys | `shell.theme.choose` / `.toggleDark` / `.useSystem` / `.select`; `shell.theme.active` / `.kind` / `.system` | [shell/main/theme/registerTheme.ts](../shell/main/theme/registerTheme.ts) |
+| Built-in themes | `shell.light`, `shell.dark` | [shared/theme/themes.ts](../shared/theme/themes.ts) |
 | Manifest schema and validation | `parseManifest` | [shared/plugins/manifest.ts](../shared/plugins/manifest.ts) |
 | Plugin context (interface) | `PluginContext` | [tessera-types/plugins.ts](../tessera-types/plugins.ts) |
 | Plugin context (implementation) | `createPluginContext` | [core/plugins/PluginContext.ts](../core/plugins/PluginContext.ts) |

@@ -1,5 +1,5 @@
 // shell/main/app.ts — composition root: wires core to Electron and file-system adapters.
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, nativeTheme } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { CommandRegistryImpl } from '../../core/commands/CommandRegistry'
@@ -18,6 +18,9 @@ import { registerCoreMenus } from './menus/coreMenus'
 import { applyApplicationMenu } from './menus/electronMenu'
 import { FsPluginSource } from './plugins/FsPluginSource'
 import { handlePluginProtocol, pluginUrl, registerPluginSchemePrivileges } from './plugins/pluginProtocol'
+import { createAppStatePersistence } from './theme/appStatePersistence'
+import { createNativeAppearance } from './theme/nativeAppearance'
+import { ThemeRegistration, registerTheme } from './theme/registerTheme'
 import { registerViewsIpc } from './views/viewsIpc'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -60,6 +63,7 @@ function assetUrlFor(pluginId: string, relativePath: string) {
 registerPluginSchemePrivileges()
 
 let layout: LayoutRegistration | undefined
+let theme: ThemeRegistration | undefined
 
 async function bootstrap() {
   const shell = createPluginContext(SHELL_CONTRIBUTOR_ID, runtime).context
@@ -90,7 +94,20 @@ async function bootstrap() {
   )
   app.on('browser-window-focus', () => layout?.refreshContextKeys())
 
+  const appearance = createNativeAppearance(nativeTheme)
+  theme = registerTheme(shell, runtime, {
+    appearance,
+    persistence: createAppStatePersistence(runtime.services, log),
+    focusedWindowId: () => BrowserWindow.getFocusedWindow()?.id,
+    applyNative: state => appearance.apply(state, () => BrowserWindow.getAllWindows()),
+    log
+  })
+
   await pluginManager.activateAll()
+  // The stored preference needs the app.state service, which a plugin provides;
+  // applied now, before the window exists, so the first frame has the right colours.
+  const themeState = await theme.service.load()
+  appearance.apply(themeState, () => BrowserWindow.getAllWindows())
   applyApplicationMenu(runtime.extensions, runtime.commands)
 }
 
@@ -98,11 +115,16 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    // The theme's background from the first frame, and no frame until the
+    // renderer has painted, so there is no flash of the wrong colour.
+    backgroundColor: theme?.service.get().colors['shell.background'],
+    show: false,
     webPreferences: {
       // Built next to app.js by shell/preload/vite.config.ts
       preload: path.join(__dirname, 'preload.js')
     }
   })
+  win.once('ready-to-show', () => win.show())
 
   // The primary window's layout is persisted under the stable key 'main'.
   // The id is captured now: it is gone from the window object once destroyed.

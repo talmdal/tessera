@@ -37,6 +37,18 @@ platform.
   to commands and context keys, and the per-window layout state is owned by
   the main process and mirrored over IPC (`shell:layout.*`). See
   [docs/window-manager-design.md](docs/window-manager-design.md).
+- **Style manager:** every colour is a named token with a light and a
+  dark default (`shell.bar.background`, `shell.accent`…). Plugins add their
+  own tokens through `shell.colors` and whole themes through `shell.themes`
+  (a theme may colour any plugin's token, and extend another theme). The
+  main process resolves them and mirrors the result to the renderer as CSS
+  custom properties on `<html>` (`--shell-bar-background`), with the
+  shell's typography beside them, so views use `var(--…)` and follow a
+  theme switch with no code. Light and dark ship built in; the user picks
+  a theme, or follows the system, from View › Theme or the theme chooser
+  (live preview, Cancel restores), and the choice is kept in `app.state`.
+  `plugins/theme.sample/` is the worked example. See
+  [docs/style-manager-design.md](docs/style-manager-design.md).
 - **Built-in plugins:** source in `plugins/<id>/`, built (TypeScript and
   TSX) into `modules/<id>/` with `npm run build:plugins`, and loaded before
   user-installed plugins. `plugins/layout.sample/` is the worked example: a
@@ -48,7 +60,8 @@ platform.
   requires `storage.engine`).
 - **Storage and application state:** a `StorageEngine` interface
   (collections, queries, transactions) with a LokiJS implementation, and an
-  `app-state` plugin that keeps window, theme and sidebar state on top of it,
+  `app-state` plugin that keeps window and sidebar state (and the shell's
+  theme preference) on top of it,
   exposed to views over IPC (`app.state:get`, `:set`, `:update`, `:remove`).
 - **IPC:** a single dispatcher channel. Handlers are registered on channels
   named `<pluginId>:<event>` by convention, and replies are a structured
@@ -175,13 +188,16 @@ shell/preload/        window.api bridge
 shell/renderer/       React host and view loading
 scripts/dev.mts       Development launcher used by npm run dev
 scripts/build-plugins.mts  Builds bundled plugins from plugins/ into modules/
+scripts/build-renderer.mjs Builds one plugin's renderer remote; run per plugin
+                      by build-plugins.mts in its own process
 tests/                Vitest suites, mirroring the source folders, plus
                       architecture boundary tests and fixtures
 docs/                 Plugin guide, design notes and open-work list
 plugins/              Source of bundled (built-in) plugins, one folder each:
                       app.state (application state), storage.loki (LokiJS
-                      storage engine) and layout.sample (a view in every
-                      slot of the window manager; the worked example)
+                      storage engine), layout.sample (a view in every slot
+                      of the window manager; the worked example) and
+                      theme.sample (a colour token and a theme)
 modules/              Build output of plugins/ (gitignored); loaded at startup
 ```
 
@@ -200,6 +216,10 @@ modules/              Build output of plugins/ (gitignored); loaded at startup
   manager (implemented), a central content area with collapsible bars on each
   side, the slots and bar items plugins contribute to, and the IPC that
   drives it
+- [docs/style-manager-design.md](docs/style-manager-design.md): the style
+  manager (tokens, themes and the extension points implemented): colour
+  tokens, themes, how plugins contribute both, the CSS variables views
+  use, and the planned selection and persistence
 - [docs/todo.md](docs/todo.md): known gaps and planned work
 
 ## License

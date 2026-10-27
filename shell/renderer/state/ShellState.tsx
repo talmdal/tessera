@@ -6,9 +6,12 @@ import type {
   BarState,
   ContextKeyValue,
   LayoutState,
-  TesseraBridge
+  TesseraBridge,
+  ThemeState
 } from '@tessera/types'
 import { LAYOUT_CHANGED, LAYOUT_GET, emptyLayout } from '../../../shared/layout/types'
+import { builtinThemeState } from '../../../shared/theme/builtin'
+import { THEME_CHANGED, THEME_GET } from '../../../shared/theme/types'
 import {
   CONTEXT_KEYS_CHANGED,
   CONTEXT_KEYS_SNAPSHOT,
@@ -27,11 +30,12 @@ interface ShellState {
   phase: RemoteState<AppPhase>
   contextKeys: RemoteState<ContextKeySnapshot>
   layout: RemoteState<LayoutState>
+  theme: RemoteState<ThemeState>
 }
 
 const ShellStateContext = createContext<ShellState | null>(null)
 
-/** Mirrors the shell's application phase, context keys and layout for the components below. */
+/** Mirrors the shell's application phase, context keys, layout and theme for the components below. */
 export function ShellStateProvider({ bridge, children }: { bridge: Bridge, children: ReactNode }) {
   const [state] = useState<ShellState>(() => ({
     bridge,
@@ -62,6 +66,15 @@ export function ShellStateProvider({ bridge, children }: { bridge: Bridge, child
       event: LAYOUT_CHANGED,
       apply: (current, next) =>
         current.windowId === -1 || next.windowId === current.windowId ? next : current
+    }),
+    // Until the snapshot arrives, the shell's own theme for the kind the
+    // operating system asks for: the same colours the main process starts
+    // from, so the first frame only differs when the user chose another theme.
+    theme: createRemoteState<ThemeState, ThemeState>(bridge, {
+      initial: builtinThemeState(prefersDark() ? 'dark' : 'light'),
+      load: THEME_GET,
+      event: THEME_CHANGED,
+      apply: (_, next) => next
     })
   }))
 
@@ -106,4 +119,20 @@ export function useLayout(): LayoutState {
 /** One bar's state. */
 export function useBar(side: BarSide): BarState {
   return useLayout().bars[side]
+}
+
+/** The active theme and its resolved colours; re-renders when it changes. */
+export function useTheme(): ThemeState {
+  const { theme } = useShellState()
+  return useSyncExternalStore(theme.subscribe, theme.getSnapshot)
+}
+
+/** A token's resolved hex colour (undefined while unresolved); re-renders when it changes. */
+export function useThemeColor(token: string): string | undefined {
+  const { theme } = useShellState()
+  return useSyncExternalStore(theme.subscribe, () => theme.getSnapshot().colors[token])
+}
+
+function prefersDark() {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches === true
 }

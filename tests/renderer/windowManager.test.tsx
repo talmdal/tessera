@@ -10,6 +10,7 @@ import {
   LAYOUT_SLOT_SET,
   emptyLayout
 } from '../../shared/layout/types'
+import { builtinThemeState } from '../../shared/theme/builtin'
 import { WindowManager } from '../../shell/renderer/layout/WindowManager'
 import { BarItemsProvider } from '../../shell/renderer/layout/BarItemsProvider'
 import { ShellStateProvider } from '../../shell/renderer/state/ShellState'
@@ -47,6 +48,7 @@ function setup({ layout, views = [], items = [], keys = {}, components = {} }: {
       if (channel === 'shell:lifecycle.get') return 'started'
       if (channel === 'shell:contextKeys.snapshot') return keys
       if (channel === LAYOUT_GET) return layout
+      if (channel === 'shell:theme.get') return builtinThemeState('light')
       if (channel === LAYOUT_SLOT_SET) return layout
       if (channel === COMMANDS_EXECUTE) return undefined
       throw new Error(`Unexpected request ${channel}`)

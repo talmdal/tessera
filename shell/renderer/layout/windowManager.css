@@ -3,6 +3,10 @@
  * The frame: centre plus four bars. Top and bottom span the full width; left
  * and right sit between them. Hidden bars render no element at all, so the
  * auto tracks collapse to nothing.
+ *
+ * Colours and fonts are the theme's variables (shared/theme/tokens.ts,
+ * shared/theme/typography.ts), set on <html> by <StyleManager>; no literals
+ * here. See docs/style-manager-design.md.
  */
 
 html, body, #root {
@@ -19,7 +23,6 @@ html, body, #root {
     "bottom bottom bottom";
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  font-family: system-ui, sans-serif;
 }
 
 .wm-main {
@@ -36,15 +39,15 @@ html, body, #root {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: #f3f3f3;
+  background: var(--shell-bar-background);
   position: relative;
   outline: none;
 }
 
-.wm-bar-top,    .wm-rail-top    { grid-area: top;    border-bottom: 1px solid #d0d0d0; }
-.wm-bar-bottom, .wm-rail-bottom { grid-area: bottom; border-top:    1px solid #d0d0d0; }
-.wm-bar-left,   .wm-rail-left   { grid-area: left;   border-right:  1px solid #d0d0d0; }
-.wm-bar-right,  .wm-rail-right  { grid-area: right;  border-left:   1px solid #d0d0d0; }
+.wm-bar-top,    .wm-rail-top    { grid-area: top;    border-bottom: 1px solid var(--shell-bar-border); }
+.wm-bar-bottom, .wm-rail-bottom { grid-area: bottom; border-top:    1px solid var(--shell-bar-border); }
+.wm-bar-left,   .wm-rail-left   { grid-area: left;   border-right:  1px solid var(--shell-bar-border); }
+.wm-bar-right,  .wm-rail-right  { grid-area: right;  border-left:   1px solid var(--shell-bar-border); }
 
 .wm-bar-views {
   flex: 1;
@@ -100,7 +103,7 @@ html, body, #root {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--shell-font-sizeSmall);
   padding: 3px 6px;
   border: none;
   border-radius: 3px;
@@ -109,7 +112,7 @@ html, body, #root {
 }
 
 button.wm-item:not(:disabled) { cursor: pointer; }
-button.wm-item:not(:disabled):hover { background: #e0e0e0; }
+button.wm-item:not(:disabled):hover { background: var(--shell-bar-hoverBackground); }
 button.wm-item:disabled { opacity: 0.45; }
 
 /* ---- Tab strip ---- */
@@ -117,7 +120,7 @@ button.wm-item:disabled { opacity: 0.45; }
 .wm-tab-strip {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--shell-tab-border);
 }
 
 .wm-tabs {
@@ -131,7 +134,7 @@ button.wm-item:disabled { opacity: 0.45; }
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: var(--shell-font-sizeSmall);
   padding: 5px 10px;
   border: none;
   border-bottom: 2px solid transparent;
@@ -142,7 +145,7 @@ button.wm-item:disabled { opacity: 0.45; }
 }
 
 .wm-tab-active {
-  border-bottom-color: #0063b1;
+  border-bottom-color: var(--shell-tab-activeBorder);
   font-weight: 600;
 }
 
@@ -167,7 +170,7 @@ button.wm-item:disabled { opacity: 0.45; }
   flex: none;
 }
 
-.wm-collapse:hover, .wm-rail-button:hover { background: #e0e0e0; }
+.wm-collapse:hover, .wm-rail-button:hover { background: var(--shell-bar-hoverBackground); }
 
 /* ---- Rail (collapsed bar) ---- */
 
@@ -186,8 +189,8 @@ button.wm-item:disabled { opacity: 0.45; }
 .wm-rail-top, .wm-rail-bottom { height: 40px; justify-content: center; }
 
 .wm-rail-active {
-  background: #e0e0e0;
-  box-shadow: inset 2px 0 0 #0063b1;
+  background: var(--shell-bar-activeBackground);
+  box-shadow: inset 2px 0 0 var(--shell-bar-activeIndicator);
 }
 
 /* ---- Splitter ---- */
@@ -199,7 +202,7 @@ button.wm-item:disabled { opacity: 0.45; }
 }
 
 .wm-splitter:hover, .wm-splitter:focus-visible {
-  background: #0063b1;
+  background: var(--shell-accent);
   outline: none;
 }
 

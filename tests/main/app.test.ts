@@ -41,7 +41,7 @@ vi.mock('electron', () => {
   )
 
   const handlers: Record<string, any> = {}
-  const liveWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+  const liveWindow = { isDestroyed: () => false, setBackgroundColor: vi.fn(), webContents: { send: vi.fn() } }
 
   return {
     ipcMain: {
@@ -81,6 +81,13 @@ vi.mock('electron', () => {
 
     powerMonitor: { on: vi.fn() },
 
+    nativeTheme: {
+      shouldUseDarkColors: false,
+      themeSource: 'system',
+      on: vi.fn(),
+      removeListener: vi.fn()
+    },
+
     protocol: {
       registerSchemesAsPrivileged: vi.fn(),
       handle: vi.fn()
@@ -91,6 +98,10 @@ vi.mock('electron', () => {
       loadURL: vi.fn(),
       getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
+      once: vi.fn(),
+      show: vi.fn(),
+      isDestroyed: () => false,
+      setBackgroundColor: vi.fn(),
       webContents: { openDevTools: vi.fn() }
     } }), {
       getAllWindows: () => [liveWindow],
