@@ -154,3 +154,7 @@ package-lock.json
 /todo.md
 
 *.zip
+
+.__mf__temp
+
+.history

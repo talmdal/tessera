@@ -75,10 +75,7 @@ export function ViewsProvider({ source, loader, children }: {
  * independently; `fallback` is shown when the slot has no views.
  */
 export function Slot({ id, fallback = null }: { id: string, fallback?: ReactNode }) {
-  const context = useContext(ViewsContext)
-  if (!context) throw new Error('<Slot> must be rendered inside <ViewsProvider>')
-
-  const { views, componentFor } = context
+  const views = useViewCatalogue()
   if (!views) return null
 
   const inSlot = views.filter(view => view.slot === id)
@@ -86,19 +83,37 @@ export function Slot({ id, fallback = null }: { id: string, fallback?: ReactNode
 
   return (
     <>
-      {inSlot.map(view => {
-        const View = componentFor(view)
-        return (
-          <section key={view.id} aria-label={view.title} data-view-id={view.id}>
-            <ViewBoundary view={view}>
-              <Suspense fallback={<p>Loading {view.title}…</p>}>
-                <View />
-              </Suspense>
-            </ViewBoundary>
-          </section>
-        )
-      })}
+      {inSlot.map(view => <ViewPane key={view.id} view={view} />)}
     </>
+  )
+}
+
+/** Every valid view, present or not. Undefined until the list has been fetched. */
+export function useViewCatalogue(): ViewDescriptor[] | undefined {
+  return useViewsContext().views
+}
+
+function useViewsContext() {
+  const context = useContext(ViewsContext)
+  if (!context) throw new Error('<Slot> must be rendered inside <ViewsProvider>')
+  return context
+}
+
+/**
+ * One view in its own section, with its own loading placeholder and error
+ * boundary. `hidden` keeps it mounted but out of sight and out of the
+ * accessibility tree, so its state survives while another view is shown.
+ */
+export function ViewPane({ view, hidden = false }: { view: ViewDescriptor, hidden?: boolean }) {
+  const View = useViewsContext().componentFor(view)
+  return (
+    <section aria-label={view.title} data-view-id={view.id} hidden={hidden} tabIndex={-1}>
+      <ViewBoundary view={view}>
+        <Suspense fallback={<p>Loading {view.title}…</p>}>
+          <View />
+        </Suspense>
+      </ViewBoundary>
+    </section>
   )
 }
 

@@ -1,9 +1,23 @@
 import { StorageEngine, StorageTransaction } from '@tessera/types'
 
 export class TransactionManager {
+  /** Transactions started through this manager, one after another. */
+  private queue: Promise<unknown> = Promise.resolve()
+
   constructor(private engine: StorageEngine) {}
 
-  async run<T>(fn: (tx: StorageTransaction) => Promise<T>): Promise<T> {
+  /**
+   * Runs `fn` in a transaction. Transactions run one at a time: each starts
+   * from a snapshot of the database, so two that overlapped would each commit
+   * a state without the other's changes, and the later commit would win.
+   */
+  run<T>(fn: (tx: StorageTransaction) => Promise<T>): Promise<T> {
+    const result = this.queue.then(() => this.runNow(fn))
+    this.queue = result.catch(() => {})
+    return result
+  }
+
+  private async runNow<T>(fn: (tx: StorageTransaction) => Promise<T>): Promise<T> {
     if (!this.engine.capabilities().transactions) {
       throw new Error('Storage engine does not support transactions')
     }

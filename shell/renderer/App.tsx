@@ -1,12 +1,7 @@
-import { MAIN_SLOT } from '../../shared/views/types'
-import { Slot } from './views/ViewsProvider'
+import { LayoutController } from './layout/LayoutController'
 
 export default function App() {
-  return (
-    <main style={{ padding: 20 }}>
-      <Slot id={MAIN_SLOT} fallback={<Welcome />} />
-    </main>
-  )
+  return <LayoutController welcome={<Welcome />} />
 }
 
 /** Shown when no plugin contributes to the main slot. */

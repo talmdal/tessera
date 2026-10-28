@@ -47,13 +47,14 @@ vi.mock('electron', () => {
     // BrowserWindow mock
     // -----------------------------
     BrowserWindow: Object.assign(vi.fn(function () { return {
+      id: 1,
       loadURL: vi.fn(),
       getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: {
         openDevTools: vi.fn()
       }
-    } }), { getAllWindows: () => [] }),
+    } }), { getAllWindows: () => [], fromWebContents: () => ({ id: 1 }) }),
 
     // -----------------------------
     // Menu / dialog mocks
@@ -73,6 +74,8 @@ vi.mock('electron', () => {
     },
 
     powerMonitor: { on: vi.fn() },
+
+    screen: { getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }] },
 
     protocol: {
       registerSchemesAsPrivileged: vi.fn(),

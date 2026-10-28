@@ -10,10 +10,11 @@ import { VIEWS_EXTENSION_POINT, VIEWS_LIST_CHANNEL } from '../../../shared/views
 export function registerViewsIpc(
   shell: PluginContext,
   remoteEntryFor: (pluginId: string) => string | undefined,
+  iconUrlFor: (pluginId: string, relativePath: string) => string | undefined,
   log: Logger
 ) {
   shell.ipc.register(VIEWS_LIST_CHANNEL, () => {
-    const { views, diagnostics } = resolveViews(shell.extensions.getContributions(VIEWS_EXTENSION_POINT), remoteEntryFor)
+    const { views, diagnostics } = resolveViews(shell.extensions.getContributions(VIEWS_EXTENSION_POINT), remoteEntryFor, iconUrlFor)
     for (const message of diagnostics) log.warn(`[views] ${message}`)
     return views
   })

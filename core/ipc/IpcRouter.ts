@@ -3,6 +3,7 @@ import {
   IpcResponse, 
   IpcRouter, 
   IpcHandler,
+  IpcSender,
   Disposable, 
   Logger
 } from '../../tessera-types'
@@ -35,7 +36,7 @@ export class IpcRouterImpl implements IpcRouter {
     return this.handlers.has(channel)
   }
 
-  async dispatch(request: unknown): Promise<IpcResponse> {
+  async dispatch(request: unknown, sender?: IpcSender):Promise<IpcResponse> {
     if (!isIpcRequest(request)) {
       return { ok: false, error: { code: 'BAD_REQUEST', message: 'Malformed IPC request' } }
     }
@@ -47,7 +48,7 @@ export class IpcRouterImpl implements IpcRouter {
     }
 
     try {
-      return { ok: true, data: await handler({ channel, data, correlationId }), correlationId }
+      return { ok: true, data: await handler({ channel, data, correlationId, sender }), correlationId }
     } catch (err) {
       this.log?.error(`[ipc] Handler for ${channel} failed`, err)
       const message = err instanceof Error ? err.message : String(err)

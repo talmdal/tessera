@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <title>Tessera</title>
+    <style>
+      /* The layout frame fills the window exactly and scrolls its own regions, so the page itself never scrolls. */
+      html, body, #root { margin: 0; height: 100%; overflow: hidden; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

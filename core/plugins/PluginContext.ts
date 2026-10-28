@@ -58,6 +58,7 @@ export function createPluginContext(pluginId: string, runtime: PluginRuntime, op
     pluginId,
     ipc: runtime.ipc,
     commands: {
+      onDidChange: runtime.commands.onDidChange,
       register: (id, handler, options) => {
         assertOwned('command', id)
         return track(runtime.commands.register(id, handler, options))

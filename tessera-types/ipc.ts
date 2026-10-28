@@ -4,6 +4,13 @@ export interface IpcMessage<T = unknown> {
   channel: string
   data: T
   correlationId?: string
+  /** Who sent the request. Set by the Electron adapter; absent when a test dispatches directly. */
+  sender?: IpcSender
+}
+
+/** The window a request came from, as identified by the main process, never by the renderer. */
+export interface IpcSender {
+  windowId: number
 }
 
 export type IpcHandler<TReq = unknown, TRes = unknown> =
@@ -31,7 +38,7 @@ export interface IpcEvent<T = unknown> {
 export interface TesseraBridge {
   invoke<TRes = unknown, TReq = unknown>(channel: string, data?: TReq): Promise<TRes>
   /** Listens for a push event from the main process. Returns a function that stops listening. */
-  on<T = unknown>(name: string, listener: (event: string , data: T) => void): () => void
+  on<T = unknown>(name: string, listener: ( data: T) => void): () => void
   // send(channel: string, data?: any): void
 }
 
@@ -45,5 +52,5 @@ export interface IpcRouter {
 
   has(channel: string): boolean
 
-  dispatch(request: unknown): Promise<IpcResponse> 
+  dispatch(request: unknown, sender?: IpcSender): Promise<IpcResponse>
 }

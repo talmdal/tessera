@@ -81,17 +81,20 @@ vi.mock('electron', () => {
 
     powerMonitor: { on: vi.fn() },
 
+    screen: { getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }] },
+
     protocol: {
       registerSchemesAsPrivileged: vi.fn(),
       handle: vi.fn()
     },
 
     BrowserWindow: Object.assign(vi.fn(function () { return {
+      id: 7,
       loadURL: vi.fn(),
     getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: { openDevTools: vi.fn() }
-    } }), { getAllWindows: () => [liveWindow] }),
+    } }), { getAllWindows: () => [liveWindow], fromWebContents: () => ({ id: 7 }) }),
 
     app: {
       getVersion: () => '1.2.3',
@@ -132,7 +135,7 @@ describe('main process (dynamic plugin system)', () => {
     await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
 
     const template = vi.mocked(electron.Menu.buildFromTemplate).mock.calls[0][0]
-    expect(template.map(m => m.label)).toEqual(['&File', 'Test', '&Tools', '&Help'])
+    expect(template.map(m => m.label)).toEqual(['&File', '&View', 'Test', '&Tools', '&Help'])
   })
 
   it('lists plugin views with the URL of the plugin remote entry', async () => {
@@ -150,6 +153,56 @@ describe('main process (dynamic plugin system)', () => {
         remoteEntry: 'tessera-plugin://test-plugin/remoteEntry.js'
       }]
     })
+  })
+
+  it('answers a window with its layout, listing the plugin view in the main area', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+
+    const response = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:layout.get' })
+
+    expect(response).toMatchObject({
+      ok: true,
+      data: { windowId: 7, main: { views: ['test-plugin.hello'], activeView: 'test-plugin.hello' }, bars: { left: { views: [], collapsed: false } } }
+    })
+  })
+
+  it('runs a layout command from the renderer and publishes the new layout', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const [window] = electron.BrowserWindow.getAllWindows() as any[]
+    const before = window.webContents.send.mock.calls.length
+
+    const reset = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:commands.execute', data: { id: 'shell.layout.reset' } })
+    const slot = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:layout.slot.set', data: { slot: 'shell.top', collapsed: true } })
+
+    expect(reset).toMatchObject({ ok: true })
+    expect(slot).toMatchObject({ ok: true, data: { bars: { top: { collapsed: true } } } })
+    expect(window.webContents.send.mock.calls.slice(before).map((call: any[]) => call[1].name)).toContain('shell:layout.changed')
+  })
+
+  it('lists no bar items when no plugin contributes any', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+
+    const response = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:bar.items.list' })
+
+    expect(response).toEqual({ ok: true, data: [] })
+  })
+
+  it('follows the focused window', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const focus = vi.mocked(electron.app.on).mock.calls.find(([event]) => event === 'browser-window-focus')
+
+    expect(focus).toBeDefined()
+    expect(() => (focus![1] as any)({}, { id: 7 })).not.toThrow()
+  })
+
+  it('opens the window at the default size, and follows its position and size from then on', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const [options] = vi.mocked(electron.BrowserWindow).mock.calls[0] as any[]
+    const window = vi.mocked(electron.BrowserWindow).mock.results[0].value as any
+
+    expect(options).toMatchObject({ width: 1200, height: 800 })
+    expect(options).not.toHaveProperty('x')
+    expect(vi.mocked(window.on).mock.calls.map((call: any[]) => call[0])).toEqual(expect.arrayContaining(['resize', 'move', 'maximize', 'unmaximize', 'close']))
   })
 
   it('registers the plugin scheme as privileged and serves it', async () => {
