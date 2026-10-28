@@ -1,0 +1,17 @@
+{
+  "id": "test-layout",
+  "name": "Test layouut Plugin",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./Dashboard": "src/renderer/Dashboard.tsx",
+      "./Detail": "src/renderer/ContentPanel.tsx",
+      "./TopPanel": "src/renderer/TopPanel.tsx",
+      "./BottomPanel": "src/renderer/BottomPanel.tsx",
+      "./LeftPanel": "src/renderer/LeftPanel.tsx",
+      "./RightPanel": "src/renderer/RightPanel.tsx"
+    }
+  }
+}
