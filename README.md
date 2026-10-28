@@ -38,7 +38,7 @@ platform.
   requires `storage.engine`).
 - **Storage and application state:** a `StorageEngine` interface
   (collections, queries, transactions) with a LokiJS implementation, and an
-  `app-state` plugin that keeps window, theme and sidebar state on top of it,
+  `app-state` plugin that keeps window, theme and per-window layout state on top of it,
   exposed to views over IPC (`app.state:get`, `:set`, `:update`, `:remove`).
 - **IPC:** a single dispatcher channel. Handlers are registered on channels
   named `<pluginId>:<event>` by convention, and replies are a structured

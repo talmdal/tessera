@@ -23,3 +23,8 @@ export const CONTEXT_KEYS_CHANGED = shell('contextKeys.changed')          // pus
 export type ContextKeySnapshot = Record<string, ContextKeyValue>
 /** The new value of each key that changed; `null` means the key was removed. */
 export type ContextKeysChanged = Record<string, ContextKeyValue | null>
+
+// Commands
+export const COMMANDS_EXECUTE_EVENT = 'commands.execute'
+export const COMMANDS_EXECUTE = shell(COMMANDS_EXECUTE_EVENT)   // ExecuteCommandRequest → the command's result
+export interface ExecuteCommandRequest { id: string, args?: unknown[] }

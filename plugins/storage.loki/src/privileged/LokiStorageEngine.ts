@@ -181,8 +181,18 @@ export class LokiStorageEngine implements StorageEngine {
       },
 
       async commit() {
-        // Replace the live DB with the clone
+        // Replace the live DB with the clone. A copy knows nothing of where its original was kept, so it takes
+        // over the original's storage and autosave; without that it could never be written to disk, and neither
+        // could anything committed after it (including on close).
+        const live = engine.db
+        const liveSettings = live as any
+        const cloneSettings = clone as any
+        cloneSettings.persistenceAdapter = liveSettings.persistenceAdapter
+        cloneSettings.persistenceMethod = liveSettings.persistenceMethod
+        cloneSettings.autosaveInterval = liveSettings.autosaveInterval
+        live.autosaveDisable()
         engine.db = clone
+        clone.autosaveEnable()
 
         // Rebuild collection map
         engine.collections.clear()
@@ -193,7 +203,11 @@ export class LokiStorageEngine implements StorageEngine {
 
         // Persist
         await new Promise<void>(resolve => {
-          engine.db.saveDatabase(() => resolve())
+          engine.db.saveDatabase((err?: unknown) => {
+            // The commit itself stands, in memory; say so rather than losing the failure.
+            if (err) console.error('[storage.loki] Could not write the database to disk', err)
+            resolve()
+          })
         })
       },
 

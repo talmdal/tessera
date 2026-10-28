@@ -1,4 +1,4 @@
-import { Disposable } from "."
+import { Disposable, Event } from "."
 
 export type CommandHandler = (...args: unknown[]) => unknown
 
@@ -11,6 +11,9 @@ export interface CommandOptions {
 }
 
 export interface CommandRegistry {
+  /** Fires when a command is added or removed, or when enablement may have changed. */
+  readonly onDidChange: Event<void>
+
   register(id: string, handler: CommandHandler, options?: CommandOptions): Disposable
 
   has(id: string): boolean

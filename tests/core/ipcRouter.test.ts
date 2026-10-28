@@ -14,6 +14,24 @@ describe('IpcRouter', () => {
     })
   })
 
+  it('tells the handler which window sent the request, and leaves it unset when not given', async () => {
+    const router = new IpcRouterImpl()
+    router.register('p:who', msg => msg.sender)
+
+    await expect(router.dispatch({ channel: 'p:who' }, { windowId: 4 })).resolves.toMatchObject({ ok: true, data: { windowId: 4 } })
+    await expect(router.dispatch({ channel: 'p:who' })).resolves.toMatchObject({ ok: true, data: undefined })
+  })
+
+  it('does not let the request supply its own sender', async () => {
+    const router = new IpcRouterImpl()
+    router.register('p:who', msg => msg.sender)
+
+    await expect(router.dispatch({ channel: 'p:who', sender: { windowId: 99 } }, { windowId: 1 }))
+      .resolves.toMatchObject({ data: { windowId: 1 } })
+    await expect(router.dispatch({ channel: 'p:who', sender: { windowId: 99 } }))
+      .resolves.toMatchObject({ data: undefined })
+  })
+
   it('reaches handlers registered after dispatching started', async () => {
     const router = new IpcRouterImpl()
     expect((await router.dispatch({ channel: 'p:late' })).ok).toBe(false)

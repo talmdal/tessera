@@ -4,8 +4,6 @@ import { LokiStorageEngine } from './LokiStorageEngine'
 import { PluginContext } from '@tessera/types'
 
 export async function activate(context: PluginContext) {
-  console.info(`activate loki storage: ${JSON.stringify(context)}`)
-
   const root = context.paths // e.g. %APPDATA%/tessera
   const storageDir = path.join(root, 'storage')
 

@@ -16,7 +16,7 @@ export const CORE_COMMANDS = {
 } as const
 
 // Shell-owned groups sort last in their menus so plugin groups land above them.
-const SHELL_GROUP_ORDER = 10_000
+export const SHELL_GROUP_ORDER = 10_000
 
 const coreMenus: MenuContribution[] = [
   { kind: 'menu', id: FILE_MENU, label: '&File' },

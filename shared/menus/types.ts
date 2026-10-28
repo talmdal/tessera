@@ -5,10 +5,11 @@ export const MENUS_EXTENSION_POINT = 'shell.menus'
 
 /** Top-level menus owned by the shell. Their positions on the menu bar are fixed. */
 export const FILE_MENU = 'shell.file'
+export const VIEW_MENU = 'shell.view'
 export const TOOLS_MENU = 'shell.tools'
 export const HELP_MENU = 'shell.help'
 
-export const RESERVED_TOP_LEVEL_MENUS: readonly string[] = [FILE_MENU, TOOLS_MENU, HELP_MENU]
+export const RESERVED_TOP_LEVEL_MENUS: readonly string[] = [FILE_MENU, VIEW_MENU, TOOLS_MENU, HELP_MENU]
 
 export function isReservedTopLevelMenu(id: string) {
   return RESERVED_TOP_LEVEL_MENUS.includes(id)
@@ -24,7 +25,7 @@ interface BaseDefinition {
 }
 
 /**
- * A menu. Without a parent it is placed on the menu bar, between File and Tools;
+ * A menu. Without a parent it is placed on the menu bar, between View and Tools;
  * with a parent it is a submenu.
  */
 export interface MenuDefinition extends BaseDefinition {
