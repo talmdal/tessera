@@ -5,7 +5,8 @@
 // shell/renderer/layout/iconGlyphs.ts.
 
 export const ICON_NAMES = [
-  'Add', 'AccountBalance', 'CalendarToday', 'Circle', 'Close', 'Home', 'Info', 'List', 'Save', 'Search'
+  'Add', 'AccountBalance', 'CalendarToday', 'ChevronLeft', 'ChevronRight', 'Circle', 'Close', 'ExpandLess', 'ExpandMore',
+  'Home', 'Info', 'List', 'Save', 'Search'
 ] as const
 
 export type IconName = typeof ICON_NAMES[number]

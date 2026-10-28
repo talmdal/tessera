@@ -179,6 +179,8 @@ async function buildRenderer(srcDir: string, id: string, entryOut: string, expos
       })
     ],
     esbuild: { jsx: 'automatic' },
+    // Views import values (not just types) from the shared types package, as the privileged build allows.
+    resolve: { alias: { '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts') } },
     build: {
       target: 'esnext',
       outDir: path.dirname(entryOut),
