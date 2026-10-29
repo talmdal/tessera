@@ -9,8 +9,8 @@ menu bar, IPC and a plugin runtime. Everything else is contributed by
 plugins through extension points and services, in the spirit of the Eclipse
 platform.
 
-> **Status: early.** The shell and plugin framework work end to end. There
-> are no Finance features yet; those will arrive as plugins. See
+> **Status: early.** The shell, plugin framework and window layout work end
+> to end. There are no Finance features yet; those will arrive as plugins. See
 > [docs/todo.md](docs/todo.md) for what's still open.
 
 ## What works today
@@ -29,6 +29,18 @@ platform.
 - **Views extension point** (`shell.views`): plugin UI is written as
   `.tsx` and loaded at runtime as a **Module Federation** remote. Views
   share the shell's React, and each is isolated by its own error boundary.
+  A view targets a layout slot and can carry a `when` expression.
+- **Layout controller:** the window is a fixed frame of five slots
+  (`shell.main` in the centre, `shell.top`, `shell.bottom`, `shell.left` and
+  `shell.right` around it). A bar is hidden when nothing targets it,
+  collapsed to an icon rail, or expanded with its views as tabs; bars resize
+  with a keyboard-accessible splitter and `F6` cycles regions. The state is
+  per window and lives in the main process (`LayoutService`). `shell.layout.*`
+  commands, context keys and a `View` menu drive it, and it is persisted
+  through `app-state`. See
+  [docs/layout-controller-design.md](docs/layout-controller-design.md).
+- **Bar items extension point** (`shell.bar.items`): command buttons and
+  status text with icons, placed in a bar without writing a React view.
 - **Built-in plugins:** source in `plugins/<id>/`, built (TypeScript and
   TSX) into `modules/<id>/` with `npm run build:plugins`, and loaded before
   user-installed plugins.
@@ -38,12 +50,13 @@ platform.
   requires `storage.engine`).
 - **Storage and application state:** a `StorageEngine` interface
   (collections, queries, transactions) with a LokiJS implementation, and an
-  `app-state` plugin that keeps window, theme and per-window layout state on top of it,
-  exposed to views over IPC (`app.state:get`, `:set`, `:update`, `:remove`).
+  `app-state` plugin that keeps window, theme and per-window layout state on
+  top of it, exposed to views over IPC (`app.state:get`, `:set`, `:update`,
+  `:remove`).
 - **IPC:** a single dispatcher channel. Handlers are registered on channels
   named `<pluginId>:<event>` by convention, and replies are a structured
   success-or-error envelope. Events flow the other way too: the shell publishes its phase,
-  context keys and views, and plugins push their own events to views.
+  context keys, views, bar items and layout, and plugins push their own events to views.
 
 ## Architecture
 
@@ -57,18 +70,21 @@ tessera-types/
           lifecycle, events), StorageEngine and AppState. The core implements
           them, the shell composes them, and plugins are written against them.
 shared/   Contracts any process may import: IPC envelope guards, manifest
-          schema, menu and view contracts, enablement expressions. No
+          schema, menu, view and layout contracts, enablement expressions. No
           platform code.
 core/     Main-process application core: plugin manager, plugin context,
           and the registry implementations (IPC, extensions, commands,
-          context keys, services, lifecycle, events) plus the storage engine
-          registry and transaction manager. Depends only on tessera-types/,
+          context keys, services, lifecycle, events), the layout controller
+          (LayoutService) and the storage engine registry and transaction
+          manager. Depends only on tessera-types/,
           shared/ and its own ports.
 shell/
   main/       Composition root and adapters: Electron menu, IPC binding,
+              layout wiring (commands, keys, menus, persistence),
               file-system plugin source, tessera-plugin:// protocol.
   preload/    The typed bridge exposed to the renderer as window.api.
-  renderer/   React host: <Slot> rendering and the federation view loader.
+  renderer/   React host: <LayoutController> (bars, main area, splitters)
+              and the federation view loader.
 ```
 
 Dependencies point inwards only (`shell` → `core` → `shared`), and the
@@ -167,8 +183,9 @@ tests/                Vitest suites, mirroring the source folders, plus
                       architecture boundary tests and fixtures
 docs/                 Plugin guide, design notes and open-work list
 plugins/              Source of bundled (built-in) plugins, one folder each:
-                      app.state (application state) and storage.loki
-                      (LokiJS storage engine)
+                      app-state (application state), storage-loki (LokiJS
+                      storage engine) and test-layout (exercises every
+                      layout slot)
 modules/              Build output of plugins/ (gitignored); loaded at startup
 ```
 
@@ -176,6 +193,8 @@ modules/              Build output of plugins/ (gitignored); loaded at startup
 
 - [docs/plugin-creation.md](docs/plugin-creation.md): how to write a plugin
   and connect it to the framework
+- [docs/layout-controller-design.md](docs/layout-controller-design.md): the
+  layout controller: slots, bars, `shell.bar.items`, commands and persistence
 - [docs/vault-design.md](docs/vault-design.md): proposed design for the
   vault, pluggable storage, importers and file handling
 - [docs/storage-api-design.md](docs/storage-api-design.md): proposed

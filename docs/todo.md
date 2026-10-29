@@ -102,8 +102,6 @@ Designs: [vault-design.md](vault-design.md) and
 
 Design: [settings-design.md](settings-design.md). Nothing here is built yet.
 
-- [ ] **`JsonPersistence` port and adapter**: atomic, debounced writes,
-      flushed on quit; shared by state and settings.
 - [ ] **State store** (`context.state`): per-plugin opaque key/value for
       recent files, window bounds and similar.
 - [ ] **Settings core** (`context.settings`): defaults, versioned
@@ -131,9 +129,10 @@ Design: [settings-design.md](settings-design.md). Nothing here is built yet.
 
 ## Views and the renderer
 
-- [ ] **Slot layouts.** `<Slot>` stacks views one after another. Add a real
-      layout (tabs or navigation for the main area) and more slots (sidebar,
-      status bar).
+- [ ] **Main-area tabs.** The layout controller provides the five slots and
+      tabbed bars, but the main area shows one active view with no tab strip
+      (see phase 5 of
+      [layout-controller-design.md](layout-controller-design.md)).
 - [ ] **View props and context.** Views receive nothing from the shell;
       they use `window.api` directly.
 - [ ] **Refresh views at runtime.** The renderer fetches the view list once.
