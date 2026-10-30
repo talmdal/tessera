@@ -1,0 +1,13 @@
+{
+  "id": "storage-sqlite",
+  "name": "SQLite Storage Engine",
+  "version": "0.1.0",
+  "privileged": {
+    "entry": "privileged/index.js"
+  },
+  "services": {
+    "provides": [
+      "storage.engine"
+    ]
+  }
+}

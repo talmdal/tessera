@@ -40,6 +40,12 @@ describe('architecture boundaries', () => {
     expect(violations('core', spec => PLATFORM.test(spec) || inLayer(spec, 'shell'))).toEqual([])
   })
 
+  it('plugins are written against @tessera/types and the storage kit, not core/ internals or shell/', () => {
+    // Backend plugins (storage-loki) build on the kit, which is the one public door into core/.
+    const allowed = (spec: string) => spec === '@core/storage'
+    expect(violations('plugins', spec => !allowed(spec) && (inLayer(spec, 'core') || inLayer(spec, 'shell')))).toEqual([])
+  })
+
   it('the renderer does not depend on core/ or main-process code', () => {
     expect(violations('shell/renderer', spec =>
       spec === 'electron' || inLayer(spec, 'core') || spec.split(path.sep).join('/').startsWith('shell/main'))).toEqual([])

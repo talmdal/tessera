@@ -3,15 +3,19 @@ import type { GetRequest } from '../shared'
 import { AppStateStore } from './AppStateStore'
 
 export async function activate(context: PluginContext) {
-  const storage = context.services.get<StorageEngine>('storage.engine')
+  const engine = context.services.get<StorageEngine>('storage.engine')
 
-  const store = new AppStateStore(storage)
+  const store = new AppStateStore(engine)
   await store.init()
 
-  context.services.provide('app-state', 'app.state', store)
+  context.subscriptions.push(context.services.provide('app-state', 'app.state', store))
 
   context.lifecycle.onShuttingDown(async () => {
-    await store.flush()
+    try {
+      await store.flush()
+    } catch (err) {
+      context.logger.error('[app-state] Failed to save application state', err)
+    }
   })
 
   context.ipc.register('app.state:get', async (msg: any) => {

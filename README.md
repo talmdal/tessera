@@ -58,11 +58,23 @@ platform.
   declared in their manifest. Two exist today: `storage.engine` (provided by
   the `storage-loki` plugin) and `app.state` (provided by `app-state`, which
   requires `storage.engine`).
-- **Storage and application state:** a `StorageEngine` interface
-  (collections, queries, transactions) with a LokiJS implementation, and an
-  `app-state` plugin that keeps window and sidebar state (and the shell's
-  theme preference) on top of it,
-  exposed to views over IPC (`app.state:get`, `:set`, `:update`, `:remove`).
+- **Storage and application state:** a document-database contract
+  (`StorageEngine` → `Database` → `Collection`: Mongo-style filters,
+  updates and aggregation as plain data, transactions, change events),
+  a shared kit in `core/storage/` that implements it over any store, an
+  in-memory reference engine, a conformance suite every backend must pass,
+  and two interchangeable backends, each one file per database under
+  `<userData>/storage/`: LokiJS (`storage-loki`, buffered with debounced
+  atomic saves) and SQLite (`storage-sqlite`, on `node:sqlite`, write-through,
+  no native module). One of them provides `storage.engine`: the one named
+  in `preferredPlugins` of `<userData>/tessera-bootstrap.json` (the shell's
+  tier-0 configuration, read before any plugin runs, which can also
+  disable plugins), or by discovery order (loki) without it. The
+  `app-state` plugin keeps the shell's theme preference in the `app`
+  database (its window and sidebar hooks exist but no view mounts them yet;
+  see docs/todo.md), exposed to views over IPC
+  (`app.state:get`, `:set`, `:update`, `:remove`). See
+  [docs/storage-engine-design.md](docs/storage-engine-design.md).
 - **IPC:** a single dispatcher channel. Handlers are registered on channels
   named `<pluginId>:<event>` by convention, and replies are a structured
   success-or-error envelope. Events flow the other way too: the shell publishes its phase,
@@ -86,9 +98,10 @@ shared/   Values any process may import: IPC envelope guards, manifest
           resolvers, enablement expressions. No platform code.
 core/     Main-process application core: plugin manager, plugin context,
           and the registry implementations (IPC, extensions, commands,
-          context keys, services, lifecycle, events) plus the storage engine
-          registry and transaction manager. Depends only on tessera-types/,
-          shared/ and its own ports.
+          context keys, services, lifecycle, events) plus the storage kit
+          (core/storage/: filter, update and aggregation evaluators, the
+          memory engine). Depends only on tessera-types/, shared/ and its
+          own ports.
 shell/
   main/       Composition root and adapters: Electron menu, IPC binding,
               file-system plugin source, tessera-plugin:// protocol.
@@ -195,7 +208,8 @@ tests/                Vitest suites, mirroring the source folders, plus
 docs/                 Plugin guide, design notes and open-work list
 plugins/              Source of bundled (built-in) plugins, one folder each:
                       app.state (application state), storage.loki (LokiJS
-                      storage engine), layout.sample (a view in every slot
+                      storage engine), storage.sqlite (SQLite storage
+                      engine), layout.sample (a view in every slot
                       of the window manager; the worked example) and
                       theme.sample (a colour token and a theme)
 modules/              Build output of plugins/ (gitignored); loaded at startup
@@ -207,9 +221,12 @@ modules/              Build output of plugins/ (gitignored); loaded at startup
   and connect it to the framework
 - [docs/vault-design.md](docs/vault-design.md): proposed design for the
   vault, pluggable storage, importers and file handling
-- [docs/storage-api-design.md](docs/storage-api-design.md): proposed
-  `Store` API that storage backends implement and domain plugins use (the
-  lower-level `StorageEngine` it would build on already exists)
+- [docs/storage-engine-design.md](docs/storage-engine-design.md): the
+  storage engine (implemented: contract, shared kit, memory engine,
+  conformance suite, LokiJS and SQLite backends, `app-state` on it): databases,
+  collections, Mongo-style queries and aggregation, pluggable backends
+- [docs/storage-api-design.md](docs/storage-api-design.md): the earlier
+  `Store` proposal, absorbed into the storage engine design
 - [docs/settings-design.md](docs/settings-design.md): proposed settings
   framework where plugins own their settings shape and pages
 - [docs/window-manager-design.md](docs/window-manager-design.md): the window

@@ -1,55 +1,56 @@
-import { AppState, StorageEngine } from "@tessera/types"
-import { TransactionManager } from "../../../../core/storage/TransactionManager"
+// plugins/app.state/src/privileged/AppStateStore.ts
+//
+// Application state (window bounds, sidebar, the shell's theme preference)
+// as documents in the `app` database: collection `app-state.entries`, one
+// document per key, `{ id: key, value }`.
+import type { AppState, Collection, Database, Document, Json, StorageEngine } from '@tessera/types'
 
-type Result<T> = {key: string, value: T}
+export const APP_DATABASE = 'app'
+export const ENTRIES = 'app-state.entries'
+
+interface Entry extends Document {
+  id: string
+  value: Json
+}
 
 export class AppStateStore implements AppState {
-  private trxMgr: TransactionManager
-  constructor(private storage: StorageEngine) {
-    this.trxMgr = new TransactionManager(storage)
-  }
+  private db!: Database
+  private entries!: Collection<Entry>
+
+  constructor(private readonly engine: StorageEngine) {}
 
   async init() {
-    const exists = await this.storage.getOne('app.state', { key: '__init__' })
-    if (!exists) {
-      await this.storage.insert('app.state', { key: '__init__', value: true })
-    }
+    this.db = await this.engine.open({ name: APP_DATABASE })
+    this.entries = this.db.collection<Entry>(ENTRIES)
   }
 
+  /** The stored value, or the default (which is returned, not stored). */
   async get<T>(key: string, defaultFn?: () => T): Promise<T | undefined> {
-    const entry = (await this.storage.getOne('app.state', { key })) as Result<T>
-    if (entry) return entry.value
-
-    if (!defaultFn) return undefined
-
-    const value = defaultFn()
-    await this.trxMgr.run(async tx => {
-      await tx.insert('app.state', { key, value })
-    })
-    return value
+    const entry = await this.entries.get(key)
+    if (entry) return entry.value as T
+    return defaultFn?.()
   }
 
   async set<T>(key: string, value: T): Promise<void> {
-    await this.trxMgr.run(async tx => {
-      await tx.upsert('app.state', { key }, { key, value })
-    })
+    await this.entries.replace({ id: key, value: value as Json }, { upsert: true })
   }
 
+  /** Merges `patch` into the stored object (or into {} if nothing, or a non-object, is stored). */
   async update<T>(key: string, patch: Partial<T>): Promise<void> {
-    await this.trxMgr.run(async tx => {
-      const existing = await tx.getOne<{ key: string; value: T }>('app.state', { key })
-      const next = { ...(existing?.value ?? {}), ...patch }
-      await tx.upsert('app.state', { key }, { key, value: next })
+    await this.db.transaction(async tx => {
+      const entries = tx.collection<Entry>(ENTRIES)
+      const existing = (await entries.get(key))?.value
+      const base = typeof existing === 'object' && existing !== null && !Array.isArray(existing) ? existing : {}
+      await entries.replace({ id: key, value: { ...base, ...(patch as Json & object) } }, { upsert: true })
     })
   }
 
   async remove(key: string): Promise<void> {
-    await this.trxMgr.run(async tx => {
-      await tx.delete('app.state', { key })
-    })
+    await this.entries.deleteOne({ id: key })
   }
 
+  /** Writes buffered changes; called on shutdown. Nothing to do once the engine has closed the database. */
   async flush(): Promise<void> {
-    // Loki autosave handles this; hook exists for future engines
+    if (this.db.isOpen) await this.db.flush()
   }
 }

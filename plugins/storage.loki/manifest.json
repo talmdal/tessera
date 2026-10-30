@@ -2,6 +2,12 @@
   "id": "storage-loki",
   "name": "LokiJS Storage Engine",
   "version": "0.1.0",
-  "privileged": { "entry": "privileged/index.js" },
-  "services": { "provides": ["storage.engine"] }
+  "privileged": {
+    "entry": "privileged/index.js"
+  },
+  "services": {
+    "provides": [
+      "storage.engine"
+    ]
+  }
 }

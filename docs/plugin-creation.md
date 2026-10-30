@@ -771,7 +771,12 @@ exports.activate = (context) => {
 - `provide` returns a `Disposable`. Push it onto `context.subscriptions` so the
   service is removed when your plugin deactivates.
 - Each id has **one** provider. If two plugins declare the same id, the one
-  discovered first wins and the other is skipped.
+  discovered first wins and the other is skipped, unless the user's
+  `tessera-bootstrap.json` lists one of them in `preferredPlugins` (it can
+  also leave plugins out with `disabledPlugins`). That file is read by the
+  shell before any plugin runs; it is the only place for configuration that
+  decides *which plugins activate*, because `app.state` and settings are
+  themselves provided by plugins.
 
 ### Using a service
 
@@ -1144,6 +1149,14 @@ save, flushing buffers. Rules:
 - A listener that throws is logged, and the others still run.
 - After the listeners, plugins deactivate (dependents before the plugins they
   depend on), and the shell does its final flushes.
+- **Don't release anything in `onShuttingDown`.** A later listener may veto,
+  and then the app carries on with whatever you closed. Flush and ask here;
+  close files, stop timers and drop handles in `deactivate()`. This matters
+  most if you **provide a service**: listeners run in registration order,
+  and you registered before the plugins that require you, so a provider that
+  closed in `onShuttingDown` would pull the service from under its dependents
+  while they are still flushing. `deactivate()` runs only after every
+  dependent has deactivated.
 
 `onShuttingDown` returns a `Disposable`. Push it onto `context.subscriptions`
 if the listener should be removed when your plugin deactivates.

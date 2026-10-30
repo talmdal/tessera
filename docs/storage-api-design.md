@@ -7,14 +7,16 @@
 | **Settles** | Open question 1 of [vault-design.md](vault-design.md): what `Store` looks like |
 | **Audience** | Authors of storage backends (SQLite, encrypted file…) and of domain plugins (accounts, budgets…) |
 
-> **Implementation status.** The `Store` API below is still a proposal. A lower-level engine exists:
-> `StorageEngine` ([tessera-types/storage.ts](../tessera-types/storage.ts)) offers
-> collections, `get`/`getOne`/`insert`/`upsert`/`update`/`delete`, capability
-> flags and transactions. `StorageEngineRegistry` and `TransactionManager` are in
-> [core/storage/](../core/storage/), the `storage-loki` plugin
-> ([plugins/storage.loki/](../plugins/storage.loki/)) implements it with LokiJS and
-> provides it as the `storage.engine` service, and the `app-state` plugin uses it.
-> There are no declared indexes, change events, schema or conformance suite yet.
+> **Superseded.** This proposal was absorbed into
+> [storage-engine-design.md](storage-engine-design.md), which is implemented:
+> the `StorageEngine`/`Database`/`Collection` contract in
+> [tessera-types/storage.ts](../tessera-types/storage.ts), the shared kit and
+> memory engine in [core/storage/](../core/storage/), the LokiJS backend in
+> [plugins/storage.loki/](../plugins/storage.loki/) and the conformance suite in
+> [tests/storage/](../tests/storage/). What that note calls a `Store` is a
+> `Database` here. Kept for the reasoning behind the document model, the
+> conventions for domain plugins, and the schema and migration sketches the
+> vault will need.
 
 ## Summary
 

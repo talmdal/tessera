@@ -156,3 +156,6 @@ package-lock.json
 *.zip
 
 .__mf__temp
+tessera-modules-*/
+
+.history/

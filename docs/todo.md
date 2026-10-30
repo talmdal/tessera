@@ -54,18 +54,15 @@ off, or delete them, as they land.
       `events` are scoped, so a plugin can register another plugin's IPC
       channel, contribution id, context key or service id, and its
       registrations are not removed on deactivation unless it pushes the
-      returned `Disposable` onto `context.subscriptions`. `storage-loki` and
-      `app-state` don't yet. Decide whether to enforce this in the core or
-      keep it as convention, and update the plugin guide to match.
+      returned `Disposable` onto `context.subscriptions`. Decide whether to
+      enforce this in the core or keep it as convention, and update the
+      plugin guide to match.
 - [ ] **`services.provides` is not enforced.** `createPluginContext` still
       accepts a `provides` option, but nothing checks it; only the
       "declared but not provided" warning remains.
 - [ ] **Built plugin `package.json`.** The build writes `{"type":"cjs"}`;
       Node's valid value is `commonjs`. Changing it breaks loading the ESM
       renderer remote in tests, so decide how to separate the two.
-- [ ] **Plugins import core code.** `app-state` imports
-      `core/storage/TransactionManager` by relative path. Move shared
-      storage helpers behind `@tessera/types` or a service.
 
 ## Services
 
@@ -82,21 +79,43 @@ off, or delete them, as they land.
       [vault-design.md](vault-design.md). Later `shell.notifications`,
       `shell.settings`, and a secure password prompt.
 
-## Vault and storage (proposed designs)
+## Vault and storage
 
-Designs: [vault-design.md](vault-design.md) and
-[storage-api-design.md](storage-api-design.md). Nothing here is built yet.
+Designs: [storage-engine-design.md](storage-engine-design.md) (phase 1
+built) and [vault-design.md](vault-design.md) (not built).
 
-- [ ] **Storage contract:** `Store` types, `StoreError`, an in-memory store
-      and the shared backend conformance suite.
+- [x] **Storage contract:** `StorageEngine`/`Database`/`Collection` types,
+      `StorageError`, the shared kit, the memory engine and the conformance
+      suite (storage-engine-design phase 1).
+- [x] **LokiJS backend on the new contract** (phase 2), provided as
+      `storage.engine`.
+- [x] **`app-state` on the `app` database** (phase 3), with tests; the
+      first contract and its engine are gone, and `tests/architecture` now
+      covers `plugins/`. An old `storage/tessera.json` is left in place and
+      ignored (no migration; the state it held is recreated from defaults).
 - [ ] **Vault plugin:** `vault.session`, the `vault.backends` and
       `vault.schema` points, commands, menus and context keys.
-- [ ] **Backends:** encrypted-file first (no native module), then SQLite
-      (settle the native-module and packaging question).
+- [x] **SQLite backend** (phase 4), on `node:sqlite` — no native module, so
+      the packaging question does not arise. Bundled alongside storage-loki;
+      the first-discovered provider of `storage.engine` wins (currently
+      loki). Encrypted storage is deferred.
+- [ ] **Native SQL pushdown** for filters, `$group` and FTS5 `$text` in the
+      SQLite backend, behind the existing capability flags, when data size
+      warrants it.
+- [ ] **Pick the default storage backend.** Both backends are bundled and
+      pass the same suite. `tessera-bootstrap.json` (`preferredPlugins`)
+      chooses per installation; without it, discovery order decides
+      (loki) and the loser logs a skip warning. Decide the shipped default
+      (SQLite's write-through is the better one): either ship a default
+      bootstrap file, or stop bundling the other backend.
+- [ ] **Settings page for tier 0** once `shell.settings.pages` exists:
+      enable/disable plugins and choose the storage backend, written to
+      `tessera-bootstrap.json`, applied at the next start.
 - [ ] **Accounts plugin:** schema and migrator, `accounts.service`, register
       views, then `accounts.importers` with OFX, QIF and CSV parsers.
-- [ ] **Settle the open questions** in both notes: aggregation for reports,
-      passwords and keys, one vault versus several, `.mny` import.
+- [ ] **Settle the open questions** in the vault note: passwords and keys,
+      one vault versus several, `.mny` import. (Aggregation for reports is
+      settled: `Collection.aggregate`.)
 
 ## State and settings (proposed design)
 
@@ -138,7 +157,11 @@ state over IPC. Its remaining work:
       `LayoutPersistence` port, but no adapter until `JsonPersistence`
       exists, so sizes, collapsed flags and active tabs last one session.
 - [ ] **Remove `useSidebarState`** (and its `sidebar` key) from the
-      `app-state` plugin; the window manager supersedes it.
+      `app-state` plugin; the window manager supersedes it. Neither it nor
+      `useWindowState` is mounted by any view (`app-state` has no renderer
+      entry), so window bounds have never been persisted; the shell should
+      own that through `LayoutPersistence` over `app.state` rather than a
+      renderer hook.
 - [ ] **Grow the shell icon set** (or bundle Codicons wholesale): names in
       `shared/layout/icons.ts`, glyphs in
       `shell/renderer/layout/iconGlyphs.ts`.

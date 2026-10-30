@@ -1,6 +1,9 @@
 import { useEffect } from 'react'
 import { appState } from '../api'
 
+/** Resize and move fire continuously; the bounds are saved this long after the last one. */
+const SAVE_DELAY_MS = 250
+
 export function useWindowState() {
   useEffect(() => {
     ;(async () => {
@@ -19,7 +22,9 @@ export function useWindowState() {
       }
     })()
 
-    const handler = () => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const save = () => {
+      timer = undefined
       appState.set('window', {
         x: window.screenX,
         y: window.screenY,
@@ -30,6 +35,10 @@ export function useWindowState() {
           window.outerHeight === screen.availHeight
       })
     }
+    const handler = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(save, SAVE_DELAY_MS)
+    }
 
     window.addEventListener('resize', handler)
     window.addEventListener('move', handler)
@@ -37,6 +46,10 @@ export function useWindowState() {
     return () => {
       window.removeEventListener('resize', handler)
       window.removeEventListener('move', handler)
+      if (timer) {
+        clearTimeout(timer)
+        save()
+      }
     }
   }, [])
 }

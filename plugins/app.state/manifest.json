@@ -2,9 +2,15 @@
   "id": "app-state",
   "name": "Application State",
   "version": "0.1.0",
-  "privileged": { "entry": "src/privileged/index.js" },
+  "privileged": {
+    "entry": "src/privileged/index.js"
+  },
   "services": {
-    "requires": ["storage.engine"],
-    "provides": ["app.state"]
+    "requires": [
+      "storage.engine"
+    ],
+    "provides": [
+      "app.state"
+    ]
   }
 }

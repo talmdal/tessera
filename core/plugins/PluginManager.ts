@@ -3,6 +3,7 @@ import { PluginManifest, parseManifest, providedServices, requiredServices } fro
 import { PluginDescriptor, PluginOrigin, PluginSource } from '../ports'
 import { planActivation } from './activationPlan'
 import { createPluginContext } from './PluginContext'
+import { PluginSelection, selectPlugins } from './pluginSelection'
 import { Logger, PluginScope, PluginRuntime } from '@tessera/types'
 import { PrivilegedPluginModule } from './types'
 
@@ -27,7 +28,9 @@ export class PluginManager {
   constructor(
     private readonly source: PluginSource,
     private readonly runtime: PluginRuntime,
-    private readonly log: Logger
+    private readonly log: Logger,
+    /** Bootstrap choices: plugins to leave out, and which to activate first (see pluginSelection.ts). */
+    private readonly selection: PluginSelection = {}
   ) {}
 
   get activePlugins(): PluginManifest[] {
@@ -42,12 +45,14 @@ export class PluginManager {
 
   /**
    * Activates every discovered plugin, providers of a service before the
-   * plugins that require it. A plugin that fails validation, dependency
-   * resolution, loading or activation is logged and skipped; anything it
-   * registered is rolled back.
+   * plugins that require it. Plugins disabled by the bootstrap selection are
+   * left out, and preferred ones go first, so they win any contested
+   * service. A plugin that fails validation, dependency resolution, loading
+   * or activation is logged and skipped; anything it registered is rolled
+   * back.
    */
   async activateAll(): Promise<PluginManifest[]> {
-    const candidates: PluginDescriptor[] = []
+    const discovered: PluginDescriptor[] = []
 
     for (const descriptor of await this.source.discover()) {
       let manifest: PluginManifest
@@ -58,16 +63,24 @@ export class PluginManager {
         continue
       }
 
-      const existing = candidates.find(c => c.manifest.id === manifest.id)?.location
+      const existing = discovered.find(c => c.manifest.id === manifest.id)?.location
         ?? this.active.get(manifest.id)?.location
       if (existing) {
         this.log.warn(`[plugins] Skipping ${descriptor.location}: plugin "${manifest.id}" is already provided by ${existing}`)
         continue
       }
-      candidates.push(descriptor)
+      discovered.push(descriptor)
     }
 
-    const { order, skipped } = planActivation(candidates, id => this.runtime.services.has(id))
+    const selected = selectPlugins(discovered, this.selection)
+    for (const { candidate, reason } of selected.skipped) {
+      this.log.info(`[plugins] Skipping "${candidate.manifest.id}": ${reason}`)
+    }
+    for (const id of selected.unknown) {
+      this.log.warn(`[plugins] The bootstrap configuration names "${id}", which is not an installed plugin`)
+    }
+
+    const { order, skipped } = planActivation(selected.candidates, id => this.runtime.services.has(id))
     for (const { candidate, reason } of skipped) {
       this.log.warn(`[plugins] Skipping "${candidate.manifest.id}": ${reason}`)
     }

@@ -7,6 +7,7 @@ import { LayoutService } from '../../core/layout/LayoutService'
 import { createPluginContext, createPluginRuntime } from '../../core/plugins/PluginContext'
 import { PluginManager } from '../../core/plugins/PluginManager'
 import { SHELL_CONTRIBUTOR_ID } from '../../shared/plugins/manifest'
+import { BOOTSTRAP_FILE, readBootstrapConfig } from './bootstrap/bootstrapConfig'
 import { forwardEventsToWindows } from './events/forwardEvents'
 import { registerShellEvents } from './events/shellEvents'
 import { bindRouterToElectron } from './ipc/bindRouter'
@@ -40,7 +41,10 @@ const pluginSource = new FsPluginSource([
   { dir: bundledPluginsDir, origin: 'bundled' },
   { dir: path.join(app.getPath('userData'), 'modules'), origin: 'user' }
 ], log)
-const pluginManager = new PluginManager(pluginSource, runtime, log)
+// Tier-0 configuration (disabled and preferred plugins) is read from a plain
+// file before any plugin runs: it can't come from app.state, which a plugin provides.
+const bootstrapConfig = readBootstrapConfig(path.join(app.getPath('userData'), BOOTSTRAP_FILE), log)
+const pluginManager = new PluginManager(pluginSource, runtime, log, bootstrapConfig)
 
 /** Folder holding an active plugin's renderer remote entry, served over PLUGIN_SCHEME. */
 function rendererRootFor(pluginId: string) {
