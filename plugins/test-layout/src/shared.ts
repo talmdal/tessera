@@ -1,4 +1,4 @@
-// plugins/layout.sample/src/shared.ts
+// plugins/test-layout/src/shared.ts
 //
 // The contract between the plugin's two halves: the state the privileged side
 // owns, and the IPC channels and events that carry it. Both halves import this

@@ -10,8 +10,8 @@
 > **Implementation status.** The `Store` API below is still a proposal. A lower-level engine exists:
 > `StorageEngine` ([tessera-types/storage.ts](../tessera-types/storage.ts)) offers
 > collections, `get`/`getOne`/`insert`/`upsert`/`update`/`delete`, capability
-> flags and transactions. `StorageEngineRegistry` and `TransactionManager` are in
-> [core/storage/](../core/storage/), the `storage-loki` plugin
+> flags and transactions (`transaction(fn)` runs one in isolation, serialised).
+> `StorageEngineRegistry` is in [core/storage/](../core/storage/), the `storage-loki` plugin
 > ([plugins/storage.loki/](../plugins/storage.loki/)) implements it with LokiJS and
 > provides it as the `storage.engine` service, and the `app-state` plugin uses it.
 > There are no declared indexes, change events, schema or conformance suite yet.

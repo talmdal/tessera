@@ -81,6 +81,8 @@ vi.mock('electron', () => {
 
     powerMonitor: { on: vi.fn() },
 
+    nativeTheme: { shouldUseDarkColors: true, themeSource: 'system', on: vi.fn(), off: vi.fn() },
+
     screen: { getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }] },
 
     protocol: {
@@ -91,8 +93,11 @@ vi.mock('electron', () => {
     BrowserWindow: Object.assign(vi.fn(function () { return {
       id: 7,
       loadURL: vi.fn(),
-    getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
+      getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
+      once: vi.fn(),
+      show: vi.fn(),
+      maximize: vi.fn(),
       webContents: { openDevTools: vi.fn() }
     } }), { getAllWindows: () => [liveWindow], fromWebContents: () => ({ id: 7 }) }),
 
@@ -210,6 +215,40 @@ describe('main process (dynamic plugin system)', () => {
     expect(electron.protocol.registerSchemesAsPrivileged).toHaveBeenCalledWith([
       expect.objectContaining({ scheme: 'tessera-plugin' })
     ])
+  })
+
+  it('lists the shell\'s theme, answers the choice with the system mode resolved, and paints the window in its background', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+
+    const themes = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:themes.list' })
+    expect(themes).toMatchObject({ ok: true, data: [{ id: 'shell.default', label: 'Tessera', pluginId: 'shell', schemes: ['light', 'dark'] }] })
+
+    const selection = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:theme.get' })
+    expect(selection).toEqual({ ok: true, data: { themeId: 'shell.default', mode: 'system', resolvedMode: 'dark', effectiveThemeId: 'shell.default' } })
+
+    // The system is dark (see the mock), so the window opens hidden on MUI's dark page colour and shows when drawn.
+    const [options] = vi.mocked(electron.BrowserWindow).mock.calls[0] as any[]
+    expect(options).toMatchObject({ backgroundColor: '#121212', show: false })
+    const window = vi.mocked(electron.BrowserWindow).mock.results[0].value as any
+    expect(window.once).toHaveBeenCalledWith('ready-to-show', expect.any(Function))
+  })
+
+  it('applies a mode change to nativeTheme, the context keys and the open windows, and offers it in the View menu', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const [window] = electron.BrowserWindow.getAllWindows() as any[]
+
+    const set = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:theme.set', data: { mode: 'light' } })
+    expect(set).toEqual({ ok: true, data: { themeId: 'shell.default', mode: 'light', resolvedMode: 'light', effectiveThemeId: 'shell.default' } })
+    expect(electron.nativeTheme.themeSource).toBe('light')
+    expect(window.webContents.send).toHaveBeenCalledWith('tessera:event', { name: 'shell:theme.changed', data: set.data })
+
+    const keys = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:contextKeys.snapshot' })
+    expect(keys.data).toMatchObject({ 'shell.theme.id': 'shell.default', 'shell.theme.mode': 'light', 'shell.theme.resolvedMode': 'light' })
+
+    const template = vi.mocked(electron.Menu.buildFromTemplate).mock.calls[0][0] as any[]
+    const view = template.find(m => m.label === '&View')
+    const theme = view.submenu.find((item: any) => item.label === '&Theme')
+    expect(theme.submenu.map((item: any) => item.label ?? '-')).toEqual(['&Light', '&Dark', 'Follow &System', '-', 'Tessera', '-', '&Choose Theme…'])
   })
 
   it('pushes lifecycle changes to the open windows', async () => {

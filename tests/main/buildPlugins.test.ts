@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PluginManager } from '../../core/plugins/PluginManager'
@@ -10,6 +10,10 @@ import { createLogger, createRuntime } from '../helpers/runtime'
 import { createTempModulesDir } from '../helpers/tempModules'
 
 const fixtures = path.resolve(__dirname, '../fixtures/plugins')
+
+// Each test runs a real esbuild and Vite build, which takes a few seconds on its own and longer when the
+// suite's other workers are busy, so the default 5 s timeout is not a meaningful bound here.
+vi.setConfig({ testTimeout: 60_000 })
 
 const activate = async (roots: ConstructorParameters<typeof FsPluginSource>[0]) => {
   const runtime = createRuntime()

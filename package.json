@@ -15,7 +15,11 @@
     "test:watch": "vitest --watch"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
     "@module-federation/runtime": "^2.9.2",
+    "@mui/icons-material": "^9.5.0",
+    "@mui/material": "^9.5.0",
     "@paymoapp/electron-shutdown-handler": "^1.2.0",
     "electron": "^45.0.0",
     "lokijs": "^1.5.12",
@@ -24,10 +28,10 @@
   },
   "devDependencies": {
     "@module-federation/vite": "^1.14.2",
-    "@rollup/plugin-alias": "^6.0.1",
+    "@rollup/plugin-alias": "^6.0.0",
     "@rollup/plugin-commonjs": "^29.0.3",
     "@rollup/plugin-node-resolve": "^16.0.3",
-    "@rollup/plugin-typescript": "^12.3.1",
+    "@rollup/plugin-typescript": "^12.3.0",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^14.5.0",
@@ -37,7 +41,7 @@
     "concurrently": "^10.0.6",
     "esbuild": "^0.28.2",
     "jsdom": "^24.0.0",
-    "rollup": "^4.65.0",
+    "rollup": "^4.64.8",
     "rollup-plugin-typescript2": "^0.37.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",

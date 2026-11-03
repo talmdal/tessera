@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { TransactionManager } from '../../../core/storage/TransactionManager'
 import { LokiStorageEngine } from '../../../plugins/storage.loki/src/privileged/LokiStorageEngine'
 import { AppStateStore } from '../../../plugins/app.state/src/privileged/AppStateStore'
 
@@ -26,7 +25,7 @@ describe('LokiStorageEngine persistence', () => {
     const file = newFile()
     const engine = await open(file)
 
-    await new TransactionManager(engine).run(async tx => { await tx.insert('c', { key: 'a', value: 1 }) })
+    await engine.transaction(async tx => { await tx.insert('c', { key: 'a', value: 1 }) })
 
     expect(fs.readFileSync(file, 'utf8')).toContain('"key":"a"')
     await engine.close()
@@ -35,7 +34,7 @@ describe('LokiStorageEngine persistence', () => {
   it('keeps what was committed across a restart', async () => {
     const file = newFile()
     const first = await open(file)
-    await new TransactionManager(first).run(async tx => { await tx.insert('c', { key: 'a', value: 1 }) })
+    await first.transaction(async tx => { await tx.insert('c', { key: 'a', value: 1 }) })
     await first.close()
 
     const second = await open(file)
@@ -47,10 +46,10 @@ describe('LokiStorageEngine persistence', () => {
   it('keeps writing after the first transaction: later ones, and what changed outside a transaction, reach the disk', async () => {
     const file = newFile()
     const engine = await open(file)
-    const tm = new TransactionManager(engine)
+    const tm = engine
 
-    await tm.run(async tx => { await tx.insert('c', { key: 'one' }) })
-    await tm.run(async tx => { await tx.insert('c', { key: 'two' }) })
+    await tm.transaction(async tx => { await tx.insert('c', { key: 'one' }) })
+    await tm.transaction(async tx => { await tx.insert('c', { key: 'two' }) })
     await engine.insert('c', { key: 'three' })       // autosave, not a commit
     await engine.close()                              // writes what autosave has not yet
 
@@ -94,11 +93,11 @@ describe('LokiStorageEngine persistence', () => {
 
   it('runs transactions one at a time, and a failed one does not stop the next', async () => {
     const engine = await open(newFile())
-    const tm = new TransactionManager(engine)
+    const tm = engine
     const order: string[] = []
 
-    const failing = tm.run(async () => { order.push('start-a'); await Promise.resolve(); order.push('end-a'); throw new Error('boom') })
-    const next = tm.run(async tx => { order.push('start-b'); await tx.insert('c', { key: 'b' }); order.push('end-b') })
+    const failing = tm.transaction(async () => { order.push('start-a'); await Promise.resolve(); order.push('end-a'); throw new Error('boom') })
+    const next = tm.transaction(async tx => { order.push('start-b'); await tx.insert('c', { key: 'b' }); order.push('end-b') })
 
     await expect(failing).rejects.toThrow('boom')
     await next

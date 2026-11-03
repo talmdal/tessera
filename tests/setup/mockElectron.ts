@@ -75,6 +75,8 @@ vi.mock('electron', () => {
 
     powerMonitor: { on: vi.fn() },
 
+    nativeTheme: { shouldUseDarkColors: false, themeSource: 'system', on: vi.fn(), off: vi.fn() },
+
     screen: { getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }] },
 
     protocol: {

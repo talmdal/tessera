@@ -1,17 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { LokiStorageEngine } from '../../../plugins/storage.loki/src/privileged/LokiStorageEngine'
-import { TransactionManager } from '../../../core/storage/TransactionManager'
 
-describe('TransactionManager', () => {
+describe('engine transactions', () => {
   const create = () => new LokiStorageEngine('memory://tx.db')
 
   it('commits changes', async () => {
     const engine = create()
     await engine.init()
 
-    const tm = new TransactionManager(engine)
+    const tm = engine
 
-    await tm.run(async tx => {
+    await tm.transaction(async tx => {
       await tx.insert('tx', { id: 1, value: 'A' })
       await tx.insert('tx', { id: 2, value: 'B' })
     })
@@ -26,10 +25,10 @@ describe('TransactionManager', () => {
     const engine = create()
     await engine.init()
 
-    const tm = new TransactionManager(engine)
+    const tm = engine
 
     await expect(async () => {
-      await tm.run(async tx => {
+      await tm.transaction(async tx => {
         await tx.insert('tx', { id: 3, value: 'C' })
         throw new Error('Force rollback')
       })
@@ -45,9 +44,9 @@ describe('TransactionManager', () => {
     const engine = create()
     await engine.init()
 
-    const tm = new TransactionManager(engine)
+    const tm = engine
 
-    await tm.run(async tx => {
+    await tm.transaction(async tx => {
       await tx.insert('tx', { id: 1, value: 'A' })
 
       const { $loki, meta, ...inside } = (await tx.getOne('tx', { id: 1 })) as any
@@ -67,9 +66,9 @@ describe('TransactionManager', () => {
     const engine = create()
     await engine.init()
 
-    const tm = new TransactionManager(engine)
+    const tm = engine
 
-    await tm.run(async tx => {
+    await tm.transaction(async tx => {
       await tx.upsert('settings', { key: 'theme' }, { key: 'theme', value: 'dark' })
     })
 
@@ -85,9 +84,9 @@ describe('TransactionManager', () => {
 
     await engine.insert('settings', { key: 'theme', value: 'light' })
 
-    const tm = new TransactionManager(engine)
+    const tm = engine
 
-    await tm.run(async tx => {
+    await tm.transaction(async tx => {
       await tx.upsert('settings', { key: 'theme' }, { key: 'theme', value: 'dark' })
     })
 
@@ -101,10 +100,10 @@ describe('TransactionManager', () => {
     const engine = create()
     await engine.init()
 
-    const tm = new TransactionManager(engine)
+    const tm = engine
 
     await expect(async () => {
-      await tm.run(async tx => {
+      await tm.transaction(async tx => {
         await tx.upsert('settings', { key: 'theme' }, { key: 'theme', value: 'dark' })
         throw new Error('boom')
       })

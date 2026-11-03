@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "outDir": "scripts-dist",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "types": ["node"],

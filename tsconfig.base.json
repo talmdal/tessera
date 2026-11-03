@@ -7,6 +7,7 @@
     "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
       "@core/*": ["core/*"],
@@ -15,7 +16,9 @@
       "@shared/*": ["shared/*"],
       "@extensions/*": ["extension-registry/*"],
       "@tessera/types": ["tessera-types/index.ts"],
-      "@tessera/types/*": ["tessera-types/*"]
+      "@tessera/types/*": ["tessera-types/*"],
+      "@tessera/ui": ["tessera-ui/index.ts"],
+      "@tessera/ui/*": ["tessera-ui/*"]
     }
   }
 }

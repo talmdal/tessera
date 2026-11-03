@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Box, Typography } from '@mui/material'
 import { useLayout } from '../state/ShellState'
 import { ViewPane, useViewCatalogue } from '../views/ViewsProvider'
 import { useEverShown } from './useEverShown'
@@ -13,14 +14,15 @@ export function MainArea({ fallback }: { fallback: ReactNode }) {
   const shown = useEverShown(main.activeView, true)
 
   return (
-    <main aria-label="Main" tabIndex={-1} data-region="main" style={{ gridArea: 'main', minWidth: 0, minHeight: 0, overflow: 'auto', padding: 20 }}>
+    <Box component="main" aria-label="Main" tabIndex={-1} data-region="main"
+      sx={{ gridArea: 'main', minWidth: 0, minHeight: 0, overflow: 'auto', p: 5, bgcolor: 'background.default', outline: 'none' }}>
       {main.views.length === 0 && fallback}
       {main.views.filter(id => shown.has(id)).map(id => {
         const view = catalogue?.find(v => v.id === id)
         return view
           ? <ViewPane key={id} view={view} hidden={id !== main.activeView} />
-          : <p key={id} hidden={id !== main.activeView}>Loading…</p>
+          : <Typography key={id} hidden={id !== main.activeView} color="text.secondary">Loading…</Typography>
       })}
-    </main>
+    </Box>
   )
 }

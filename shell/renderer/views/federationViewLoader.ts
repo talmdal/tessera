@@ -3,27 +3,40 @@ import { createInstance, ModuleFederation } from '@module-federation/runtime'
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
 import * as JsxRuntime from 'react/jsx-runtime'
+import * as EmotionReact from '@emotion/react'
+import * as EmotionStyled from '@emotion/styled'
+import * as Mui from '@mui/material'
+import * as TesseraUi from '@tessera/ui'
+import { version as emotionReactVersion } from '@emotion/react/package.json'
+import { version as emotionStyledVersion } from '@emotion/styled/package.json'
+import { version as muiVersion } from '@mui/material/package.json'
 import type { ComponentType } from 'react'
+import { SHARED_MODULES, SharedModule } from '../../../shared/federation'
 import type { ViewDescriptor } from '../../../shared/views/types'
 import { ViewLoader } from './ports'
 
-const singleton = (lib: object, version: string) => ({
+const singleton = (name: SharedModule, lib: object, version: string) => ({
   version,
   lib: () => lib,
-  shareConfig: { singleton: true, requiredVersion: `^${version}` }
+  shareConfig: { singleton: true, requiredVersion: SHARED_MODULES[name] }
 })
 
-/** The shell's federation host. Plugins receive the shell's React rather than bundling their own. */
+/**
+ * The shell's federation host. Plugins receive the shell's copy of every module
+ * in SHARED_MODULES (React, Emotion, MUI and @tessera/ui) rather than bundling
+ * their own, which is what lets their views share the shell's theme.
+ */
 export function createShellFederation(): ModuleFederation {
-  return createInstance({
-    name: 'tessera_shell',
-    remotes: [],
-    shared: {
-      'react': singleton(React, React.version),
-      'react/jsx-runtime': singleton(JsxRuntime, React.version),
-      'react-dom': singleton(ReactDOM, ReactDOM.version)
-    }
-  })
+  const shared: Record<SharedModule, ReturnType<typeof singleton>> = {
+    'react': singleton('react', React, React.version),
+    'react/jsx-runtime': singleton('react/jsx-runtime', JsxRuntime, React.version),
+    'react-dom': singleton('react-dom', ReactDOM, ReactDOM.version),
+    '@emotion/react': singleton('@emotion/react', EmotionReact, emotionReactVersion),
+    '@emotion/styled': singleton('@emotion/styled', EmotionStyled, emotionStyledVersion),
+    '@mui/material': singleton('@mui/material', Mui, muiVersion),
+    '@tessera/ui': singleton('@tessera/ui', TesseraUi, TesseraUi.version)
+  }
+  return createInstance({ name: 'tessera_shell', remotes: [], shared })
 }
 
 /**

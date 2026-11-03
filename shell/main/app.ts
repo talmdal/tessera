@@ -6,6 +6,7 @@ import type { AppState } from '@tessera/types'
 import { createPluginContext, createPluginRuntime } from '../../core/plugins/PluginContext'
 import { PluginManager } from '../../core/plugins/PluginManager'
 import { LayoutService } from '../../core/layout/LayoutService'
+import { ThemeService } from '../../core/theme/ThemeService'
 import { PRIMARY_WINDOW_KEY } from '../../shared/layout/types'
 import { SHELL_CONTRIBUTOR_ID } from '../../shared/plugins/manifest'
 import { registerCommandsIpc } from './commands/commandsIpc'
@@ -20,6 +21,9 @@ import { registerCoreMenus } from './menus/coreMenus'
 import { applyApplicationMenu } from './menus/electronMenu'
 import { FsPluginSource } from './plugins/FsPluginSource'
 import { handlePluginProtocol, pluginUrl, registerPluginSchemePrivileges } from './plugins/pluginProtocol'
+import { createAppStateThemePersistence } from './theme/appStateThemePersistence'
+import { applyNativeMode, nativeThemeSource } from './theme/nativeThemeSource'
+import { registerTheme } from './theme/registerTheme'
 import { registerViewsIpc } from './views/viewsIpc'
 import { createWindowStateGroup, createWindowStateStore, restoreWindowState } from './window/windowState'
 
@@ -71,6 +75,14 @@ const layout = new LayoutService(runtime.extensions, runtime.contextKeys, { remo
 })
 let layoutHost: LayoutHost
 
+// The theme choice is kept by app-state too. Themes themselves are `shell.themes` contributions; the
+// MUI theme is built in the renderer, so the main process only holds the choice and the catalogue.
+const themes = new ThemeService(runtime.extensions, {
+  system: nativeThemeSource(),
+  persistence: createAppStateThemePersistence(appState),
+  log
+})
+
 async function bootstrap() {
   const shell = createPluginContext(SHELL_CONTRIBUTOR_ID, runtime).context
 
@@ -82,10 +94,15 @@ async function bootstrap() {
   registerViewsIpc(shell, remoteEntryFor, iconUrlFor, log)
   registerCommandsIpc(shell, log)
   layoutHost = registerLayout(shell, runtime, layout, iconUrlFor)
+  registerTheme(shell, runtime, themes, {
+    focusedWindow: () => BrowserWindow.getFocusedWindow()?.id,
+    applyNative: ({ mode, resolvedMode }) => applyNativeMode(mode, resolvedMode)
+  })
   // Registered before the plugins activate, so it runs before the storage plugin closes the store.
   runtime.lifecycle.onShuttingDown(() => trackedWindows.flush())
   await pluginManager.activateAll()
   layout.refresh()   // a plugin's renderer is only known once it has activated
+  await themes.load()   // app-state exists now; a saved choice of a plugin's theme finds the theme present
   applyApplicationMenu(runtime.extensions, runtime.commands)
 }
 
@@ -105,17 +122,21 @@ async function createWindow() {
     DEFAULT_WINDOW_SIZE,
     screen.getAllDisplays().map(display => display.workArea))
 
-  console.log('Window state:', state)
   const win = new BrowserWindow({
     ...DEFAULT_WINDOW_SIZE,
     ...state,
+    // Painted in the theme's page colour and shown once the renderer has drawn, so a dark theme never flashes white.
+    backgroundColor: themes.backgroundColor(),
+    show: false,
     webPreferences: {
       // Built next to app.js by shell/preload/vite.config.ts
       preload: path.join(__dirname, 'preload.js')
     }
   })
-
-  if (state.maximized) win.maximize()
+  win.once('ready-to-show', () => {
+    if (state.maximized) win.maximize()
+    win.show()
+  })
   trackedWindows.track(win, current => windowStates.save(key, current), { log })
 
   // Attached, with its saved layout loaded, before the page loads so its first layout request is right.

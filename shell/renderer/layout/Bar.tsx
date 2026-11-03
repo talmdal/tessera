@@ -1,9 +1,11 @@
+import { Box, IconButton, Stack, Tab, Tabs, Tooltip, Typography } from '@mui/material'
 import type { Border, BorderState } from '@tessera/types'
+import { ContributionIcon, Icon } from '@tessera/ui'
+import type { IconName } from '@tessera/ui'
 import { SLOT_FOR_SIDE, barHasContent } from '../../../shared/layout/types'
 import type { ViewDescriptor } from '../../../shared/views/types'
 import { useBar, useLayoutActions } from '../state/ShellState'
 import { ViewPane, useViewCatalogue } from '../views/ViewsProvider'
-import { BarIcon } from './BarIcon'
 import { useBarItemCatalogue } from './BarItemsProvider'
 import { ItemStrip } from './ItemStrip'
 import { Splitter } from './Splitter'
@@ -12,6 +14,12 @@ import { useEverShown } from './useEverShown'
 const LANDMARK = { top: 'header', bottom: 'footer', left: 'aside', right: 'aside' } as const
 const vertical = (side: Border) => side === 'left' || side === 'right'
 const label = (side: Border) => `${side[0].toUpperCase()}${side.slice(1)} bar`
+
+/** The edge of a bar that faces the main area, where its border and its splitter go. */
+const INNER_EDGE = { left: 'borderRight', right: 'borderLeft', top: 'borderBottom', bottom: 'borderTop' } as const
+
+/** The icon that expands an empty collapsed bar points the way it will grow. */
+const EXPAND_ICON: Record<Border, IconName> = { left: 'ChevronRight', right: 'ChevronLeft', top: 'ExpandMore', bottom: 'ExpandLess' }
 
 interface PresentView {
   id: string
@@ -42,14 +50,27 @@ export function Bar({ side, size, onDrag, onResize }: {
   if (!barHasContent(bar)) return null
 
   const slot = SLOT_FOR_SIDE[side]
-  const Landmark = LANDMARK[side]
   const views: PresentView[] = bar.views.map(id => ({ id, view: catalogue?.find(v => v.id === id) }))
   const items = bar.items.flatMap(id => itemCatalogue.find(item => item.id === id) ?? [])
   const strip = expanded && items.length > 0 ? <ItemStrip side={side} items={items} /> : null
 
   return (
-    <Landmark aria-label={label(side)} tabIndex={-1} data-bar={side} data-region={side} data-state={expanded ? 'expanded' : 'collapsed'}
-      style={{ gridArea: side, position: 'relative', display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
+    <Box component={LANDMARK[side]} aria-label={label(side)} tabIndex={-1}
+      data-bar={side} data-region={side} data-state={expanded ? 'expanded' : 'collapsed'}
+      sx={theme => ({
+        gridArea: side,
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        minWidth: 0,
+        minHeight: 0,
+        overflow: 'hidden',
+        bgcolor: expanded ? theme.tessera.bar.background : theme.tessera.bar.railBackground,
+        [INNER_EDGE[side]]: 1,
+        borderStyle: 'solid',
+        borderColor: 'divider',
+        outline: 'none'
+      })}>
       {side !== 'bottom' && strip}
 
       {!expanded && (
@@ -59,35 +80,38 @@ export function Bar({ side, size, onDrag, onResize }: {
       )}
 
       {expanded && views.length > 0 && (
-        <div role="tablist" aria-label={`${label(side)} views`} style={{ display: 'flex', flex: 'none', alignItems: 'center' }}>
-          {views.map(({ id, view }) => (
-            <button key={id} role="tab" id={`tab-${id}`} aria-selected={id === bar.activeView} aria-controls={`panel-${id}`}
-              onClick={() => setSlot({ slot, activeView: id })}>
-              {view && <BarIcon icon={view.icon} title={view.title} />} {view?.title ?? id}
-            </button>
-          ))}
-          <button aria-label={`Collapse ${label(side).toLowerCase()}`} style={{ marginLeft: 'auto' }}
-            onClick={() => setSlot({ slot, collapsed: true })}>
-            ×
-          </button>
-        </div>
+        <Stack direction="row" sx={{ alignItems: 'center', flex: 'none', borderBottom: 1, borderColor: theme => theme.tessera.bar.tabStripBorder }}>
+          <Tabs value={bar.activeView ?? false} onChange={(_event, activeView: string) => setSlot({ slot, activeView })}
+            aria-label={`${label(side)} views`} variant="scrollable" scrollButtons="auto" sx={{ flex: 1, minWidth: 0 }}>
+            {views.map(({ id, view }) => (
+              <Tab key={id} value={id} id={`tab-${id}`} aria-controls={`panel-${id}`} iconPosition="start"
+                icon={view ? <ContributionIcon icon={view.icon} title={view.title} fontSize="small" /> : undefined}
+                label={view?.title ?? id} />
+            ))}
+          </Tabs>
+          <Tooltip title={`Collapse ${label(side).toLowerCase()}`}>
+            <IconButton aria-label={`Collapse ${label(side).toLowerCase()}`} onClick={() => setSlot({ slot, collapsed: true })} sx={{ mx: 1 }}>
+              <Icon name="Close" fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
       )}
 
       {/* Views that have been shown stay mounted while the bar is collapsed or another tab is chosen. */}
-      <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', display: expanded ? 'block' : 'none' }}>
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', display: expanded ? 'block' : 'none' }}>
         {views.filter(({ id }) => shown.has(id)).map(({ id, view }) => (
           <div key={id} role="tabpanel" id={`panel-${id}`} aria-labelledby={`tab-${id}`} hidden={id !== bar.activeView}>
-            {view ? <ViewPane view={view} /> : <p>Loading…</p>}
+            {view ? <ViewPane view={view} /> : <Typography sx={{ p: 2 }} color="text.secondary">Loading…</Typography>}
           </div>
         ))}
-      </div>
+      </Box>
 
       {side === 'bottom' && strip}
 
       {expanded && views.length > 0 && (
         <Splitter side={side} size={size} onDrag={dragged => onDrag(side, dragged)} onCommit={committed => onResize(side, committed)} />
       )}
-    </Landmark>
+    </Box>
   )
 }
 
@@ -99,17 +123,31 @@ function Rail({ side, activeView, views, onChoose, onExpand }: {
   onChoose(viewId: string): void
   onExpand(): void
 }) {
+  const expandLabel = `Expand ${label(side).toLowerCase()}`
   return (
-    <div role="toolbar" aria-label={`${label(side)} (collapsed)`} aria-orientation={vertical(side) ? 'vertical' : 'horizontal'}
-      style={{ display: 'flex', flexDirection: vertical(side) ? 'column' : 'row', alignItems: 'center', gap: 4, padding: 4 }}>
+    <Stack role="toolbar" aria-label={`${label(side)} (collapsed)`} aria-orientation={vertical(side) ? 'vertical' : 'horizontal'}
+      direction={vertical(side) ? 'column' : 'row'} spacing={1} sx={{ alignItems: 'center', p: 1 }}>
       {views.length === 0
-        ? <button aria-label={`Expand ${label(side).toLowerCase()}`} onClick={onExpand}>»</button>
+        ? (
+          <Tooltip title={expandLabel} placement={vertical(side) ? 'right' : 'bottom'}>
+            <IconButton aria-label={expandLabel} onClick={onExpand}>
+              <Icon name={EXPAND_ICON[side]} fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )
         : views.map(({ id, view }) => (
-          <button key={id} aria-label={view?.title ?? id} title={view?.title ?? id}
-            aria-current={id === activeView || undefined} onClick={() => onChoose(id)}>
-            {view ? <BarIcon icon={view.icon} title={view.title} /> : '…'}
-          </button>
+          <Tooltip key={id} title={view?.title ?? id} placement={vertical(side) ? 'right' : 'bottom'}>
+            <IconButton aria-label={view?.title ?? id} aria-current={id === activeView || undefined} onClick={() => onChoose(id)}
+              sx={theme => ({
+                color: id === activeView ? 'text.primary' : 'text.secondary',
+                // The active view's icon carries a mark on the bar's outer edge, as an activity bar does.
+                boxShadow: id === activeView ? `inset ${vertical(side) ? '2px 0' : '0 2px'} 0 ${theme.tessera.bar.railIndicator}` : 'none',
+                borderRadius: 1
+              })}>
+              {view ? <ContributionIcon icon={view.icon} title={view.title} fontSize="small" /> : '…'}
+            </IconButton>
+          </Tooltip>
         ))}
-    </div>
+    </Stack>
   )
 }

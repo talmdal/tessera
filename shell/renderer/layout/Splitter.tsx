@@ -1,4 +1,5 @@
 import { KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useRef } from 'react'
+import { styled } from '@mui/material'
 import type { Border } from '@tessera/types'
 import { DEFAULT_BAR_SIZE, MIN_BAR_SIZE, maxBarSize } from '../../../shared/layout/types'
 
@@ -16,6 +17,21 @@ const SHRINKS: Record<string, string> = { ArrowRight: 'ArrowLeft', ArrowLeft: 'A
 
 const clamp = (side: Border, size: number) =>
   Math.min(maxBarSize(side, { width: window.innerWidth, height: window.innerHeight }), Math.max(MIN_BAR_SIZE, Math.round(size)))
+
+/** A 6 px grab area along the bar's inner edge, invisible until pointed at, focused or dragged. */
+const Edge = styled('div', { shouldForwardProp: prop => prop !== 'side' })<{ side: Border }>(({ theme, side }) => {
+  const vertical = side === 'left' || side === 'right'
+  return {
+    position: 'absolute',
+    zIndex: 1,
+    ...{ left: { right: 0 }, right: { left: 0 }, top: { bottom: 0 }, bottom: { top: 0 } }[side],
+    ...(vertical ? { top: 0, bottom: 0, width: 6, cursor: 'col-resize' } : { left: 0, right: 0, height: 6, cursor: 'row-resize' }),
+    backgroundColor: theme.tessera.splitter.idle,
+    transition: theme.transitions.create('background-color', { duration: theme.transitions.duration.shorter }),
+    '&:hover': { backgroundColor: theme.tessera.splitter.hover },
+    '&:active, &:focus-visible': { backgroundColor: theme.tessera.splitter.active, outline: 'none' }
+  }
+})
 
 /**
  * The draggable edge of a bar. Dragging resizes the bar locally (`onDrag`) and
@@ -69,14 +85,9 @@ export function Splitter({ side, size, onDrag, onCommit }: {
     onCommit(clamp(side, size + (grow ? STEP : -STEP)))
   }
 
-  const edge = { left: { right: 0 }, right: { left: 0 }, top: { bottom: 0 }, bottom: { top: 0 } }[side]
   return (
-    <div role="separator" aria-label={`Resize ${side} bar`} aria-orientation={vertical ? 'vertical' : 'horizontal'}
+    <Edge side={side} role="separator" aria-label={`Resize ${side} bar`} aria-orientation={vertical ? 'vertical' : 'horizontal'}
       aria-valuenow={size} aria-valuemin={MIN_BAR_SIZE} aria-valuemax={maxBarSize(side, { width: window.innerWidth, height: window.innerHeight })}
-      tabIndex={0} onMouseDown={startDrag} onKeyDown={onKeyDown} onDoubleClick={() => onCommit(DEFAULT_BAR_SIZE[side])}
-      style={{
-        position: 'absolute', zIndex: 1, ...edge,
-        ...(vertical ? { top: 0, bottom: 0, width: 6, cursor: 'col-resize' } : { left: 0, right: 0, height: 6, cursor: 'row-resize' })
-      }} />
+      tabIndex={0} onMouseDown={startDrag} onKeyDown={onKeyDown} onDoubleClick={() => onCommit(DEFAULT_BAR_SIZE[side])} />
   )
 }

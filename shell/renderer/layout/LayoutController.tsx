@@ -1,4 +1,5 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { Box } from '@mui/material'
 import type { Border, BorderState } from '@tessera/types'
 import { BAR_SIDES, RAIL_SIZE, SLOT_FOR_SIDE, barHasContent } from '../../../shared/layout/types'
 import { useLayout, useLayoutActions, useRevealed } from '../state/ShellState'
@@ -73,16 +74,16 @@ export function LayoutController({ welcome }: { welcome: ReactNode }) {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  // The tracks are layout state, not style, so they stay inline; everything visual is in `sx`.
   return (
-    <div ref={root} data-layout style={{
-      display: 'grid',
-      height: '100vh',
-      gridTemplateAreas: '"top top top" "left main right" "bottom bottom bottom"',
-      gridTemplateColumns: `${track('left')} minmax(0, 1fr) ${track('right')}`,
-      gridTemplateRows: `${track('top')} minmax(0, 1fr) ${track('bottom')}`
-    }}>
+    <Box ref={root} data-layout
+      sx={{ display: 'grid', height: '100vh', gridTemplateAreas: '"top top top" "left main right" "bottom bottom bottom"', bgcolor: 'background.default' }}
+      style={{
+        gridTemplateColumns: `${track('left')} minmax(0, 1fr) ${track('right')}`,
+        gridTemplateRows: `${track('top')} minmax(0, 1fr) ${track('bottom')}`
+      }}>
       {BAR_SIDES.map(side => <Bar key={side} side={side} size={sizeOf(side)} onDrag={onDrag} onResize={onResize} />)}
       <MainArea fallback={welcome} />
-    </div>
+    </Box>
   )
 }

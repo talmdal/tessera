@@ -5,6 +5,7 @@
     { "path": "./shell" },
     { "path": "./shared" },
     { "path": "./scripts" },
-    { "path": "./plugins" } 
+    { "path": "./plugins" },
+    { "path": "./tessera-ui" }
   ]
 }

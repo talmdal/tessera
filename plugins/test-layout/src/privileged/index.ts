@@ -1,9 +1,9 @@
-// plugins/layout.sample/src/privileged/index.ts
+// plugins/test-layout/src/privileged/index.ts
 //
 // A sample plugin that puts a view in every slot of the window manager and
 // shows the full round trip:
 //
-//   a button in a bar view ── window.api.invoke('layout-sample:ping') ──► here
+//   a button in a bar view ── window.api.invoke('test-layout:ping') ──► here
 //   here ── context.events.emit('changed', state) ──► every view re-renders
 //   here ── shell.layout.reveal ──► the main area switches to the Detail page
 //
@@ -27,7 +27,7 @@ export function activate(context: PluginContext) {
   /** Pushes the new state to every view and mirrors the bits menus may care about into context keys. */
   const publish = () => {
     const state = model.snapshot()
-    context.events.emit('changed', state)                    // arrives as 'layout-sample:changed'
+    context.events.emit('changed', state)                    // arrives as 'test-layout:changed'
     context.contextKeys.set(`${PLUGIN_ID}.pings`, state.total)
     context.contextKeys.set(`${PLUGIN_ID}.lastSide`, state.last?.side)
   }
@@ -98,7 +98,7 @@ export function activate(context: PluginContext) {
     }),
     context.extensions.contribute(PLUGIN_ID, B, `${PLUGIN_ID}.status.pings`, {
       kind: 'text', id: `${PLUGIN_ID}.status.pings`, slot: 'shell.bottom', align: 'end',
-      text: 'Sample pings: {layout-sample.pings}', icon: 'Info', when: `${PLUGIN_ID}.pings`
+      text: `Sample pings: {${PLUGIN_ID}.pings}`, icon: 'Info', when: `${PLUGIN_ID}.pings`
     }),
     context.extensions.contribute(PLUGIN_ID, 'shell.menus', `${PLUGIN_ID}.menu.dashboard`, {
       kind: 'item', id: `${PLUGIN_ID}.menu.dashboard`, label: 'Sample &Dashboard',

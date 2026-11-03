@@ -1,0 +1,60 @@
+{
+  "id": "theme-halloween.main",
+  "label": "Halloween",
+  "description": "Pumpkin orange on midnight purple, with slime-green credits and blood-red debits. Boo.",
+  "order": 100,
+  "common": {
+    "shape": { "borderRadius": 6 },
+    "typography": {
+      "fontFamily": "Georgia, \"Palatino Linotype\", \"Book Antiqua\", Palatino, serif",
+      "h4": { "fontWeight": 700, "letterSpacing": "0.02em" },
+      "button": { "fontWeight": 700, "letterSpacing": "0.06em", "textTransform": "uppercase" }
+    },
+    "components": {
+      "MuiButton": { "defaultProps": { "disableElevation": false } },
+      "MuiTab": { "styleOverrides": { "root": { "fontWeight": 700 } } }
+    }
+  },
+  "dark": {
+    "palette": {
+      "primary": { "main": "#ff7518", "light": "#ffa052", "dark": "#c24e00", "contrastText": "#1a0b2e" },
+      "secondary": { "main": "#9d4edd", "light": "#c77dff", "dark": "#6a0dad", "contrastText": "#fff7ea" },
+      "background": { "default": "#120a1f", "paper": "#1e1233" },
+      "text": { "primary": "#fff1dc", "secondary": "#d9b99b" },
+      "divider": "#3b2a55",
+      "success": { "main": "#7cff4a" },
+      "error": { "main": "#ff3b5c" },
+      "warning": { "main": "#ffc93c" },
+      "info": { "main": "#c77dff" },
+      "action": { "hover": "rgba(255, 117, 24, 0.12)", "selected": "rgba(255, 117, 24, 0.24)" }
+    },
+    "tessera": {
+      "bar": { "background": "#190e2b", "railBackground": "#0d0618", "railIndicator": "#ff7518", "tabStripBorder": "#3b2a55" },
+      "splitter": { "hover": "rgba(255, 117, 24, 0.35)", "active": "#ff7518" },
+      "finance": { "credit": "#7cff4a", "debit": "#ff3b5c", "transfer": "#c77dff", "uncleared": "#ffc93c" }
+    }
+  },
+  "light": {
+    "palette": {
+      "primary": { "main": "#b94a00", "light": "#ff7518", "dark": "#7a3000", "contrastText": "#fff7ea" },
+      "secondary": { "main": "#6a0dad", "light": "#9d4edd", "dark": "#48087a", "contrastText": "#fff7ea" },
+      "background": { "default": "#fff4e3", "paper": "#ffe9c9" },
+      "text": { "primary": "#2b1433", "secondary": "#6a4c2a" },
+      "divider": "#e3c9a1",
+      "success": { "main": "#3f9d1e" },
+      "error": { "main": "#c41e3a" },
+      "warning": { "main": "#c98a00" },
+      "info": { "main": "#6a0dad" },
+      "action": { "hover": "rgba(185, 74, 0, 0.10)", "selected": "rgba(185, 74, 0, 0.20)" }
+    },
+    "tessera": {
+      "bar": { "background": "#ffe9c9", "railBackground": "#ffdfae", "railIndicator": "#b94a00", "tabStripBorder": "#e3c9a1" },
+      "splitter": { "hover": "rgba(185, 74, 0, 0.30)", "active": "#b94a00" },
+      "finance": { "credit": "#3f9d1e", "debit": "#c41e3a", "transfer": "#6a0dad", "uncleared": "#c98a00" }
+    }
+  },
+  "swatch": {
+    "dark": ["#120a1f", "#1e1233", "#ff7518", "#9d4edd"],
+    "light": ["#fff4e3", "#ffe9c9", "#b94a00", "#6a0dad"]
+  }
+}

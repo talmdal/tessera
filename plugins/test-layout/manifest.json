@@ -1,6 +1,6 @@
 {
   "id": "test-layout",
-  "name": "Test layouut Plugin",
+  "name": "Test Layout Plugin",
   "version": "0.1.0",
   "privileged": { "entry": "privileged/index.js" },
   "renderer": {

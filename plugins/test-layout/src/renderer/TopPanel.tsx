@@ -1,4 +1,4 @@
-// plugins/layout.sample/src/renderer/TopPanel.tsx
+// plugins/test-layout/src/renderer/TopPanel.tsx
 import { SidePanel } from './SidePanel'
 
 /** The view contributed to the shell.top slot. */

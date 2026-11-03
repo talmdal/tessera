@@ -102,6 +102,28 @@ export class LokiStorageEngine implements StorageEngine {
     }
   }
 
+  /** Transactions started through `transaction`, one after another. */
+  private transactions: Promise<unknown> = Promise.resolve()
+
+  transaction<T>(fn: (tx: StorageTransaction) => Promise<T>): Promise<T> {
+    const result = this.transactions.then(() => this.runTransaction(fn))
+    this.transactions = result.catch(() => {})
+    return result
+  }
+
+  private async runTransaction<T>(fn: (tx: StorageTransaction) => Promise<T>): Promise<T> {
+    if (!this.capabilities().transactions) throw new Error('Storage engine does not support transactions')
+    const tx = await this.beginTransaction()
+    try {
+      const result = await fn(tx)
+      await tx.commit()
+      return result
+    } catch (err) {
+      await tx.rollback()
+      throw err
+    }
+  }
+
   async beginTransaction(): Promise<StorageTransaction> {
     const engine = this
     // Clone the entire Loki database state

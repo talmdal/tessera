@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import esbuild from 'esbuild'
 import { build as viteBuild } from 'vite'
+import { SHARED_MODULES } from '../shared/federation.ts'
 
 export interface BuildOptions {
   pluginsDir: string
@@ -23,8 +24,6 @@ const SOURCE_CANDIDATES = [
   'src/privileged/index.mjs'
 ]
 
-const SHARED_REACT_RANGE = '^18.2.0'
-const SHARED_MODULES = ['react', 'react/jsx-runtime', 'react-dom']
 
 export async function buildPlugins({ pluginsDir, outDir, only, log = () => {} }: BuildOptions): Promise<BuildResult[]> {
   if (!fs.existsSync(pluginsDir)) return []
@@ -169,10 +168,15 @@ async function buildRenderer(srcDir: string, id: string, entryOut: string, expos
         exposes: Object.fromEntries(
           Object.entries(expose).map(([name, file]) => [name, path.resolve(srcDir, file)])
         ),
+        // The shell provides these at run time (see shared/federation.ts); none is bundled into the plugin.
+        // @tessera/ui is a repository folder, not an installed package, so the federation plugin cannot read
+        // its export names to generate static re-exports and falls back to resolving names from the share
+        // scope at run time (which works: tests/renderer/builtinView.test.tsx imports it from a built remote).
+        // It warns about that fallback; the warning is suppressed since `tsc` checks the names instead.
         shared: Object.fromEntries(
-          SHARED_MODULES.map(name => [
+          Object.entries(SHARED_MODULES).map(([name, requiredVersion]) => [
             name,
-            { singleton: true, requiredVersion: SHARED_REACT_RANGE, import: false }
+            { singleton: true, requiredVersion, import: false, ...(name === '@tessera/ui' && { suppressMissingImportWarning: true }) }
           ])
         ),
         dts: false
@@ -180,6 +184,7 @@ async function buildRenderer(srcDir: string, id: string, entryOut: string, expos
     ],
     esbuild: { jsx: 'automatic' },
     // Views import values (not just types) from the shared types package, as the privileged build allows.
+    // @tessera/ui is not aliased: it is a shared module (above), so the import is left for the shell to satisfy.
     resolve: { alias: { '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts') } },
     build: {
       target: 'esnext',

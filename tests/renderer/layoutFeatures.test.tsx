@@ -31,9 +31,18 @@ describe('bar items', () => {
   })
 
   it('shows the tooltip, and a labelled bar of its own for the strip', async () => {
-    await renderFrame(topWith('save'), [], {}, { items: [button('save', { tooltip: 'Save the vault' })] })
+    const user = userEvent.setup()
+    await renderFrame(topWith('save', 'print'), [], {}, {
+      items: [button('save', { tooltip: 'Save the vault' }), button('print', { tooltip: 'Print it', enabled: false })]
+    })
 
-    expect(await screen.findByTitle('Save the vault')).toBeInTheDocument()
+    await user.hover(await screen.findByRole('button', { name: 'Label save' }))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Save the vault')
+    await user.unhover(screen.getByRole('button', { name: 'Label save' }))
+
+    // A disabled button fires no pointer events, so its tooltip comes from a wrapper around it.
+    await user.hover(screen.getByRole('button', { name: 'Label print' }).parentElement!)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Print it')
     expect(screen.getByRole('group', { name: 'top bar items' })).toBeInTheDocument()
   })
 

@@ -450,15 +450,16 @@ An `icon` is a string in one of two forms:
 
 The shell ships a built-in set whose names live in
 [shared/layout/icons.ts](../shared/layout/icons.ts) (so the main process can
-validate contributions) and whose glyphs live in
-[shell/renderer/layout/iconGlyphs.ts](../shell/renderer/layout/iconGlyphs.ts).
+validate contributions) and whose glyphs are imported from the package in
+[tessera-ui/icons.ts](../tessera-ui/icons.ts) (see
+[material-ui-design.md](material-ui-design.md)).
 The set is [MUI's Material icons](https://mui.com/material-ui/material-icons/)
 (`@mui/icons-material`), chosen to match the planned move to MUI for
 components. Names are Material icon names in PascalCase (`Save`,
 `CalendarToday`, `AccountBalance`), so swapping in the package later is a
-drop-in. It ships ten glyphs for now (`Add`, `AccountBalance`,
-`CalendarToday`, `Circle`, `Close`, `Home`, `Info`, `List`, `Save`,
-`Search`), and growing it only means growing those two files. Plugin files
+drop-in. The set is `ICON_NAMES` in that file (fourteen at the time of
+writing), and growing it only means adding a name there and its import in
+`tessera-ui/icons.ts`; a test keeps the two in step. Plugin files
 should be monochrome SVGs; the renderer paints them with CSS `mask-image` and
 `currentColor`, so icons follow the theme. The same `icon` is used on the rail, the tab, and for button items; a
 main-area view's icon is unused today and reserved for a future tab strip.

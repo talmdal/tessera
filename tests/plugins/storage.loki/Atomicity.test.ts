@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { LokiStorageEngine } from '../../../plugins/storage.loki/src/privileged/LokiStorageEngine'
-import { TransactionManager } from '../../../core/storage/TransactionManager'
 
 describe('Atomicity guarantees', () => {
   const create = () => new LokiStorageEngine('memory://atomic.db')
@@ -9,10 +8,10 @@ describe('Atomicity guarantees', () => {
     const engine = create()
     await engine.init()
 
-    const tm = new TransactionManager(engine)
+    const tm = engine
 
     await expect(async () => {
-      await tm.run(async tx => {
+      await tm.transaction(async tx => {
         await tx.insert('items', { id: 1, value: 'A' })
         await tx.insert('items', { id: 2, value: 'B' })
         throw new Error('Abort transaction')
@@ -29,9 +28,9 @@ describe('Atomicity guarantees', () => {
     const engine = create()
     await engine.init()
 
-    const tm = new TransactionManager(engine)
+    const tm = engine
 
-    await tm.run(async tx => {
+    await tm.transaction(async tx => {
       await tx.insert('items', { id: 1, value: 'A' })
       await tx.insert('items', { id: 2, value: 'B' })
     })

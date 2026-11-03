@@ -4,6 +4,7 @@ import { EMPTY_LAYOUT, LAYOUT_GET } from '../../shared/layout/types'
 import App from '../../shell/renderer/App'
 import { BarItemsProvider } from '../../shell/renderer/layout/BarItemsProvider'
 import { ShellStateProvider } from '../../shell/renderer/state/ShellState'
+import { ShellThemeProvider } from '../../shell/renderer/theme/ShellThemeProvider'
 import { ViewsProvider } from '../../shell/renderer/views/ViewsProvider'
 
 const bridge = {
@@ -14,13 +15,15 @@ const bridge = {
 describe('renderer', () => {
   it('shows the welcome content when no plugin contributes to the main slot', async () => {
     render(
-      <ShellStateProvider bridge={bridge}>
-        <ViewsProvider source={{ listViews: async () => [] }} loader={{ load: async () => () => null }}>
-          <BarItemsProvider source={{ listItems: async () => [] }}>
-            <App />
-          </BarItemsProvider>
-        </ViewsProvider>
-      </ShellStateProvider>
+      <ShellThemeProvider mode="light">
+        <ShellStateProvider bridge={bridge}>
+          <ViewsProvider source={{ listViews: async () => [] }} loader={{ load: async () => () => null }}>
+            <BarItemsProvider source={{ listItems: async () => [] }}>
+              <App />
+            </BarItemsProvider>
+          </ViewsProvider>
+        </ShellStateProvider>
+      </ShellThemeProvider>
     )
 
     expect(await screen.findByText(/Tessera/i)).toBeInTheDocument()

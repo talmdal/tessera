@@ -1,6 +1,9 @@
+import type { ReactNode } from 'react'
+import { Box, Button, Toolbar, Tooltip, Typography } from '@mui/material'
 import type { BorderItemDescriptor, Border } from '@tessera/types'
+import { ContributionIcon } from '@tessera/ui'
 import { useContextKeySnapshot, useLayoutActions } from '../state/ShellState'
-import { BarIcon } from './BarIcon'
+import { STRIP_HEIGHT } from '../theme/createShellTheme'
 
 /** `{key}` becomes the value of that context key, and '' when it is unset. */
 function interpolate(text: string, keys: Record<string, unknown>) {
@@ -17,24 +20,35 @@ export function ItemStrip({ side, items }: { side: Border, items: BorderItemDesc
   const { execute } = useLayoutActions()
 
   const draw = (item: BorderItemDescriptor) => {
-    const content = (
-      <>
-        {item.icon && <BarIcon icon={item.icon} title={item.kind === 'button' ? item.label : item.text} />}
-        {item.kind === 'button' ? item.label : interpolate(item.text, keys)}
-      </>
-    )
+    const title = item.kind === 'button' ? item.label : item.text
+    const icon = item.icon ? <ContributionIcon icon={item.icon} title={title} fontSize="small" /> : undefined
+    const text = item.kind === 'button' ? item.label : interpolate(item.text, keys)
 
+    let drawn: ReactNode
     if (item.command === undefined) {
-      return <span key={item.id} data-item={item.id} title={item.tooltip} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>{content}</span>
+      drawn = (
+        <Typography key={item.id} component="span" variant="body2" data-item={item.id}
+          sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, px: 1, whiteSpace: 'nowrap' }}>
+          {icon}{text}
+        </Typography>
+      )
+    } else {
+      const command = item.command
+      drawn = (
+        <Button key={item.id} data-item={item.id} disabled={!item.enabled} startIcon={icon} color="inherit"
+          aria-label={item.kind === 'button' ? item.label : undefined} onClick={() => execute(command)}
+          sx={{ whiteSpace: 'nowrap', minWidth: 0 }}>
+          {text}
+        </Button>
+      )
     }
 
-    const command = item.command
+    if (!item.tooltip) return drawn
+    // A disabled button fires no events, so the tooltip listens on a wrapper around it.
     return (
-      <button key={item.id} data-item={item.id} title={item.tooltip} disabled={!item.enabled}
-        aria-label={item.kind === 'button' ? item.label : undefined} onClick={() => execute(command)}
-        style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-        {content}
-      </button>
+      <Tooltip key={item.id} title={item.tooltip}>
+        {item.command !== undefined && !item.enabled ? <span>{drawn}</span> : drawn}
+      </Tooltip>
     )
   }
 
@@ -42,10 +56,11 @@ export function ItemStrip({ side, items }: { side: Border, items: BorderItemDesc
   const end = items.filter(item => item.align === 'end')
 
   return (
-    <div role="group" aria-label={`${side} bar items`} style={{ display: 'flex', flex: 'none', alignItems: 'center', gap: 8, padding: '2px 8px' }}>
+    <Toolbar variant="dense" disableGutters role="group" aria-label={`${side} bar items`}
+      sx={{ flex: 'none', minHeight: STRIP_HEIGHT, gap: 1, px: 2, overflow: 'hidden' }}>
       {start.map(draw)}
-      <span style={{ marginLeft: 'auto' }} />
+      <Box sx={{ flex: 1 }} />
       {end.map(draw)}
-    </div>
+    </Toolbar>
   )
 }

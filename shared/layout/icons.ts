@@ -1,8 +1,8 @@
 // shared/layout/icons.ts — the shell's icon set, and how a contribution's `icon` is resolved.
 //
-// Names are Material icon names (as in MUI's @mui/icons-material), so the set
-// can be swapped for the package wholesale. The glyphs live in
-// shell/renderer/layout/iconGlyphs.ts.
+// Names are Material icon names, as exported by @mui/icons-material. The
+// glyphs are imported by name in tessera-ui/icons.ts, which a test keeps in
+// step with this list.
 
 export const ICON_NAMES = [
   'Add', 'AccountBalance', 'CalendarToday', 'ChevronLeft', 'ChevronRight', 'Circle', 'Close', 'ExpandLess', 'ExpandMore',

@@ -1,4 +1,4 @@
-// plugins/layout.sample/src/privileged/SampleModel.ts
+// plugins/test-layout/src/privileged/TestBackend.ts
 import { BORDERS, Border } from '@tessera/types'
 import { LayoutState } from '../shared'
 

@@ -1,4 +1,4 @@
-// plugins/layout.sample/src/renderer/BottomPanel.tsx
+// plugins/test-layout/src/renderer/BottomPanel.tsx
 import { SidePanel } from './SidePanel'
 
 /** The view contributed to the shell.bottom slot. */

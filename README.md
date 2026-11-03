@@ -53,6 +53,15 @@ platform.
   `app-state` plugin that keeps window, theme and per-window layout state on
   top of it, exposed to views over IPC (`app.state:get`, `:set`, `:update`,
   `:remove`).
+- **Material UI and themes:** the renderer renders with MUI under one
+  shell-owned theme. Themes are plain-data contributions to the
+  **`shell.themes`** extension point, chosen from *View › Theme* (or its
+  chooser, which previews a theme on a sample or on the whole window before
+  applying it) in light, dark or system mode; the choice is persisted, drives
+  Electron's `nativeTheme`, and falls back to the built-in theme if a theme's
+  plugin is removed. Plugin views share the shell's `@mui/material`, Emotion and
+  `@tessera/ui` through Module Federation, so they inherit the theme. See
+  [docs/material-ui-design.md](docs/material-ui-design.md).
 - **IPC:** a single dispatcher channel. Handlers are registered on channels
   named `<pluginId>:<event>` by convention, and replies are a structured
   success-or-error envelope. Events flow the other way too: the shell publishes its phase,
@@ -69,14 +78,18 @@ tessera-types/
           interfaces (IPC, commands, extensions, context keys, services,
           lifecycle, events), StorageEngine and AppState. The core implements
           them, the shell composes them, and plugins are written against them.
+tessera-ui/
+          The renderer counterpart (@tessera/ui): the shell's icons and theme
+          tokens, built into the shell and shared with plugin views as a
+          Module Federation singleton, alongside React and Material UI.
 shared/   Contracts any process may import: IPC envelope guards, manifest
           schema, menu, view and layout contracts, enablement expressions. No
           platform code.
 core/     Main-process application core: plugin manager, plugin context,
           and the registry implementations (IPC, extensions, commands,
           context keys, services, lifecycle, events), the layout controller
-          (LayoutService) and the storage engine registry and transaction
-          manager. Depends only on tessera-types/,
+          (LayoutService), the theme service (ThemeService) and the storage
+          engine registry. Depends only on tessera-types/,
           shared/ and its own ports.
 shell/
   main/       Composition root and adapters: Electron menu, IPC binding,
@@ -161,7 +174,7 @@ try.
 | `npm run dev:renderer` | Renderer dev server only |
 | `npm run dev:electron` | Launch Electron against the current build |
 
-Type-check with `npx tsc --noEmit -p <core|shared|shell|plugins|scripts|tests>`.
+Type-check with `npx tsc --noEmit -p <core|shared|shell|plugins|scripts|tessera-ui|tests>`.
 Always pass `--noEmit`: the tsconfigs don't set an output directory yet, so a
 bare `tsc -b` writes `.js` files next to the sources. The shell and tests
 projects currently report errors from stale imports left by the restructure
@@ -172,6 +185,7 @@ files because it only holds project references.
 
 ```
 tessera-types/       @tessera/types: shared interfaces (no implementation)
+tessera-ui/          @tessera/ui: icons and theme tokens shared with plugin views
 core/                 Platform-free application core (see Architecture)
 shared/               Cross-process contracts
 shell/main/           Electron main process: composition root and adapters
@@ -184,8 +198,8 @@ tests/                Vitest suites, mirroring the source folders, plus
 docs/                 Plugin guide, design notes and open-work list
 plugins/              Source of bundled (built-in) plugins, one folder each:
                       app-state (application state), storage-loki (LokiJS
-                      storage engine) and test-layout (exercises every
-                      layout slot)
+                      storage engine), test-layout (exercises every layout
+                      slot) and theme-halloween (a theme plugin)
 modules/              Build output of plugins/ (gitignored); loaded at startup
 ```
 
@@ -202,6 +216,10 @@ modules/              Build output of plugins/ (gitignored); loaded at startup
   lower-level `StorageEngine` it would build on already exists)
 - [docs/settings-design.md](docs/settings-design.md): proposed settings
   framework where plugins own their settings shape and pages
+- [docs/material-ui-design.md](docs/material-ui-design.md): proposed move
+  to Material UI for components, icons and theming, themes contributed by
+  plugins through `shell.themes`, and a chooser that previews a theme before
+  applying it
 - [docs/todo.md](docs/todo.md): known gaps and planned work
 
 ## License

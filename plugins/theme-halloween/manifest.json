@@ -1,0 +1,6 @@
+{
+  "id": "theme-halloween",
+  "name": "Halloween Theme",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" }
+}

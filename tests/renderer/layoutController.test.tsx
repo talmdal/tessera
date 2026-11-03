@@ -118,11 +118,13 @@ describe('layout controller frame', () => {
 
   describe('a collapsed bar', () => {
     it('is a 40px rail with one labelled icon per view and no tabs', async () => {
+      const user = userEvent.setup()
       const { container } = await renderFrame(leftBar({ collapsed: true }), leftViews)
 
       const rail = screen.getByRole('toolbar', { name: 'Left bar (collapsed)' })
       expect(within(rail).getAllByRole('button').map(b => b.getAttribute('aria-label'))).toEqual(['Title accounts', 'Title categories'])
-      expect(within(rail).getAllByRole('button').map(b => b.getAttribute('title'))).toEqual(['Title accounts', 'Title categories'])
+      await user.hover(within(rail).getByRole('button', { name: 'Title categories' }))
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Title categories')
       expect(within(rail).getByRole('button', { name: 'Title accounts' })).toHaveAttribute('aria-current', 'true')
       expect(screen.queryByRole('tablist')).toBeNull()
       expect((container.querySelector('[data-layout]') as HTMLElement).style.gridTemplateColumns).toBe('40px minmax(0, 1fr) 0px')

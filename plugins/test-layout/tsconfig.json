@@ -14,8 +14,10 @@
     "baseUrl": ".",
     "paths": {
       "@tessera/types": ["../../tessera-types/index.ts"],
-      "@tessera/types/*": [".../../tessera-types/*"]
+      "@tessera/types/*": ["../../tessera-types/*"],
+      "@tessera/ui": ["../../tessera-ui/index.ts"],
+      "@tessera/ui/*": ["../../tessera-ui/*"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "../../tessera-ui/tokens.ts"]
 }

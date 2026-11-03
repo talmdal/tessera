@@ -19,7 +19,16 @@ export interface StorageEngine {
 
   capabilities(): StorageEngineCapabilities
 
+  /** A transaction to commit or roll back yourself. Prefer `transaction`, which also serialises them. */
   beginTransaction(): Promise<StorageTransaction>
+
+  /**
+   * Runs `fn` in a transaction, committing when it resolves and rolling back
+   * when it throws. Transactions run one at a time: each starts from a
+   * snapshot, so two that overlapped would each commit a state without the
+   * other's changes. Rejects if the engine does not support transactions.
+   */
+  transaction<T>(fn: (tx: StorageTransaction) => Promise<T>): Promise<T>
 }
 
 export type Query =

@@ -6,7 +6,8 @@ export default defineConfig({
     alias: {
       '@shared': path.resolve(__dirname, 'shared'),
       '@core': path.resolve(__dirname, 'core'),
-      '@tessera/types': path.resolve(__dirname, 'tessera-types/index.ts')
+      '@tessera/types': path.resolve(__dirname, 'tessera-types/index.ts'),
+      '@tessera/ui': path.resolve(__dirname, 'tessera-ui/index.ts')
     }
   },
   test: {

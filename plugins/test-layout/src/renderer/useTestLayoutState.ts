@@ -1,4 +1,4 @@
-// plugins/layout.sample/src/renderer/useSampleState.ts
+// plugins/test-layout/src/renderer/useTestLayoutState.ts
 import { useEffect, useState } from 'react'
 import { CHANNELS, EVENTS, LayoutState } from '../shared'
 
@@ -14,7 +14,7 @@ export function useTestLayoutState(): LayoutState | undefined {
     const stop = window.api.on<LayoutState>(EVENTS.changed, setState)
     window.api.invoke<LayoutState>(CHANNELS.state).then(
       current => setState(previous => previous ?? current),   // an event that arrived first wins
-      err => console.error('[layout-sample] Could not load state', err)
+      err => console.error('[test-layout] Could not load state', err)
     )
     return stop
   }, [])

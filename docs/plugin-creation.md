@@ -19,6 +19,7 @@ extension points.
 - [IPC between your view and your privileged code](#ipc-between-your-view-and-your-privileged-code)
 - [Providing and using services](#providing-and-using-services)
 - [Contributing views](#contributing-views)
+- [Contributing a theme](#contributing-a-theme)
 - [The renderer remote](#the-renderer-remote)
 - [Application lifecycle](#application-lifecycle)
 - [Lifecycle and cleanup](#lifecycle-and-cleanup)
@@ -319,6 +320,44 @@ Contribute it from `activate` with `module: './SummaryView'`, as in
 - **CSS and assets** imported by a view should be emitted beside the remote
   entry and served through the plugin protocol, but **this is untested**: the
   sample view has no stylesheet. Check it before relying on it.
+
+### Styling a view
+
+The shell renders with [Material UI](https://mui.com/material-ui/) and wraps
+every view in its `ThemeProvider`, so a view built from `@mui/material`
+components looks like the rest of the application with no styling of its
+own. The rules, from [docs/material-ui-design.md](material-ui-design.md):
+
+- **Use MUI components** (`Button`, `Typography`, `Table`, `TextField`, …)
+  rather than bare elements, and style with `sx` or `styled`, not inline
+  `style` objects.
+- **Read colours, spacing and fonts from the theme**, never as literals:
+  `sx={{ color: 'text.secondary', p: 2 }}`, or `useTheme()`. Amounts use
+  the `amount` typography variant and the `tessera.finance` tokens:
+
+  ```tsx
+  import { Typography, useTheme } from '@mui/material'
+  import { Icon } from '@tessera/ui'
+
+  const theme = useTheme()
+  <Typography variant="amount" sx={{ color: theme.tessera.finance.credit }}>2 100.00</Typography>
+  <Icon name="Save" fontSize="small" />
+  ```
+
+- **Don't provide a theme.** No `ThemeProvider`, `CssBaseline` or global
+  styles in a view; the shell owns them, and the user's theme reaches your
+  view through the shared `@mui/material`.
+- **MUI 9 details worth knowing:** layout and typography props go in `sx`
+  (`<Stack sx={{ alignItems: 'center' }}>`, not `alignItems="center"`), and
+  `Typography` has no `paragraph` prop (use `sx={{ mb: 2 }}`).
+- **Types for `theme.tessera` and `variant="amount"`** come from
+  [tessera-ui/tokens.ts](../tessera-ui/tokens.ts), which augments MUI's
+  `Theme`. A view that imports `@tessera/ui` sees them; one that doesn't
+  must include that file in its `tsconfig.json` (`"include": ["src/**/*",
+  "../../tessera-ui/tokens.ts"]`, as the bundled plugins do).
+- **Icons:** `Icon` from `@tessera/ui` for the shell's set (the names in
+  [shared/layout/icons.ts](../shared/layout/icons.ts)), `SvgIcon` from
+  `@mui/material` with your own `<path>` for anything else.
 
 ---
 
@@ -858,6 +897,84 @@ Views currently receive **no props**. Use `window.api.invoke` to get data.
 
 ---
 
+## Contributing a theme
+
+Extension point: **`shell.themes`** (`ThemeContribution` in
+[tessera-types/theme.ts](../tessera-types/theme.ts)). A theme is **data**: a
+label and Material UI theme options for a light scheme, a dark scheme, or
+both, layered on the shell's base theme. The shell validates it, lists it in
+**View › Theme** and in the chooser (*View › Theme › Choose Theme…*, which
+previews a theme on a sample or on the whole window before applying it),
+remembers the user's choice, and builds it in the renderer, so a theme plugin
+needs no renderer code at all. The bundled
+[theme-halloween](../plugins/theme-halloween/) plugin is the reference:
+
+```
+plugins/theme-halloween/
+├── manifest.json                 privileged entry only
+├── themes/halloween.json         the ThemeContribution
+└── src/privileged/index.ts       imports the JSON and contributes it
+```
+
+```ts
+import type { PluginContext, ThemeContribution } from '@tessera/types'
+import halloween from '../../themes/halloween.json'
+
+export function activate(context: PluginContext) {
+  const theme = halloween as ThemeContribution
+  context.subscriptions.push(context.extensions.contribute('theme-halloween', 'shell.themes', theme.id, theme))
+}
+```
+
+```jsonc
+{
+  "id": "theme-halloween.main",          // plugin-prefixed, like every contribution
+  "label": "Halloween",                  // the menu and chooser entry
+  "description": "Pumpkin orange on midnight purple.",
+  "order": 100,                          // lower sorts first; the shell's theme is -1
+  "common": { "shape": { "borderRadius": 6 }, "typography": { "fontFamily": "Georgia, serif" } },
+  "dark":  { "palette": { "primary": { "main": "#ff7518" }, "background": { "default": "#120a1f", "paper": "#1e1233" } },
+             "tessera": { "finance": { "credit": "#7cff4a", "debit": "#ff3b5c" } } },
+  "light": { "palette": { "primary": { "main": "#b94a00" }, "background": { "default": "#fff4e3" } } },
+  "swatch": { "dark": ["#120a1f", "#1e1233", "#ff7518", "#9d4edd"], "light": ["#fff4e3", "#ffe9c9", "#b94a00", "#6a0dad"] }
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `id`, `label` | yes | |
+| `light`, `dark` | at least one | MUI `ThemeOptions` as JSON. A theme with only one scheme is still offered in the other mode, using the scheme it has. `palette.mode` is set by the shell |
+| `common` | no | Options both schemes share: typography, shape, component `defaultProps` and `styleOverrides` |
+| `tessera` (inside a scheme or `common`) | no | The shell's own tokens: `bar`, `splitter`, `finance` (`credit`, `debit`, …). Anything you leave out is derived from your palette |
+| `swatch` | no | Four colours per scheme for the chooser; derived from the palette when absent |
+| `order`, `description` | no | |
+
+Rules, and what happens when they are broken:
+
+- **Plain data only.** No functions (so no `styleOverrides` callbacks), no
+  class instances, nothing that cannot be structured-cloned, under 256 KB. A
+  contribution that breaks this is skipped with a `[themes] …` warning in
+  the main process, like an invalid view.
+- **It must build.** Options `createTheme` rejects (an unparseable colour),
+  text that is unreadable on the page background (contrast under 3:1), or a
+  base font size outside 8–32 px make the renderer **fall back to the
+  shell's theme** and show a notice naming your theme and plugin. Your
+  plugin keeps running.
+- **You only say what differs.** The shell's base sets density, the type
+  scale, `size: 'small'` defaults and the `amount` variant; a theme usually
+  needs nothing but a palette. MUI derives `light`, `dark` and
+  `contrastText` for any colour you give only a `main`.
+- **The choice survives you.** If your plugin is disabled while its theme is
+  chosen, the shell uses its own theme and keeps the choice; when your plugin
+  is back, so is your theme.
+
+The shell publishes the choice as context keys (`shell.theme.id`,
+`shell.theme.mode`, `shell.theme.resolvedMode`) and as
+`shell:theme.changed` events (`ThemeSelection`), so a plugin can react to the
+mode, for instance a chart choosing a colour ramp.
+
+---
+
 ## The renderer remote
 
 Your `renderer.entry` must be a **Module Federation remote entry in ES-module
@@ -877,14 +994,23 @@ form** (federation type `module`). The shell:
 The shell provides these as **singletons**, and your remote must use them
 rather than bundle its own copies:
 
-| Package | Provided version |
-|---|---|
-| `react` | the shell's React 18 (`requiredVersion: ^<shell version>`) |
-| `react/jsx-runtime` | same as React |
-| `react-dom` | the shell's react-dom |
+| Package | What you get | Required range |
+|---|---|---|
+| `react`, `react/jsx-runtime`, `react-dom` | the shell's React 18 | `^18.2.0` |
+| `@mui/material` | the shell's Material UI, already wrapped in the shell's `ThemeProvider` | `^9.5.0` |
+| `@emotion/react`, `@emotion/styled` | MUI's styling engine | `^11.14.0` |
+| `@tessera/ui` | the shell's `Icon`, `ContributionIcon` and `tessera` theme tokens | `^0.1.0` |
 
+The list and the ranges live in [shared/federation.ts](../shared/federation.ts).
 Bundling your own React breaks hooks ("Invalid hook call"), because your
-components would run on a different React from the one rendering them.
+components would run on a different React from the one rendering them; a
+bundled copy of `@mui/material` or Emotion renders in MUI's default theme
+instead of the shell's. **Import these from the package root only**
+(`import { Button } from '@mui/material'`, not `@mui/material/Button`):
+sharing is by exact specifier, and a subpath import is bundled as a copy.
+`@mui/icons-material` is not shared; use `<Icon name="Save" />` from
+`@tessera/ui` for the shell's icons, and `SvgIcon` from `@mui/material` for
+your own.
 
 ### Building the remote
 
@@ -895,8 +1021,9 @@ requirements:
   path in `renderer.entry`.
 - **Exposes:** one key per view `module`, e.g. `'./SummaryView': './src/SummaryView.tsx'`.
   Each exposed module default-exports a React component.
-- **Shared:** `react`, `react/jsx-runtime` and `react-dom` marked as
-  singletons and *not* eagerly bundled.
+- **Shared:** every module in [shared/federation.ts](../shared/federation.ts)
+  (React, `@mui/material`, Emotion and `@tessera/ui`) marked as a
+  singleton and *not* eagerly bundled.
 - **Output location:** all chunks and assets alongside, or below, the
   remote entry, referenced by relative URLs.
 
@@ -910,9 +1037,9 @@ plugin's backend.
 **User-installed plugins** have no build step provided yet, so a third-party
 author must produce a remote that meets the requirements above, with
 `@module-federation/vite`, `@module-federation/enhanced` (webpack) or
-rspack's Module Federation. Mark `react`, `react/jsx-runtime` and
-`react-dom` as shared singletons with `import: false` so no fallback copy is
-bundled. The hand-written container in the [Quick start](#quick-start) is
+rspack's Module Federation. Mark every module in
+[shared/federation.ts](../shared/federation.ts) as a shared singleton with
+`import: false` so no fallback copy is bundled. The hand-written container in the [Quick start](#quick-start) is
 for illustration: it shows the protocol the tools generate, where
 `init(shareScope)` receives the shared modules and `get('./Expose')` returns a
 factory for the exposed module.
@@ -1060,6 +1187,9 @@ DevTools console (Tools › Toggle Developer Tools).
 | View missing | `[views] …` in the main console | No `renderer.entry`; `module` doesn't start with `./` |
 | "*title* could not be displayed." | `[views] View "<id>" failed` in DevTools | Remote entry not found, module not exposed, no default export, or a render error |
 | "Invalid hook call" | DevTools | Your remote bundles its own React; mark React as shared |
+| View renders in MUI's default look (blue buttons, Roboto), ignoring the theme | none | Your remote bundles its own `@mui/material` or Emotion, or imports them from a subpath. Mark them shared and import from the package root |
+| Theme missing from View › Theme | `[themes] …` in the main console | The contribution failed validation: no `light` or `dark`, a function in the options, or a duplicate id |
+| "Theme … could not be used … Using the built-in theme instead." | `[themes] …` in DevTools | The options did not build, or the result failed the readability checks; the message says which |
 | `invoke` rejects with `NO_HANDLER` | none | Channel typo, or the handler isn't registered; channels are `<pluginId>:<event>` |
 
 ---
@@ -1084,4 +1214,9 @@ DevTools console (Tools › Toggle Developer Tools).
 | Renderer bridge | `window.api.invoke` (`TesseraBridge`) | [tessera-types/ipc.ts](../tessera-types/ipc.ts), [shell/preload/preload.ts](../shell/preload/preload.ts) |
 | IPC envelope and guards | `isIpcRequest`, `isIpcEvent` | [shared/ipc.ts](../shared/ipc.ts) |
 | Plugin file protocol | `tessera-plugin://<id>/…` | [shell/main/plugins/pluginProtocol.ts](../shell/main/plugins/pluginProtocol.ts) |
-| Shared federation modules | `react`, `react/jsx-runtime`, `react-dom` | [shell/renderer/views/federationViewLoader.ts](../shell/renderer/views/federationViewLoader.ts) |
+| Shared federation modules | `SHARED_MODULES`: React, `@mui/material`, Emotion, `@tessera/ui` | [shared/federation.ts](../shared/federation.ts), provided by [shell/renderer/views/federationViewLoader.ts](../shell/renderer/views/federationViewLoader.ts) |
+| Shell UI package | `@tessera/ui`: `Icon`, `ContributionIcon`, `TesseraTokens` | [tessera-ui/index.ts](../tessera-ui/index.ts) |
+| Shell icon names | `ICON_NAMES` | [shared/layout/icons.ts](../shared/layout/icons.ts), glyphs in [tessera-ui/icons.ts](../tessera-ui/icons.ts) |
+| Themes extension point | `shell.themes`; `ThemeContribution` | [shared/themes/types.ts](../shared/themes/types.ts), [tessera-types/theme.ts](../tessera-types/theme.ts), validated by [shared/themes/resolveThemes.ts](../shared/themes/resolveThemes.ts) |
+| Theme commands and keys | `shell.theme.*`, `shell.theme.id` / `.mode` / `.resolvedMode` | [shared/themes/types.ts](../shared/themes/types.ts) |
+| Theme state | `shell:theme.get` → `ThemeSelection`, `shell:theme.changed`; `shell:themes.list`, `shell:themes.changed` | [shared/themes/types.ts](../shared/themes/types.ts) |

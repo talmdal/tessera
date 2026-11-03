@@ -13,6 +13,7 @@ import {
   useMemo,
   useState
 } from 'react'
+import { Alert, Typography } from '@mui/material'
 import type { ViewDescriptor } from '../../../shared/views/types'
 import { ViewLoader, ViewSource } from './ports'
 
@@ -109,7 +110,7 @@ export function ViewPane({ view, hidden = false }: { view: ViewDescriptor, hidde
   return (
     <section aria-label={view.title} data-view-id={view.id} hidden={hidden} tabIndex={-1}>
       <ViewBoundary view={view}>
-        <Suspense fallback={<p>Loading {view.title}…</p>}>
+        <Suspense fallback={<Typography color="text.secondary" sx={{ p: 2 }}>Loading {view.title}…</Typography>}>
           <View />
         </Suspense>
       </ViewBoundary>
@@ -129,7 +130,7 @@ class ViewBoundary extends Component<{ view: ViewDescriptor, children: ReactNode
   }
 
   render() {
-    if (this.state.failed) return <p role="alert">{this.props.view.title} could not be displayed.</p>
+    if (this.state.failed) return <Alert severity="error" sx={{ m: 2 }}>{this.props.view.title} could not be displayed.</Alert>
     return this.props.children
   }
 }
