@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed, not implemented |
+| **Status** | **Superseded** by [account-manager-design.md](account-manager-design.md), which renamed the vault to the *book* and implements its session half as the `book` plugin. Kept for its history and for the importer design (`accounts.importers`), still to come |
 | **Date** | 2026-10-16 |
 | **Scope** | How Finance data is stored, how files are opened, saved and imported, and how domain plugins (starting with accounts) plug into storage |
 

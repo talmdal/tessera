@@ -68,11 +68,14 @@ export function createWindowReveal(log: Pick<Logger, 'warn'>, timeoutMs = 5_000)
   }
 }
 
-/** Handles the renderer's `shell:window.ready` request for the window it came from. */
-export function registerWindowReady(shell: PluginContext, reveal: WindowReveal) {
+/**
+ * Handles the renderer's `shell:window.ready` request for the window it came from, telling each listener. A page
+ * sends it each time it loads, so listeners also hear when a window's page has reloaded.
+ */
+export function registerWindowReady(shell: PluginContext, ...listeners: (WindowReveal | Pick<WindowReveal, 'rendererReady'>)[]) {
   shell.ipc.register(WINDOW_READY, msg => {
     const windowId = msg.sender?.windowId
     if (windowId === undefined) throw new Error(`Unknown window: ${windowId}`)
-    reveal.rendererReady(windowId)
+    for (const listener of listeners) listener.rendererReady(windowId)
   })
 }

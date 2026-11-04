@@ -21,6 +21,13 @@ export interface BootstrapConfig {
 
 export const defaultBootstrapConfig = (): BootstrapConfig => ({ disabledPlugins: [], preferredPlugins: [] })
 
+/**
+ * The application's own preferences, applied after the user's `preferredPlugins`, so a user who lists another
+ * plugin still gets it. SQLite is the default `storage.engine`: it is write-through, so financial data is durable
+ * as each write returns (see docs/account-manager-design.md, "Storage format and durability").
+ */
+export const DEFAULT_PREFERRED_PLUGINS: readonly string[] = ['storage-sqlite']
+
 export const bootstrapConfigPath = (userDataDir: string) => path.join(userDataDir, BOOTSTRAP_FILE)
 
 function pluginIds(value: unknown, field: string, log: Logger): string[] {
@@ -74,8 +81,9 @@ export function saveBootstrapConfig(userDataDir: string, config: BootstrapConfig
   fs.renameSync(temporary, file)
 }
 
-/** The part of the configuration the plugin manager acts on. */
+/** The part of the configuration the plugin manager acts on, with the application's defaults after the user's choices. */
 export const toPluginSelection = (config: BootstrapConfig): PluginSelection => ({
   disabled: config.disabledPlugins,
-  preferred: config.preferredPlugins
+  preferred: config.preferredPlugins,
+  defaultPreferred: DEFAULT_PREFERRED_PLUGINS
 })

@@ -32,7 +32,8 @@ async function buildModified(change: (plugin: string, manifest: any) => void) {
   return { result, out }
 }
 
-describe('building bundled plugins', () => {
+// Builds run esbuild and Vite: seconds each, and longer while other test files build in parallel
+describe('building bundled plugins', { timeout: 60_000 }, () => {
   it('builds source into the module layout, with dependencies bundled', async () => {
     const out = createTempModulesDir()
 
@@ -64,6 +65,33 @@ describe('building bundled plugins', () => {
 
     expect(JSON.parse(fs.readFileSync(path.join(built, 'manifest.json'), 'utf8')).renderer)
       .toEqual({ entry: 'renderer/remoteEntry.js' })
+  })
+
+  it('bundles values from the plugin API packages into both halves, so plugins can share contracts', async () => {
+    const { result, out } = await buildModified(plugin => {
+      fs.writeFileSync(path.join(plugin, 'src/privileged/index.ts'), `
+        import type { PluginContext } from '@tessera/types'
+        import { BOOK_SESSION_SERVICE } from '@tessera/book-api'
+        export function activate(context: PluginContext) {
+          context.ipc.register('sample-builtin:hello', async () => BOOK_SESSION_SERVICE)
+        }
+      `)
+      fs.writeFileSync(path.join(plugin, 'src/renderer/HelloView.tsx'), `
+        import { ACCOUNTS_CHANNELS } from '@tessera/accounts-api'
+        export default function HelloView() { return <p>{ACCOUNTS_CHANNELS.chart}</p> }
+      `)
+    })
+
+    expect(result).toEqual({ id: 'sample-builtin', ok: true })
+    const privileged = fs.readFileSync(path.join(out, 'sample-builtin', 'privileged/index.js'), 'utf8')
+    expect(privileged).toContain('book.session')
+    expect(privileged).not.toMatch(/require\(["']@tessera\//)
+    const assets = path.join(out, 'sample-builtin', 'renderer/assets')
+    const view = fs.readdirSync(assets).find(f => f.startsWith('HelloView-'))!
+    const code = fs.readFileSync(path.join(assets, view), 'utf8')
+    // The constant is built with channelFor from @tessera/types, which is bundled along with it
+    expect(code).toMatch(/["']chart["']/)
+    expect(code).not.toMatch(/from\s*["']@tessera\/(accounts|book)-api["']/)
   })
 
   it('copies a hand-written renderer/ folder as-is when the manifest has no renderer.expose', async () => {
@@ -154,7 +182,7 @@ describe('building bundled plugins', () => {
   })
 })
 
-describe('bundled and user plugin roots', () => {
+describe('bundled and user plugin roots', { timeout: 60_000 }, () => {
   it('tags plugins with their origin and activates both', async () => {
     const bundled = createTempModulesDir()
     const user = createTempModulesDir()

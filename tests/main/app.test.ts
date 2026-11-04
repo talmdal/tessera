@@ -21,7 +21,9 @@ vi.mock('electron', () => {
       name: 'Test Plugin',
       version: '0.0.1',
       privileged: { entry: 'privileged/index.js' },
-      renderer: { entry: 'renderer/remoteEntry.js' }
+      renderer: { entry: 'renderer/remoteEntry.js' },
+      // Provided by the shell before plugins activate; a missing one would skip this plugin
+      services: { requires: ['shell.prompts', 'shell.files'] }
     })
   )
 
@@ -36,13 +38,16 @@ vi.mock('electron', () => {
         context.extensions.contribute('test-plugin', 'shell.menus', 'test-plugin.menu', { kind: 'menu', id: 'test-plugin.menu', label: 'Test', order: -100 })
         context.extensions.contribute('test-plugin', 'shell.menus', 'test-plugin.hello', { kind: 'item', id: 'test-plugin.hello', label: 'Hello', parent: 'test-plugin.menu', command: 'test-plugin.hello' })
         context.extensions.contribute('test-plugin', 'shell.views', 'test-plugin.hello', { id: 'test-plugin.hello', title: 'Hello', slot: 'shell.main', module: './HelloView' })
+        context.extensions.contribute('test-plugin', 'shell.dialogs', 'test-plugin.name', { id: 'test-plugin.name', title: 'Name', module: './NameDialog' })
+        const prompts = context.services.get('shell.prompts')
+        context.commands.register('test-plugin.ask', () => prompts.show('test-plugin.name', { name: 'Home' }))
       }
     `
   )
 
   const handlers: Record<string, any> = {}
   const syncHandlers: Record<string, any> = {}
-  const liveWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+  const liveWindow = { id: 7, isDestroyed: () => false, webContents: { send: vi.fn() } }
 
   return {
     ipcMain: {
@@ -88,8 +93,12 @@ vi.mock('electron', () => {
     nativeTheme: { themeSource: 'system', shouldUseDarkColors: false, on: vi.fn(), removeListener: vi.fn() },
 
     dialog: {
-      showMessageBox: vi.fn()
+      showMessageBox: vi.fn(),
+      showOpenDialog: vi.fn(),
+      showSaveDialog: vi.fn()
     },
+
+    shell: { trashItem: vi.fn() },
 
     powerMonitor: { on: vi.fn() },
 
@@ -111,7 +120,7 @@ vi.mock('electron', () => {
     getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: { openDevTools: vi.fn() }
-    } }), { getAllWindows: () => [liveWindow], fromWebContents: () => ({ id: 7 }) }),
+    } }), { getAllWindows: () => [liveWindow], fromWebContents: () => ({ id: 7 }), getFocusedWindow: () => null }),
 
     app: {
       getVersion: () => '1.2.3',
@@ -286,5 +295,28 @@ describe('main process (dynamic plugin system)', () => {
 
     await vi.waitFor(() => expect(window.webContents.send).toHaveBeenCalledWith(
       'tessera:event', { name: 'shell:lifecycle.changed', data: { phase: 'started' } }))
+  })
+  // Last: it reports the window ready, which the window-reveal test needs not to have happened yet
+  it('shows a dialog a plugin asks for in the window, and hands the window\'s answer back to the plugin', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const invoke = (channel: string, data?: unknown) => (electron.ipcMain as any).__invoke('tessera:invoke', { channel, data })
+    const [window] = electron.BrowserWindow.getAllWindows() as any[]
+    const before = window.webContents.send.mock.calls.length
+
+    await invoke('shell:window.ready')
+    const asked = invoke('shell:commands.execute', { id: 'test-plugin.ask' })
+
+    let open: any
+    await vi.waitFor(() => {
+      open = window.webContents.send.mock.calls.slice(before).map((call: any[]) => call[1]).find((e: any) => e.name === 'shell:dialog.open')?.data
+      expect(open).toBeDefined()
+    })
+    expect(open).toMatchObject({
+      windowId: 7, title: 'Name', input: { name: 'Home' },
+      dialog: { id: 'test-plugin.name', module: './NameDialog', pluginId: 'test-plugin', remoteEntry: 'tessera-plugin://test-plugin/remoteEntry.js' }
+    })
+
+    await expect(invoke('shell:dialog.close', { requestId: open.requestId, result: { name: 'Cottage' } })).resolves.toMatchObject({ ok: true })
+    await expect(asked).resolves.toEqual({ ok: true, data: { name: 'Cottage' } })
   })
 })

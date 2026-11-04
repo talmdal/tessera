@@ -16,6 +16,8 @@
       "@extensions/*": ["extension-registry/*"],
       "@tessera/types": ["tessera-types/index.ts"],
       "@tessera/storage-kit": ["packages/storage-kit/index.ts"],
+      "@tessera/book-api": ["packages/book-api/index.ts"],
+      "@tessera/accounts-api": ["packages/accounts-api/index.ts"],
       "@tessera/types/*": ["tessera-types/*"],
       "@tessera/ui": ["tessera-ui/index.ts"]
     }

@@ -1,0 +1,19 @@
+{
+  "id": "book",
+  "name": "Book",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./StartView": "src/renderer/StartView.tsx",
+      "./BookTree": "src/renderer/BookTree.tsx",
+      "./NewBookDialog": "src/renderer/NewBookDialog.tsx",
+      "./RenameDialog": "src/renderer/RenameDialog.tsx"
+    }
+  },
+  "services": {
+    "requires": ["storage.engine", "app.state", "shell.files", "shell.prompts"],
+    "provides": ["book.session"]
+  }
+}

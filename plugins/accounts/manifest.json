@@ -1,0 +1,29 @@
+{
+  "id": "accounts",
+  "name": "Accounts",
+  "version": "0.1.0",
+  "privileged": {
+    "entry": "privileged/index.js"
+  },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./Navigator": "src/renderer/Navigator.tsx",
+      "./AccountDialog": "src/renderer/AccountDialog.tsx",
+      "./MoveDialog": "src/renderer/MoveDialog.tsx",
+      "./Register": "src/renderer/register/Register.tsx",
+      "./ReconcileDialog": "src/renderer/reconcile/ReconcileDialog.tsx",
+      "./ReconcilePanel": "src/renderer/reconcile/ReconcilePanel.tsx"
+    }
+  },
+  "services": {
+    "requires": [
+      "book.session",
+      "shell.prompts"
+    ],
+    "provides": [
+      "accounts.service",
+      "accounts.migrator"
+    ]
+  }
+}

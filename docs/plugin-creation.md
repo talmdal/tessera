@@ -19,6 +19,9 @@ extension points.
 - [IPC between your view and your privileged code](#ipc-between-your-view-and-your-privileged-code)
 - [Providing and using services](#providing-and-using-services)
 - [Contributing views](#contributing-views)
+- [Asking the user: dialogs, prompts and files](#asking-the-user-dialogs-prompts-and-files)
+- [Storing data in the book](#storing-data-in-the-book)
+- [Using accounts from another plugin](#using-accounts-from-another-plugin)
 - [Styling and theming](#styling-and-theming)
 - [The renderer remote](#the-renderer-remote)
 - [Application lifecycle](#application-lifecycle)
@@ -45,8 +48,8 @@ shell or each other; they connect in two ways:
   describe what you contribute, and the owner decides where and when to use
   it.
 - **Services**, for calling things: objects with methods that one plugin
-  provides and others use, such as a `vault.store` that reads and writes the
-  vault.
+  provides and others use, such as the `book.session` through which plugins
+  read and write the open book.
 
 ```
  manifest.json ──► PluginManager ──► activate(context)
@@ -430,7 +433,7 @@ and relies on convention elsewhere:
 | IPC channels | Convention: `<pluginId>:<event>`. Nothing stops you registering another plugin's channel, so don't | `budget:summary` |
 | Contribution ids (menus, items, groups, views) | Convention: `budget` or `budget.<anything>` | `budget.menu`, `budget.summary` |
 | Context keys you set | Convention: `budget` or `budget.<anything>` | `budget.hasCategories` |
-| Services you provide | Any dotted id. Each id has one provider, and registering a second throws | `budget.forecast`, or a shared port like `vault.store` |
+| Services you provide | Any dotted id. Each id has one provider, and registering a second throws | `budget.forecast`, or a shared port like `storage.engine` |
 
 Breaking a *command* or *event* rule throws; inside `activate`, that rolls your
 plugin back. You can always **refer** to ids you don't own: placing an item
@@ -438,8 +441,8 @@ under the shell's `shell.tools` menu, executing another plugin's command,
 reading another plugin's context keys, or using another plugin's service.
 
 Service ids name an interface (a port), and different plugins may implement the
-same one: a SQLite plugin and an encrypted-file plugin could both offer
-`vault.store`. List what you provide in the manifest's `services.provides`.
+same one: the SQLite and LokiJS plugins both offer `storage.engine`. List what
+you provide in the manifest's `services.provides`.
 That list drives activation order, and a warning is logged if you declare a
 service and never provide it. Registering the same id twice throws
 `Service "<id>" is already provided by "<provider>"`.
@@ -484,69 +487,73 @@ plugins publish.
    immediately, even while the app is running. A disabled command also
    refuses to run if something calls it programmatically.
 
-### Example: a vault manager
+### Example: a notes editor
 
-No vault open: *Save* and *Close* are disabled. Vault open: *Close* is
-enabled, and *Save* only becomes enabled after a change.
+A hypothetical `notes` plugin that edits one notebook file at a time. No
+notebook open: *Save* and *Close* are disabled. Notebook open: *Close* is
+enabled, and *Save* only becomes enabled after a change. (The bundled
+`book` plugin works the same way with `book.isOpen`; it saves as you go,
+so it has no *Save*.)
 
 ```js
 exports.activate = (context) => {
   const keys = context.contextKeys
 
-  context.commands.register('vault.open', async () => {
-    // … open the vault …
-    keys.set('vault.isOpen', true)
-    keys.set('vault.isDirty', false)
+  context.commands.register('notes.open', async () => {
+    // … open the notebook …
+    keys.set('notes.isOpen', true)
+    keys.set('notes.isDirty', false)
   })
 
-  context.commands.register('vault.save', async () => {
+  context.commands.register('notes.save', async () => {
     // … write changes …
-    keys.set('vault.isDirty', false)
-  }, { enablement: 'vault.isOpen && vault.isDirty' })
+    keys.set('notes.isDirty', false)
+  }, { enablement: 'notes.isOpen && notes.isDirty' })
 
-  context.commands.register('vault.close', async () => {
+  context.commands.register('notes.close', async () => {
     // … close …
-    keys.set('vault.isOpen', false)
-    keys.set('vault.isDirty', false)
-  }, { enablement: 'vault.isOpen' })
+    keys.set('notes.isOpen', false)
+    keys.set('notes.isDirty', false)
+  }, { enablement: 'notes.isOpen' })
 
   // The renderer reports edits; the backend owns the state
-  context.ipc.register('vault:edit', async (msg) => {
+  context.ipc.register('notes:edit', async (msg) => {
     // … apply msg.data …
-    keys.set('vault.isDirty', true)
+    keys.set('notes.isDirty', true)
   })
 
   const M = 'shell.menus'
-  context.extensions.contribute('vault', M, 'vault.file', { kind: 'group', id: 'vault.file', parent: 'shell.file' })
-  context.extensions.contribute('vault', M, 'vault.open', { kind: 'item', id: 'vault.open',  label: '&Open Vault…', parent: 'shell.file', group: 'vault.file', command: 'vault.open',  accelerator: 'CmdOrCtrl+O' })
-  context.extensions.contribute('vault', M, 'vault.save', { kind: 'item', id: 'vault.save',  label: '&Save',        parent: 'shell.file', group: 'vault.file', command: 'vault.save',  accelerator: 'CmdOrCtrl+S' })
-  context.extensions.contribute('vault', M, 'vault.close', { kind: 'item', id: 'vault.close', label: '&Close Vault', parent: 'shell.file', group: 'vault.file', command: 'vault.close' })
+  context.extensions.contribute('notes', M, 'notes.file', { kind: 'group', id: 'notes.file', parent: 'shell.file' })
+  context.extensions.contribute('notes', M, 'notes.open', { kind: 'item', id: 'notes.open',  label: '&Open Notebook…', parent: 'shell.file', group: 'notes.file', command: 'notes.open' })
+  context.extensions.contribute('notes', M, 'notes.save', { kind: 'item', id: 'notes.save',  label: '&Save',           parent: 'shell.file', group: 'notes.file', command: 'notes.save',  accelerator: 'CmdOrCtrl+S' })
+  context.extensions.contribute('notes', M, 'notes.close', { kind: 'item', id: 'notes.close', label: '&Close Notebook', parent: 'shell.file', group: 'notes.file', command: 'notes.close' })
 }
 ```
 
-| State | Open Vault… | Save | Close Vault |
+| State | Open Notebook… | Save | Close Notebook |
 |---|---|---|---|
-| Startup (no vault) | enabled | disabled | disabled |
+| Startup (no notebook) | enabled | disabled | disabled |
 | After *Open* | enabled | disabled | enabled |
-| After an edit (`vault:edit` over IPC) | enabled | enabled | enabled |
+| After an edit (`notes:edit` over IPC) | enabled | enabled | enabled |
 | After *Save* | enabled | disabled | enabled |
 | After *Close* | enabled | disabled | disabled |
 
 Because other plugins can read your keys, they can follow your state
 without you knowing about them. An export plugin can register
-`export.vault` with `enablement: 'vault.isOpen'`, and its menu item greys
-out whenever no vault is open. If you want other plugins to use your keys,
-document them as part of your public API.
+`export.notes` with `enablement: 'notes.isOpen'`, and its menu item greys
+out whenever no notebook is open. If you want other plugins to use your keys,
+document them as part of your public API, as the book does with
+`book.isOpen`, `book.isReadOnly` and `book.name`.
 
 ### Expression syntax
 
 | Form | Meaning |
 |---|---|
-| `vault.isOpen` | true when the key's value is truthy (`true`, a non-empty string, a non-zero number) |
-| `!vault.isReadOnly` | not |
+| `book.isOpen` | true when the key's value is truthy (`true`, a non-empty string, a non-zero number) |
+| `!book.isReadOnly` | not |
 | `a && b`, `a \|\| b` | and, or (`&&` binds tighter than `\|\|`) |
 | `( … )` | grouping |
-| `vault.mode == 'admin'`, `vault.count != 0`, `vault.locked == false` | compare a key with a string (single or double quotes), number or boolean literal |
+| `notes.mode == 'admin'`, `notes.count != 0`, `notes.locked == false` | compare a key with a string (single or double quotes), number or boolean literal |
 
 A key that has never been set is `undefined`: falsy, and not equal to any
 literal. An invalid expression makes `register` throw, so mistakes show up
@@ -668,13 +675,13 @@ to every open window, and your views listen for it:
 
 ```js
 // privileged
-context.events.emit('saved', { path, at: Date.now() })   // reaches views as 'vault:saved'
+context.events.emit('saved', { path, at: Date.now() })   // reaches views as 'notes:saved'
 ```
 
 ```tsx
 // view
 useEffect(() => {
-  const stop = window.api.on<{ path: string }>('vault:saved', ({ path }) => setLastSaved(path))
+  const stop = window.api.on<{ path: string }>('notes:saved', ({ path }) => setLastSaved(path))
   return stop                                            // on() returns the unsubscribe function
 }, [])
 ```
@@ -714,7 +721,7 @@ shares only React with remotes, so views use `window.api` as above.
 
 A **service** is an object with methods that one plugin provides and any
 number of other plugins call, in the main process. Use one when other plugins
-need to *call into* what your plugin does: read the vault, convert
+need to *call into* what your plugin does: read the open book, convert
 currencies, fetch quotes.
 
 | If you want to… | Use |
@@ -729,11 +736,11 @@ Declare it in the manifest:
 
 ```json
 {
-  "id": "vault",
-  "name": "Vault",
+  "id": "budget",
+  "name": "Budget",
   "version": "0.1.0",
   "privileged": { "entry": "privileged/index.js" },
-  "services": { "provides": ["vault.store"] }
+  "services": { "provides": ["budget.store"] }
 }
 ```
 
@@ -741,10 +748,10 @@ and provide it from `activate`:
 
 ```js
 exports.activate = (context) => {
-  context.services.provide('vault', 'vault.store', {
-    async getAccounts() { /* … */ },
-    async getTransactions(accountId, range) { /* … */ },
-    async addTransaction(accountId, tx) { /* … */ }
+  context.services.provide('budget', 'budget.store', {
+    async getCategories() { /* … */ },
+    async getSpending(categoryId, range) { /* … */ },
+    async setTarget(categoryId, amount) { /* … */ }
   })
 }
 ```
@@ -771,7 +778,7 @@ Declare what you need:
   "name": "Reports",
   "version": "0.1.0",
   "privileged": { "entry": "privileged/index.js" },
-  "services": { "requires": ["vault.store"] }
+  "services": { "requires": ["budget.store"] }
 }
 ```
 
@@ -780,11 +787,11 @@ then look it up. **Required services are always available inside your
 
 ```js
 exports.activate = (context) => {
-  const store = context.services.get('vault.store')
+  const store = context.services.get('budget.store')
 
-  context.ipc.register('reports:net-worth', async () => {
-    const accounts = await store.getAccounts()
-    return { accounts: accounts.length, total: accounts.reduce((sum, a) => sum + a.balance, 0) }
+  context.ipc.register('reports:budget-summary', async () => {
+    const categories = await store.getCategories()
+    return { categories: categories.length, targets: categories.reduce((sum, c) => sum + c.target, 0) }
   })
 }
 ```
@@ -809,15 +816,19 @@ provider.
 
 ### Designing a service
 
-- **The id names an interface, not an implementation.** Prefer `vault.store`
-  over `sqlite-vault.store` if other implementations could exist. Document
+- **The id names an interface, not an implementation.** Prefer `storage.engine`
+  over `sqlite.engine` if other implementations could exist. Document
   the methods, their arguments and their return values. That interface is a
   contract other plugins build against.
 - **Keep it in the main process.** Renderer code can't call services
   directly. A view asks its own privileged code over IPC, which calls the
   service.
 - **Publish state through context keys too**, if menus should react to it.
-  The vault plugin can provide `vault.store` *and* set `vault.isOpen`.
+  The book plugin provides `book.session` *and* sets `book.isOpen`.
+- **Publish the contract as a package** when other plugins program against
+  it. Plugins can't import each other, so the book's types and constants are
+  in `@tessera/book-api` ([packages/book-api/](../packages/book-api/)),
+  which each plugin that uses them bundles.
 
 ---
 
@@ -857,6 +868,305 @@ In a slot:
 
 Views currently receive **no props**. Use `window.api.invoke` to get data.
 
+## Asking the user: dialogs, prompts and files
+
+Ask the user through the shell, never through Electron directly, so every plugin's questions look and behave the
+same, stay modal to the right window, and can be tested with fakes. The shell provides two services **before any
+plugin activates**, so you can list them in `services.requires`. Their types are in `@tessera/types`.
+
+| Service | Methods | Shown as |
+|---|---|---|
+| `shell.prompts` (`ShellPrompts`) | `confirm`, `message`, `prompt`, `show` | native message boxes; the shell's dialog frame for `prompt` and `show` |
+| `shell.files` (`ShellFiles`) | `showOpenDialog`, `showSaveDialog`, `exists`, `trash`, `documentsPath` | native file dialogs; the OS trash |
+
+```json
+"services": { "requires": ["shell.prompts", "shell.files"] }
+```
+
+```ts
+import { SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE, type ShellFiles, type ShellPrompts } from '@tessera/types'
+
+const prompts = context.services.get<ShellPrompts>(SHELL_PROMPTS_SERVICE)
+const files = context.services.get<ShellFiles>(SHELL_FILES_SERVICE)
+
+// A yes/no question. `destructive` makes Cancel the default button, so Enter doesn't delete anything.
+if (await prompts.confirm({
+  message: 'Move “Home Finances” to the Recycle Bin?',
+  detail: 'You can restore it from there.',
+  confirmLabel: 'Delete',
+  destructive: true
+})) {
+  await files.trash(path)                       // the OS trash, never a permanent delete
+}
+
+await prompts.message({ kind: 'error', message: 'Could not open the book', detail: String(err) })
+
+const name = await prompts.prompt({ message: 'Name of the new sub-book', label: 'Name', maxLength: 60 })
+if (name === undefined) return                  // cancelled; answers are trimmed, and required unless required: false
+
+const file = await files.showSaveDialog({
+  defaultPath: path.join(files.documentsPath(), 'My Finances.tessera'),
+  filters: [{ name: 'Tessera book', extensions: ['tessera'] }]
+})                                              // undefined when cancelled; the platform asks before replacing
+```
+
+Every method takes an optional `windowId`; by default the question belongs to the focused window.
+
+### Contributing a dialog
+
+For anything a message box can't ask (a form), contribute a **dialog** to `shell.dialogs` and open it with
+`prompts.show`. The shell draws the dialog: modal, with its title, its width, Escape and clicking outside to
+cancel. Your component, exposed by your renderer remote like a view, draws the body and the buttons.
+
+```ts
+// privileged: plain data, like a view. The id must start with your plugin id.
+context.extensions.contribute('budget', 'shell.dialogs', 'budget.dialog.category', {
+  id: 'budget.dialog.category', title: 'New Category', module: './CategoryDialog', size: 'sm'   // xs | sm | md | lg
+})
+
+// …later, in a command. Resolves with what the dialog closed with, or undefined if it was cancelled.
+const created = await prompts.show<{ id: string }>('budget.dialog.category', { parentId }, { title: 'New Subcategory' })
+if (created) await select(created.id)
+```
+
+```tsx
+// src/renderer/CategoryDialog.tsx, listed in renderer.expose as "./CategoryDialog"
+import { useState } from 'react'
+import type { DialogProps } from '@tessera/types'
+import { Button, DialogActions, DialogContent, TextField } from '@tessera/ui'
+
+export default function CategoryDialog({ input, close, setBusy }: DialogProps<{ parentId?: string }, { id: string }>) {
+  const [name, setName] = useState('')
+  const [error, setError] = useState<string>()
+
+  const save = async () => {
+    setBusy(true)                               // Escape and clicking outside are ignored while busy
+    const reply = await window.api.invoke<{ ok: boolean, value?: { id: string }, error?: { message: string } }>(
+      'budget:category.create', { name, parentId: input.parentId })
+    setBusy(false)
+    if (reply.ok) close(reply.value)            // resolves the caller's show() with { id }
+    else setError(reply.error?.message)         // stay open and show what went wrong
+  }
+
+  return (
+    <>
+      <DialogContent>
+        <TextField autoFocus label="Name" value={name} onChange={e => setName(e.target.value)}
+          error={error !== undefined} helperText={error} />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => close()}>Cancel</Button>
+        <Button variant="contained" onClick={save} disabled={name.trim() === ''}>Create</Button>
+      </DialogActions>
+    </>
+  )
+}
+```
+
+- **Do the work in the dialog when it can fail** (a duplicate name), so it can show the error and stay open;
+  close with the result once it has succeeded. Close without an argument to cancel.
+- **`input` and the result cross IPC**, so both must be structured-cloneable.
+- **Any plugin can open your dialog** by id, which is why the id must start with your plugin id; one that
+  doesn't is skipped with a `[dialogs]` warning, as are a missing title, a `module` without `./`, and an
+  unknown size.
+- **Dialogs queue**: a window shows one at a time, in the order they were asked for. A dialog asked for before
+  the window has finished loading waits for it; if the page reloads, it is shown again; if the window closes,
+  `show` resolves undefined.
+- **If your module fails to load or throws**, the shell shows "This dialog could not be displayed." in the frame,
+  and `show` resolves undefined once the user closes it. The error is in the DevTools console.
+- `show` rejects only for an id nobody contributed, or when there is no window at all.
+
+## Storing data in the book
+
+A user's financial data lives in the **open book**: one file, provided by the bundled `book` plugin as the
+`book.session` service. (Application state, such as window positions, belongs in `app.state` instead, which is
+there whether or not a book is open.) The contract, with every id as a constant, is `@tessera/book-api`;
+the design is in [account-manager-design.md](account-manager-design.md#the-book).
+
+**1. Declare what you store**, with a `book.schema` contribution and a migrator service:
+
+```json
+"services": { "requires": ["book.session"], "provides": ["budget.migrator"] }
+```
+
+```ts
+import { BOOK_SCHEMA_POINT, BOOK_SESSION_SERVICE, type BookSession, type Migrator } from '@tessera/book-api'
+
+context.subscriptions.push(
+  context.extensions.contribute('budget', BOOK_SCHEMA_POINT, 'budget', {
+    id: 'budget',                                  // your plugin id
+    version: 1,                                    // raise it when your documents change shape
+    migrator: 'budget.migrator',
+    collections: [                                 // every name starts with "budget."
+      { name: 'budget.targets', indexes: [{ fields: ['categoryId'], unique: true }] }
+    ]
+  }),
+  context.services.provide('budget', 'budget.migrator', {
+    async migrate(db, from) {
+      if (from === 0) await db.collection('budget.targets').insert({ categoryId: 'groceries', amount: 50000 })   // seed
+      // if (from === 1) … bring version 1 data to version 2
+    }
+  } satisfies Migrator)
+)
+```
+
+- A book is opened with every contributor's collections, so a collection you didn't declare is refused
+  (`UNKNOWN_COLLECTION`) rather than created by a typo.
+- `migrate(db, from)` brings your data from `from` to `from + 1`; the book calls it once per version and records
+  each version as it is reached. **From 0** means you have no data in this book yet: a new book, or your plugin
+  was installed after the book was made. Use it to seed defaults.
+- Before upgrading data that already exists, the book copies the file beside itself
+  (`Home.backup-<date>.tessera`). A migrator that throws leaves the book closed and the backup in place, so write
+  migrations that can run again.
+- A book saved by a *newer* version of your plugin is refused, so old code never writes to new data.
+
+**2. Read and write through the session**, which gives you your own collections only:
+
+```ts
+const session = context.services.get<BookSession>(BOOK_SESSION_SERVICE)
+
+const db = session.database('budget')              // throws NO_BOOK when no book is open
+await db.transaction(async tx => {                 // atomic: all or nothing
+  await tx.collection('budget.targets').updateOne({ categoryId }, { $set: { amount } }, { upsert: true })
+})
+db.collection('ledger.subledgers')                 // throws: not yours
+```
+
+Follow the book with `session.onDidChange` (`opened`, `closed`) and flush anything you buffer in
+`session.onWillClose`, which runs while the book can still be written. Menus follow the context keys
+`book.isOpen`, `book.isReadOnly` and `book.name`.
+
+**3. If you place items in sub-books**, take part in deleting them. Deleting a sub-book moves everything in it to
+its parent, in one transaction with yours:
+
+```ts
+context.subscriptions.push(session.participate('budget', {
+  describe: async subBookId => `${await countIn(subBookId)} budgets`,     // for the confirmation
+  reparent: async (tx, from, to) => {                                         // `to` null: the book itself
+    await tx.collection('budget.budgets').updateMany({ subBookId: from }, { $set: { subBookId: to } })
+  }
+}))
+```
+
+**Errors.** The session throws a `BookError` with a `code` (`NO_BOOK`, `DUPLICATE_NAME`, `CYCLE`,
+`UNSUPPORTED_FILE`…). Test for it with `isBookError(err)`, not `instanceof`: each plugin bundles its own copy of
+the package. For a view, `toResult(() => work())` turns one into a `{ ok: false, error }` reply it can show.
+
+## Using accounts from another plugin
+
+Reports, importers and budgets reach the open book's accounts through the **`accounts.service`** service, provided
+by the bundled `accounts` plugin. Its contract is `@tessera/accounts-api`
+([packages/accounts-api/](../packages/accounts-api/)). Never read the `accounts.*` collections directly: the service
+is where the rules are kept.
+
+```json
+"services": { "requires": ["accounts.service"] }
+```
+
+**A report** reads:
+
+```ts
+import { ACCOUNTS_SERVICE, formatAmount, type AccountsService } from '@tessera/accounts-api'
+
+const accounts = context.services.get<AccountsService>(ACCOUNTS_SERVICE)
+
+const chart = await accounts.chart()              // the tree, each account's balances, totals per currency
+const netWorth = chart.totals                     // { CAD: 46000 }: liabilities are negative, so it's a plain sum
+const cards = await accounts.list({ types: ['creditCard'], includeClosed: false })
+const business = await accounts.list({ subBookId: businessId, includeDescendants: true })
+formatAmount(netWorth.CAD, 'CAD')                 // "$460.00", in the user's locale
+```
+
+**An importer** matches a statement to an account (or creates one), then adds its lines:
+
+```ts
+const [match] = await accounts.list({ institution: 'TD', accountNumber: { endsWith: '9012' } })
+const account = match ?? await accounts.createAccount({
+  name: 'TD Visa', type: 'creditCard', subBookId: null, currency: 'CAD',
+  openingDate: '2026-01-01', openingBalance: -54000           // minor units; what is owed is negative
+})
+const transactions = accounts.transactions(account.id)
+await transactions.create({ date: '2026-10-02', amount: -5025, payee: 'Metro', status: 'electronic' })
+```
+
+**A report** over transactions:
+
+```ts
+const { rows, balances } = await accounts.transactions(id).register()   // running balances, labels
+const october = await accounts.transactions(id).list({ from: '2026-10-01', to: '2026-10-31' })
+const categories = await accounts.categories.list()                     // categoryLabel(categories, id) → "Food : Groceries"
+```
+
+- **Money is integer minor units** (cents), signed: positive raises the balance. Turn text into an amount with
+  `parseAmount(text, currency)` and back with `formatAmount` or `amountToInput`; never with floating point.
+- **Follow changes** with `accounts.onDidChange`. Each event lists the account ids `created`, `updated`, `deleted`
+  and whose `balances` changed, after the change is stored. Drop your own references to deleted accounts there.
+- **Errors** are `AccountsError`s with a `code` (`DUPLICATE_NAME`, `ACCOUNT_CLOSED`, `CONFIRMATION_REQUIRED`…) and
+  the `field` at fault. Test with `isAccountsError(err)`.
+  - `CONFIRMATION_REQUIRED` carries `reasons`: ask the user, then call again with `{ confirm: reasons }`.
+  - `closeAccount` needs `confirm: ['closeWithBalance']` when the balance isn't zero.
+- **Every method fails with `NO_BOOK` while no book is open.** Check `book.session.current`, or enable your
+  commands on `book.isOpen`.
+- **Transactions** (`accounts.transactions(accountId)`) follow the service's rules:
+  - a closed account's transactions can't change;
+  - a transfer (`transferAccountId`) is two transactions, one in each account, kept consistent;
+  - a payee is created from its name on first use;
+  - changing a reconciled transaction needs `confirm: ['reconciled']`.
+  An `externalId` on drafts, which would let a re-import be recognised, is still planned.
+- **The Accounts menu's commands** (`accounts.account.new`…) are user actions that follow the navigator's
+  selection. From code, use the service.
+
+### Adding a way to reconcile
+
+The register's *Reconcile* button (a menu when there is more than one option), the navigator's account context menu
+and the register's row menu list the contributions to **`accounts.reconcile.actions`**. The built-in *Reconcile with
+Statement…* is one of them. A contribution is plain data naming a command; the command does the work:
+
+```ts
+import {
+  ACCOUNTS_SERVICE, RECONCILE_ACTIONS_POINT,
+  type AccountsService, type ReconcileActionArgs, type ReconcileActionContribution
+} from '@tessera/accounts-api'
+
+const accounts = context.services.get<AccountsService>(ACCOUNTS_SERVICE)
+
+const match: ReconcileActionContribution = {
+  id: 'bank-import.match',                  // starts with your plugin id
+  label: 'Match Downloaded Statement…',
+  scope: 'account',                         // or 'transaction': in a row's menu, with the selected rows
+  command: 'bank-import.match',
+  accountTypes: ['chequing', 'savings', 'creditCard'],   // default: every type
+  icon: 'Check', description: 'Tick the transactions your bank sent'
+}
+context.subscriptions.push(
+  context.extensions.contribute('bank-import', RECONCILE_ACTIONS_POINT, match.id, match),
+  context.commands.register('bank-import.match', async (args?: unknown) => {
+    const { accountId } = args as ReconcileActionArgs
+    await accounts.reconciliation.begin(accountId, {
+      reconcilerId: match.id, statementDate: '2026-10-31', startingBalance: 100000, statementBalance: 86975
+    })
+    await accounts.reconciliation.mark(accountId, idsTheBankListed, true)   // what the downloaded statement lists
+    // The register is now in reconcile mode, with the Reconcile panel beside the navigator
+  }, { enablement: 'book.isOpen && !book.isReadOnly' })
+)
+```
+
+- **The option is enabled exactly when its command is**, so control it with the command's `enablement`. It appears
+  only for `accountTypes`. An invalid contribution (no label or command, a bad scope, an id without your prefix) is
+  skipped with an `[accounts]` warning.
+- **The reconciliation belongs to `accounts.service`**, whichever plugin starts it: `reconciliation.get`, `begin`,
+  `mark`, `pause`, `finish` and `cancel`, each taking the account id. One account has at most one at a time, and
+  `begin` on an account that has one resumes it with the new figures. Marks are saved at once, so a paused
+  reconciliation survives a restart; `cancel` puts back every status it changed.
+- **A statement's service charge and interest** can go to `begin` as `serviceCharge` and `interest`
+  (`{ amount, date, categoryId? }`, the amount unsigned as printed). Each is added as a marked transaction, with the
+  sign `chargeAmount(kind, accountType, amount)` gives; `cancel` deletes them again.
+- **`finish` needs `confirm: ['adjustBalance']`** when the book would still differ from the statement
+  (`summary.adjustment` isn't zero); it then adds a reconciled *Balance adjustment* transaction. Ask the user first.
+- **Your own UI** is an ordinary view with `when: "accounts.reconciler == 'bank-import.match'"`: the context key holds
+  the id of the option that started the reconciliation on the register's account.
+- `accounts.onDidChange` lists the accounts whose reconciliation changed in `reconciliations`.
+
 ## Styling and theming
 
 The shell has a light and a dark theme and follows the operating system by
@@ -880,11 +1190,21 @@ export default function Summary() {
 }
 ```
 
-`@tessera/ui` exports a curated set, added when a view needs it: `Alert`, `Box`, `Button`,
-`CircularProgress`, `Dialog` (with `DialogTitle`, `DialogContent`, `DialogActions`), `Divider`,
-`FormControl`, `FormControlLabel`, `FormLabel`, `IconButton`, `Paper`, `Radio`, `RadioGroup`,
-`Stack`, `Tab`, `Tabs`, `ToggleButton`, `ToggleButtonGroup`, `Toolbar`, `Typography`,
-`useTheme`, `createSvgIcon`, `Icon` and `useThemeState`. Style with the `sx`
+`@tessera/ui` (version 1.1) exports a curated set, added when a view needs it:
+
+| For | Components |
+|---|---|
+| Layout and surfaces | `Box`, `Stack`, `Paper`, `Divider`, `Toolbar`, `Collapse` |
+| Text and feedback | `Typography`, `Alert`, `CircularProgress`, `Tooltip` |
+| Buttons | `Button`, `IconButton`, `ToggleButton`, `ToggleButtonGroup` |
+| Forms | `TextField`, `Autocomplete`, `Checkbox`, `Radio`, `RadioGroup`, `FormControl`, `FormControlLabel`, `FormLabel`, `FormHelperText`, `InputAdornment` |
+| Lists and menus | `List`, `ListItemButton`, `ListItemIcon`, `ListItemText`, `Menu`, `MenuItem` |
+| Tables | `Table`, `TableContainer`, `TableHead`, `TableBody`, `TableRow`, `TableCell` |
+| Tabs and dialogs | `Tab`, `Tabs`, `Dialog`, `DialogTitle`, `DialogContent`, `DialogActions` (for a dialog of your own, prefer [`shell.dialogs`](#contributing-a-dialog)) |
+| Theme and icons | `useTheme`, `useThemeState`, `Icon`, `createSvgIcon` |
+
+Prop types for the common ones are exported too (`TextFieldProps`, `AutocompleteProps`, `MenuProps`,
+`TooltipProps`, `Theme`). Style with the `sx`
 prop and the theme's tokens (`primary.main`, `text.secondary`, `background.paper`,
 `action.selected`, `divider`, ...), never literal colours: a hex colour that suits the
 light theme is unreadable on the dark one. (A test fails the build of the shell's own
@@ -1016,14 +1336,14 @@ exports.activate = (context) => {
   // Runs after ALL plugins are active, so it's safe to use services you didn't
   // declare. If the app has already started, it runs immediately.
   context.lifecycle.onStarted(async () => {
-    await reopenLastVault()
+    await reopenLastNotebook()
   })
 
   context.lifecycle.onShuttingDown(async (event) => {
-    if (vaultIsDirty()) {
+    if (notebookIsDirty()) {
       const choice = await askToSave()           // everything is still running here
       if (choice === 'cancel') return event.veto('user cancelled')
-      if (choice === 'save') await saveVault()
+      if (choice === 'save') await saveNotebook()
     }
   })
 }
@@ -1077,9 +1397,9 @@ registrations are **not** tracked automatically. Each call returns a
 
 ```js
 context.subscriptions.push(
-  context.ipc.register('vault:edit', handler),
-  context.extensions.contribute('vault', 'shell.menus', 'vault.menu', { kind: 'menu', id: 'vault.menu', label: '&Vault' }),
-  context.services.provide('vault', 'vault.store', store),
+  context.ipc.register('notes:edit', handler),
+  context.extensions.contribute('notes', 'shell.menus', 'notes.menu', { kind: 'menu', id: 'notes.menu', label: '&Notes' }),
+  context.services.provide('notes', 'notes.store', store),
   context.lifecycle.onShuttingDown(flush)
 )
 ```
@@ -1153,12 +1473,16 @@ DevTools console (Tools › Toggle Developer Tools).
 | Default menu group | `additions` | [shared/menus/types.ts](../shared/menus/types.ts) |
 | Views extension point | `shell.views` | [shared/views/types.ts](../shared/views/types.ts) |
 | Main slot | `shell.main` | [shared/views/types.ts](../shared/views/types.ts) |
+| Dialogs extension point | `shell.dialogs` (`DialogContribution`, `DialogProps`) | [tessera-types/dialogs.ts](../tessera-types/dialogs.ts) |
+| Prompts and file services | `shell.prompts` (`ShellPrompts`), `shell.files` (`ShellFiles`) | [tessera-types/dialogs.ts](../tessera-types/dialogs.ts) |
+| Dialog validation | `resolveDialogs` | [shared/dialogs/resolveDialogs.ts](../shared/dialogs/resolveDialogs.ts) |
+| Finance plugin contracts | `@tessera/book-api`, `@tessera/accounts-api` | [packages/book-api/](../packages/book-api/), [packages/accounts-api/](../packages/accounts-api/) |
 | Manifest schema and validation | `parseManifest` | [shared/plugins/manifest.ts](../shared/plugins/manifest.ts) |
 | Plugin context (interface) | `PluginContext` | [tessera-types/plugins.ts](../tessera-types/plugins.ts) |
 | Plugin context (implementation) | `createPluginContext` | [core/plugins/PluginContext.ts](../core/plugins/PluginContext.ts) |
 | Service registry | `ServiceRegistry` (interface), `ServiceRegistryImpl` | [tessera-types/service.ts](../tessera-types/service.ts), [core/services/ServiceRegistry.ts](../core/services/ServiceRegistry.ts) |
 | Activation ordering | `planActivation` | [core/plugins/activationPlan.ts](../core/plugins/activationPlan.ts) |
-| Service id format | `SERVICE_ID_PATTERN`: dotted, e.g. `vault.store` | [shared/plugins/manifest.ts](../shared/plugins/manifest.ts) |
+| Service id format | `SERVICE_ID_PATTERN`: dotted, e.g. `book.session` | [shared/plugins/manifest.ts](../shared/plugins/manifest.ts) |
 | Command enablement | `enablement` option | [core/commands/CommandRegistry.ts](../core/commands/CommandRegistry.ts) |
 | Enablement expression syntax | `parseWhen` / `evaluateWhen` | [shared/context/when.ts](../shared/context/when.ts) |
 | Renderer bridge | `window.api.invoke` (`TesseraBridge`) | [tessera-types/ipc.ts](../tessera-types/ipc.ts), [shell/preload/preload.ts](../shell/preload/preload.ts) |
