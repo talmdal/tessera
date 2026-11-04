@@ -15,7 +15,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@shared': path.resolve(pathName, '../../shared'),
-      '@tessera/types': path.resolve(pathName, '../../tessera-types/index.ts')
+      '@tessera/types': path.resolve(pathName, '../../tessera-types/index.ts'),
+      '@tessera/ui': path.resolve(pathName, '../../tessera-ui/index.ts')
     }
   },
   build: {

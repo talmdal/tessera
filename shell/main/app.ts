@@ -1,11 +1,12 @@
 // shell/main/app.ts — composition root: wires core to Electron and file-system adapters.
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, nativeTheme, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import type { AppState } from '@tessera/types'
 import { createPluginContext, createPluginRuntime } from '../../core/plugins/PluginContext'
 import { PluginManager } from '../../core/plugins/PluginManager'
 import { LayoutService } from '../../core/layout/LayoutService'
+import { ThemeService } from '../../core/theme/ThemeService'
 import { PRIMARY_WINDOW_KEY } from '../../shared/layout/types'
 import { SHELL_CONTRIBUTOR_ID } from '../../shared/plugins/manifest'
 import { registerCommandsIpc } from './commands/commandsIpc'
@@ -19,9 +20,15 @@ import { osShutdownSources } from './lifecycle/systemShutdown'
 import { registerCoreMenus } from './menus/coreMenus'
 import { applyApplicationMenu } from './menus/electronMenu'
 import { FsPluginSource } from './plugins/FsPluginSource'
+import { createElectronThemePort } from './theme/electronTheme'
+import { createThemePersistence } from './theme/appStatePersistence'
+import { registerInitialTheme } from './theme/initialTheme'
+import { ThemeHost, registerTheme } from './theme/registerTheme'
 import { handlePluginProtocol, pluginUrl, registerPluginSchemePrivileges } from './plugins/pluginProtocol'
 import { registerViewsIpc } from './views/viewsIpc'
+import { createWindowReveal, registerWindowReady } from './window/windowReveal'
 import { createWindowStateGroup, createWindowStateStore, restoreWindowState } from './window/windowState'
+import { windowBackground } from '../../shared/theme/tokens'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -71,6 +78,13 @@ const layout = new LayoutService(runtime.extensions, runtime.contextKeys, { remo
 })
 let layoutHost: LayoutHost
 
+const theme = new ThemeService(runtime.extensions, createElectronThemePort(nativeTheme), {
+  persistence: createThemePersistence(appState),
+  log
+})
+let themeHost: ThemeHost
+const reveal = createWindowReveal(log)
+
 async function bootstrap() {
   const shell = createPluginContext(SHELL_CONTRIBUTOR_ID, runtime).context
 
@@ -82,10 +96,14 @@ async function bootstrap() {
   registerViewsIpc(shell, remoteEntryFor, iconUrlFor, log)
   registerCommandsIpc(shell, log)
   layoutHost = registerLayout(shell, runtime, layout, iconUrlFor)
+  themeHost = registerTheme(shell, runtime, theme, log)
+  registerInitialTheme(windowId => themeHost.snapshotFor(windowId), log)
+  registerWindowReady(shell, reveal)
   // Registered before the plugins activate, so it runs before the storage plugin closes the store.
   runtime.lifecycle.onShuttingDown(() => trackedWindows.flush())
   await pluginManager.activateAll()
   layout.refresh()   // a plugin's renderer is only known once it has activated
+  await themeHost.load()   // the saved theme is in app-state, which has only now activated
   applyApplicationMenu(runtime.extensions, runtime.commands)
 }
 
@@ -109,19 +127,26 @@ async function createWindow() {
   const win = new BrowserWindow({
     ...DEFAULT_WINDOW_SIZE,
     ...state,
+    // Hidden until its theme is applied and its first frame is ready, so there is no flash of an unthemed window.
+    show: false,
     webPreferences: {
       // Built next to app.js by shell/preload/vite.config.ts
       preload: path.join(__dirname, 'preload.js')
     }
   })
 
-  if (state.maximized) win.maximize()
   trackedWindows.track(win, current => windowStates.save(key, current), { log })
 
   // Attached, with its saved layout loaded, before the page loads so its first layout request is right.
   const id = win.id
   await layoutHost.attachWindow(id, key)
   win.on('closed', () => { layoutHost.detachWindow(id).catch(err => log.error('[layout] Could not save the layout', err)) })
+
+  const themed = await themeHost.attachWindow(id, key)
+  win.setBackgroundColor(windowBackground(themed, theme.list()))
+  // Maximizing shows a hidden window, so it waits for the reveal.
+  reveal.track(win, { show: () => { if (state.maximized) win.maximize(); win.show() } })
+  win.on('closed', () => { themeHost.detachWindow(id).catch(err => log.error('[theme] Could not save the theme', err)) })
 
   win.loadURL('http://localhost:5173')
   return win
@@ -136,7 +161,10 @@ app.whenReady().then((async () => {
   await runtime.lifecycle.markStarted()
 }))
 
-app.on('browser-window-focus', (_event, win) => layoutHost?.focus(win.id))
+app.on('browser-window-focus', (_event, win) => {
+  layoutHost?.focus(win.id)
+  themeHost?.focus(win.id)
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

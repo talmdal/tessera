@@ -6,6 +6,7 @@ export default defineConfig({
     alias: {
       '@tessera/types': path.resolve(__dirname, '../../tessera-types/index.ts'),
       '@tessera/types/*': path.resolve(__dirname, '../../tessera-types/*'),
+      '@tessera/ui': path.resolve(__dirname, '../../tessera-ui/index.ts'),
     }
   }
 })

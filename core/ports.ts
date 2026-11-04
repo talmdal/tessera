@@ -20,3 +20,17 @@ export interface PluginSource {
   /** Loads a module from the plugin, resolving `entry` relative to its location. */
   load(descriptor: PluginDescriptor, entry: string): Promise<unknown>
 }
+
+
+/** The platform's light/dark setting. Adapted to Electron's `nativeTheme` in shell/main. */
+export interface ThemePort {
+  /** True while the operating system wants dark colours. */
+  readonly systemPrefersDark: boolean
+  /**
+   * Applies the application-wide mode to platform chrome (menus, dialogs):
+   * `system` hands control back to the OS, `light` and `dark` force it.
+   */
+  setSource(mode: 'system' | 'light' | 'dark'): void
+  /** Fires when `systemPrefersDark` may have changed. Returns an unsubscribe. */
+  onSystemChange(listener: () => void): () => void
+}

@@ -3,6 +3,7 @@
 // The view shown in each bar. Its only state comes from the privileged side;
 // the button sends a request there and the answer comes back as an event.
 import { Border } from '@tessera/types'
+import { Box, Button } from '@tessera/ui'
 import { CHANNELS, PingRequest } from '../shared'
 import { useTestLayoutState } from './useTestLayoutState'
 
@@ -22,13 +23,18 @@ export function SidePanel({ side }: { side: Border }) {
       <div>
         This is the <strong>{side}</strong> bar.
       </div>
-      <div style={{ padding: '6px 8px', borderRadius: 4, background: isLast ? '#fff3c4' : '#e8e8e8' }}>
+      {/* Theme tokens, never literal colours: the panel follows light and dark. */}
+      <Box sx={{
+        px: 1, py: 0.75, borderRadius: 1,
+        bgcolor: isLast ? 'primary.main' : 'action.selected',
+        color: isLast ? 'primary.contrastText' : 'text.primary'
+      }}>
         Pressed <strong data-sample-count={side}>{count}</strong> {count === 1 ? 'time' : 'times'}
         {isLast && ' · most recent'}
-      </div>
-      <button type="button" onClick={ping} disabled={state === undefined}>
+      </Box>
+      <Button variant="outlined" onClick={ping} disabled={state === undefined}>
         Ping from {side}
-      </button>
+      </Button>
     </div>
   )
 }

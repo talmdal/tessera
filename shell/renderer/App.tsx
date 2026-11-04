@@ -1,3 +1,4 @@
+import { Typography } from '@tessera/ui'
 import { LayoutController } from './layout/LayoutController'
 
 export default function App() {
@@ -8,8 +9,8 @@ export default function App() {
 function Welcome() {
   return (
     <>
-      <h1>Tessera</h1>
-      <p>Renderer shell is running.</p>
+      <Typography variant="h4" component="h1" gutterBottom>Tessera</Typography>
+      <Typography>Renderer shell is running.</Typography>
     </>
   )
 }

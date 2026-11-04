@@ -55,7 +55,10 @@ export async function servePluginFile(
       headers: {
         'content-type': CONTENT_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
         // Module scripts are fetched in CORS mode from the renderer's origin.
-        'access-control-allow-origin': '*'
+        'access-control-allow-origin': '*',
+        // These are local files that change when a plugin is rebuilt or updated, and a remote entry keeps its
+        // name. Without this the HTTP cache serves a previous launch's copy, and a plugin runs old code.
+        'cache-control': 'no-cache'
       }
     })
   } catch {

@@ -8,6 +8,7 @@ import {
   LIFECYCLE_GET,
   LifecycleChanged
 } from '../../../shared/shellEvents'
+import { ICONS_EXTENSION_POINT } from '../../../shared/layout/types'
 import { VIEWS_CHANGED, VIEWS_EXTENSION_POINT } from '../../../shared/views/types'
 
 /**
@@ -33,7 +34,8 @@ export function registerShellEvents(shell: PluginContext, runtime: PluginRuntime
     }),
 
     extensions.onDidChange(({ point }) => {
-      if (point === VIEWS_EXTENSION_POINT) events.publish(VIEWS_CHANGED)
+      // A view's icon may name an icon registered after it, so its validity can change with the icons.
+      if (point === VIEWS_EXTENSION_POINT || point === ICONS_EXTENSION_POINT) events.publish(VIEWS_CHANGED)
     })
   )
 }

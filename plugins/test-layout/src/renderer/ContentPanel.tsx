@@ -3,6 +3,7 @@
 // The second main-area page. The privileged side reveals it after a ping, so
 // the content area visibly changes in response to a bar's button.
 import { COMMANDS } from '../shared'
+import { Button } from '@tessera/ui'
 import { useTestLayoutState } from './useTestLayoutState'
 
 export default function Detail() {
@@ -27,7 +28,7 @@ export default function Detail() {
           </p>
         : <p>No bar has been pressed yet.</p>}
       <p>
-        <button type="button" onClick={back}>Back to the dashboard</button>
+        <Button variant="outlined" onClick={back}>Back to the dashboard</Button>
       </p>
     </div>
   )

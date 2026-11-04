@@ -23,8 +23,40 @@ const SOURCE_CANDIDATES = [
   'src/privileged/index.mjs'
 ]
 
-const SHARED_REACT_RANGE = '^18.2.0'
+/**
+ * The React range views accept: the shell's own, from package.json, so the two can't drift apart. (The shell
+ * shares the React it is built with, so a range taken from the same declaration always admits it.)
+ */
+const sharedReactRange = () => {
+  const { dependencies } = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'))
+  const range = dependencies?.react
+  if (typeof range !== 'string') throw new Error('package.json has no "react" dependency to take the shared range from')
+  return range
+}
 const SHARED_MODULES = ['react', 'react/jsx-runtime', 'react-dom']
+
+/** The shell's UI facade, shared with every view. Its MUI and Emotion stay the shell's private dependencies. */
+const SHARED_UI_MODULE = '@tessera/ui'
+const sharedUiRange = () => {
+  const { version } = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tessera-ui/package.json'), 'utf8'))
+  return `^${version}`
+}
+
+/** Libraries a plugin must reach through `@tessera/ui`, never directly: a second copy would ignore the shell's theme. */
+const PRIVATE_UI_LIBRARIES = /^@(mui|emotion)\//
+
+/** Fails the build when a plugin's own source imports one of the shell's private UI libraries. */
+function forbidPrivateUiImports(srcDir: string) {
+  const root = path.resolve(srcDir) + path.sep
+  return {
+    name: 'tessera-forbid-private-ui',
+    enforce: 'pre' as const,
+    resolveId(this: { error(message: string): never }, source: string, importer?: string) {
+      if (!importer || !path.resolve(importer).startsWith(root) || !PRIVATE_UI_LIBRARIES.test(source)) return null
+      this.error(`"${source}" is the shell's private dependency; import components from "${SHARED_UI_MODULE}" instead (${path.relative(root, importer)})`)
+    }
+  }
+}
 
 export async function buildPlugins({ pluginsDir, outDir, only, log = () => {} }: BuildOptions): Promise<BuildResult[]> {
   if (!fs.existsSync(pluginsDir)) return []
@@ -158,6 +190,7 @@ async function buildRenderer(srcDir: string, id: string, entryOut: string, expos
     logLevel: 'warn',
     root: srcDir,
     plugins: [
+      forbidPrivateUiImports(srcDir),
       {
         name: 'tessera-stub-entry',
         resolveId: source => source === 'tessera-stub-entry' ? stub : null,
@@ -169,17 +202,22 @@ async function buildRenderer(srcDir: string, id: string, entryOut: string, expos
         exposes: Object.fromEntries(
           Object.entries(expose).map(([name, file]) => [name, path.resolve(srcDir, file)])
         ),
-        shared: Object.fromEntries(
-          SHARED_MODULES.map(name => [
-            name,
-            { singleton: true, requiredVersion: SHARED_REACT_RANGE, import: false }
-          ])
-        ),
+        shared: {
+          ...Object.fromEntries(
+            SHARED_MODULES.map(name => [
+              name,
+              { singleton: true, requiredVersion: sharedReactRange(), import: false }
+            ])
+          ),
+          [SHARED_UI_MODULE]: { singleton: true, requiredVersion: sharedUiRange(), import: false }
+        },
         dts: false
       })
     ],
     esbuild: { jsx: 'automatic' },
     // Views import values (not just types) from the shared types package, as the privileged build allows.
+    // Deliberately no alias for `@tessera/ui`: an alias resolves it before the federation plugin sees the import, and it
+    // would be bundled rather than shared. The shell's copy is used at run time; types come from tsconfig paths.
     resolve: { alias: { '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts') } },
     build: {
       target: 'esnext',

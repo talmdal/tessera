@@ -13,11 +13,13 @@ export interface ContributedView {
  * `remoteEntryFor` returns the renderer remote entry URL of a plugin, or
  * undefined when the plugin has no renderer. `iconUrlFor` turns a file in a
  * plugin's renderer folder into a URL; without it, file icons are rejected.
+ * `isRegisteredIcon` says whether an id was registered through `shell.icons`.
  */
 export function resolveViews(
   contributions: readonly ContributedView[],
   remoteEntryFor: (pluginId: string) => string | undefined,
-  iconUrlFor?: (pluginId: string, relativePath: string) => string | undefined
+  iconUrlFor?: (pluginId: string, relativePath: string) => string | undefined,
+  isRegisteredIcon?: (id: string) => boolean
 ): { views: ViewDescriptor[], diagnostics: string[] } {
   const diagnostics: string[] = []
   const seen = new Set<string>()
@@ -44,7 +46,7 @@ export function resolveViews(
 
     let icon: string | undefined
     if (view.icon !== undefined) {
-      const result = resolveIcon(view.icon, contributor, iconUrlFor)
+      const result = resolveIcon(view.icon, contributor, iconUrlFor, isRegisteredIcon)
       if ('problem' in result) {
         diagnostics.push(`View "${view.id}" ignored: ${result.problem}`)
         return

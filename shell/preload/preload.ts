@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { EVENT_CHANNEL, INVOKE_CHANNEL, IpcRequest, IpcResponse, TesseraBridge, isIpcEvent } from '../../shared/ipc'
+import type { IpcRequest, IpcResponse, ThemeSnapshot } from '@tessera/types'
+import { EVENT_CHANNEL, INVOKE_CHANNEL, ShellBridge, isIpcEvent } from '../../shared/ipc'
+import { THEME_INITIAL } from '../../shared/theme/types'
 
 // Push events from the main process arrive on one channel and are routed here
 // by name. The renderer only ever sees an event's data, never Electron's event.
@@ -16,7 +18,19 @@ ipcRenderer.on(EVENT_CHANNEL, (_event, message: unknown) => {
   }
 })
 
-const api: TesseraBridge = {
+/** Asked once, synchronously, so the page's first render already has its theme. Missing is not an error. */
+function readInitialTheme(): ThemeSnapshot | undefined {
+  try {
+    return (ipcRenderer.sendSync(THEME_INITIAL) as ThemeSnapshot | null) ?? undefined
+  } catch (err) {
+    console.error('[theme] Could not read the initial theme', err)
+    return undefined
+  }
+}
+
+const api: ShellBridge = {
+  initialTheme: readInitialTheme(),
+
   invoke: async <TRes>(channel: string, data?: unknown) => {
     const request: IpcRequest = { channel, data }
     const response: IpcResponse<TRes> = await ipcRenderer.invoke(INVOKE_CHANNEL, request)

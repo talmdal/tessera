@@ -13,6 +13,7 @@ vi.mock('electron', () => {
       handle: vi.fn((channel, fn) => {
         handlers[channel] = fn
       }),
+      on: vi.fn(),
 
       // Internal helper used by tests
       __invoke: async (channel: string, ...args: any[]) => {
@@ -29,6 +30,7 @@ vi.mock('electron', () => {
     // -----------------------------
     ipcRenderer: {
       on: vi.fn(),
+      sendSync: vi.fn(),
       invoke: vi.fn((channel, ...args) => {
         return (globalThis as any).__ipcInvoke(channel, ...args)
       })
@@ -49,6 +51,11 @@ vi.mock('electron', () => {
     BrowserWindow: Object.assign(vi.fn(function () { return {
       id: 1,
       loadURL: vi.fn(),
+      setBackgroundColor: vi.fn(),
+      show: vi.fn(),
+      maximize: vi.fn(),
+      once: vi.fn(),
+      isDestroyed: () => false,
       getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: {
@@ -68,6 +75,8 @@ vi.mock('electron', () => {
       }),
       setApplicationMenu: vi.fn()
     },
+
+    nativeTheme: { themeSource: 'system', shouldUseDarkColors: false, on: vi.fn(), removeListener: vi.fn() },
 
     dialog: {
       showMessageBox: vi.fn(async () => ({ response: 0 }))

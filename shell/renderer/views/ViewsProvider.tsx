@@ -13,7 +13,9 @@ import {
   useMemo,
   useState
 } from 'react'
+import { Typography } from '@tessera/ui'
 import type { ViewDescriptor } from '../../../shared/views/types'
+import { Loading } from '../Loading'
 import { ViewLoader, ViewSource } from './ports'
 
 interface ViewsContextValue {
@@ -109,7 +111,7 @@ export function ViewPane({ view, hidden = false }: { view: ViewDescriptor, hidde
   return (
     <section aria-label={view.title} data-view-id={view.id} hidden={hidden} tabIndex={-1}>
       <ViewBoundary view={view}>
-        <Suspense fallback={<p>Loading {view.title}…</p>}>
+        <Suspense fallback={<Loading>Loading {view.title}…</Loading>}>
           <View />
         </Suspense>
       </ViewBoundary>
@@ -129,7 +131,7 @@ class ViewBoundary extends Component<{ view: ViewDescriptor, children: ReactNode
   }
 
   render() {
-    if (this.state.failed) return <p role="alert">{this.props.view.title} could not be displayed.</p>
+    if (this.state.failed) return <Typography role="alert" color="error" sx={{ p: 1 }}>{this.props.view.title} could not be displayed.</Typography>
     return this.props.children
   }
 }

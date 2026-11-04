@@ -1,7 +1,8 @@
 // shell/main/layout/barItemsIpc.ts
 import type { BorderItemDescriptor, Logger, PluginContext } from '@tessera/types'
 import { resolveBarItems } from '../../../shared/layout/resolveBarItems'
-import { BAR_ITEMS_CHANGED, BAR_ITEMS_EXTENSION_POINT, BAR_ITEMS_LIST_CHANNEL } from '../../../shared/layout/types'
+import { isRegisteredIconIn } from '../../../shared/layout/resolveIcons'
+import { BAR_ITEMS_CHANGED, BAR_ITEMS_EXTENSION_POINT, BAR_ITEMS_LIST_CHANNEL, ICONS_EXTENSION_POINT } from '../../../shared/layout/types'
 
 /**
  * Answers `shell:bar.items.list` with the current `shell.bar.items`
@@ -17,7 +18,9 @@ export function registerBorderItemsIpc(
   log: Logger
 ) {
   const describe = () => {
-    const { items, diagnostics } = resolveBarItems(shell.extensions.getContributions(BAR_ITEMS_EXTENSION_POINT), iconUrlFor)
+    const { items, diagnostics } = resolveBarItems(
+      shell.extensions.getContributions(BAR_ITEMS_EXTENSION_POINT), iconUrlFor,
+      isRegisteredIconIn(shell.extensions.getContributions(ICONS_EXTENSION_POINT), iconUrlFor))
     const described: BorderItemDescriptor[] = items.map(item => ({
       ...item,
       enabled: item.command === undefined || shell.commands.isEnabled(item.command)
@@ -41,7 +44,7 @@ export function registerBorderItemsIpc(
   }
 
   shell.subscriptions.push(
-    shell.extensions.onDidChange(({ point }) => { if (point === BAR_ITEMS_EXTENSION_POINT) announce() }),
+    shell.extensions.onDidChange(({ point }) => { if (point === BAR_ITEMS_EXTENSION_POINT || point === ICONS_EXTENSION_POINT) announce() }),
     shell.commands.onDidChange(() => { if (flags() !== last) announce() })
   )
 }

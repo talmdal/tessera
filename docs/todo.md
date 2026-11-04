@@ -17,9 +17,8 @@ off, or delete them, as they land.
 - [ ] **Federation build: CSS, assets and multiple views.** Verified with one
       TSX view. Check stylesheets, images, several exposed modules and shared
       third-party libraries.
-- [ ] **Keep the shared React range in sync.** `SHARED_REACT_RANGE` in
-      `scripts/build-plugins.mts` must match the shell's React; derive it from
-      `package.json` or the shell's loader instead.
+- [x] **Keep the shared React range in sync.** The plugin build now reads it
+      from `package.json`'s `dependencies.react` (a test checks the built ranges).
 - [ ] **Built-in plugins: watch mode.** Rebuild and reload on source changes
       during `npm run dev`.
 - [ ] **Built-in plugins: packaging.** Copy `modules/` into the packaged app
@@ -112,6 +111,57 @@ Design: [settings-design.md](settings-design.md). Nothing here is built yet.
 - [ ] **Optional declarative settings form** for simple plugins; **vault
       scope** for per-vault settings.
 
+## Theming and Material UI (proposed design)
+
+Design: [theming-design.md](theming-design.md). Nothing here is built yet.
+
+- [x] **Phase 0 spike:** `tessera-ui/` with a few components served to a
+      plugin as a federation singleton; confirmed it sees the shell's theme.
+      Results in [theming-design.md](theming-design.md#phase-0-results).
+- [x] **Theme manager:** `ThemeService`, `ThemePort` over Electron
+      `nativeTheme`, the `shell.themes` point, global selection plus
+      per-window override, `shell.theme.*` commands and context keys,
+      persistence in `app-state` (migrating the old `light`/`dark` value).
+      The unused `useThemeState` hook is gone. Results in
+      [theming-design.md](theming-design.md#phase-1-results).
+- [x] **Choosing a theme and giving a window its own:** View ▸ Theme lists every
+      registered theme, with a "This Window" submenu (see
+      [theming-design.md](theming-design.md#phase-6-results)), and **Choose Theme…**
+      opens a dialog with a preview ([theming-design.md](theming-design.md#the-theme-chooser)).
+- [ ] **Tick the current theme and mode in View ▸ Theme** (needs radio or
+      checkbox menu items, below).
+- [ ] **List themes that appear after startup in View ▸ Theme.** The menu is built
+      once after activation (see "Menu structure changes at runtime"); until then such a
+      theme works as a command only.
+- [ ] **Look at reduced motion and forced colours in the real app** (Windows "show
+      animations" off, and a high-contrast theme). Tested only through the theme and CSS.
+- [x] **MUI foundation and no flash:** `ShellThemeProvider`, `CssBaseline`,
+      `tessera.default` light and dark, hidden window until the theme is
+      applied. Results in [theming-design.md](theming-design.md#phase-2-results).
+- [ ] **Check the first frame for real.** Phase 2 was verified in the running
+      app over the DevTools protocol, but nothing asserts that no frame is ever
+      painted in the wrong colours. A screenshot-on-launch check in an e2e suite
+      would (see "End-to-end tests in the repo").
+- [ ] **Show a splash screen** in the interval a window is hidden.
+- [x] **`@tessera/ui` and icons:** curated MUI exports for plugins, standard
+      icon set on `@mui/icons-material`, plugin-registered icons
+      (`shell.icons`) loaded lazily and cached. Results in
+      [theming-design.md](theming-design.md#phase-3-results).
+- [x] **Shell components** (`Bar`, `ItemStrip`, rail, splitter styling) on
+      MUI, and `test-layout` without hardcoded colours. Results in
+      [theming-design.md](theming-design.md#phase-4-results).
+- [x] **Plugins:** share `@tessera/ui`, reject direct `@mui/*` imports in the
+      plugin build, "Styling and theming" guide section, sample themed plugin.
+      Results in [theming-design.md](theming-design.md#phase-5-results).
+- [ ] **Re-evaluate density.** The shell is compact throughout; revisit once
+      there are real finance screens.
+- [ ] **Later:** splash screen, themed title bar and window controls, and a
+      settings page for the theme (needs the settings framework). Contrast checks for
+      contributed themes are done (they warn).
+- [ ] **Settle the open questions** in the note (curated vs complete
+      `@tessera/ui`, token breadth, who may change the theme, per-window
+      native chrome).
+
 ## Menus, commands and context keys
 
 - [ ] **Visibility.** Items can be disabled but not hidden; add a `when`
@@ -153,7 +203,9 @@ Design: [settings-design.md](settings-design.md). Nothing here is built yet.
 ## Security
 
 - [ ] **Content-Security-Policy.** None is set (Electron warns in dev). It
-      must allow the `tessera-plugin:` scheme.
+      must allow the `tessera-plugin:` scheme, and Emotion's runtime styles
+      once MUI lands (use a nonce; see
+      [theming-design.md](theming-design.md#plugins-and-module-federation)).
 - [ ] **Set `contextIsolation` and `sandbox` explicitly** on the
       `BrowserWindow` (they're currently the defaults).
 - [ ] **Validate IPC senders.** The invoke handler doesn't check which frame
