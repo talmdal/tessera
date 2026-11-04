@@ -5,6 +5,9 @@
   "privileged": { "entry": "privileged/index.js" },
   "renderer": {
     "entry": "renderer/remoteEntry.js",
-    "expose": { "./ThemedView": "src/renderer/ThemedView.tsx" }
+    "expose": {
+      "./ThemedView": "src/renderer/ThemedView.tsx",
+      "./NameDialog": "src/renderer/NameDialog.tsx"
+    }
   }
 }

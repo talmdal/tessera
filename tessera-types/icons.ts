@@ -3,8 +3,9 @@
 // tessera-ui/standardIcons.ts, and a test keeps the two in step and checks each name exists in the package.
 
 export const ICON_NAMES = [
-  'Add', 'AccountBalance', 'CalendarToday', 'ChevronLeft', 'ChevronRight', 'Circle', 'Close', 'ExpandLess', 'ExpandMore',
-  'Home', 'Info', 'List', 'Save', 'Search'
+  'Add', 'AccountBalance', 'Block', 'CalendarToday', 'Check', 'ChevronLeft', 'ChevronRight', 'Circle', 'Close',
+  'CreditCard', 'Delete', 'Edit', 'Error', 'ExpandLess', 'ExpandMore', 'Folder', 'Home', 'Info', 'List', 'MoreVert',
+  'Save', 'Savings', 'Search', 'ShowChart', 'Warning'
 ] as const
 
 export type IconName = typeof ICON_NAMES[number]

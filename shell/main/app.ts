@@ -1,8 +1,9 @@
 // shell/main/app.ts — composition root: wires core to Electron and file-system adapters.
-import { app, BrowserWindow, nativeTheme, screen } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme, screen, shell as electronShell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import type { AppState } from '@tessera/types'
+import { DialogService } from '../../core/dialogs/DialogService'
 import { createPluginContext, createPluginRuntime } from '../../core/plugins/PluginContext'
 import { PluginManager } from '../../core/plugins/PluginManager'
 import { LayoutService } from '../../core/layout/LayoutService'
@@ -13,6 +14,9 @@ import { registerCommandsIpc } from './commands/commandsIpc'
 import { forwardEventsToWindows } from './events/forwardEvents'
 import { registerShellEvents } from './events/shellEvents'
 import { loadBootstrapConfig, toPluginSelection } from './bootstrap/bootstrapConfig'
+import { createElectronFiles } from './dialogs/electronFiles'
+import { createElectronPrompts } from './dialogs/electronPrompts'
+import { registerDialogs } from './dialogs/registerDialogs'
 import { bindRouterToElectron } from './ipc/bindRouter'
 import { createAppStatePersistence } from './layout/appStatePersistence'
 import { LayoutHost, registerLayout } from './layout/registerLayout'
@@ -89,6 +93,13 @@ const theme = new ThemeService(runtime.extensions, createElectronThemePort(nativ
 let themeHost: ThemeHost
 const reveal = createWindowReveal(log)
 
+// Dialogs go to the window the user is working in: the focused one, else the first.
+const dialogs = new DialogService(runtime.extensions, runtime.events, {
+  remoteEntryFor,
+  targetWindow: () => (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0])?.id,
+  log
+})
+
 async function bootstrap() {
   const shell = createPluginContext(SHELL_CONTRIBUTOR_ID, runtime).context
 
@@ -102,7 +113,12 @@ async function bootstrap() {
   layoutHost = registerLayout(shell, runtime, layout, iconUrlFor)
   themeHost = registerTheme(shell, runtime, theme, log)
   registerInitialTheme(windowId => themeHost.snapshotFor(windowId), log)
-  registerWindowReady(shell, reveal)
+  registerWindowReady(shell, reveal, dialogs)
+  // Provided before the plugins activate, so a plugin can require them
+  registerDialogs(shell, runtime, dialogs, {
+    prompts: createElectronPrompts({ dialog, BrowserWindow }, dialogs),
+    files: createElectronFiles({ dialog, BrowserWindow, shell: electronShell, app })
+  })
   // Registered before the plugins activate, so it runs before the storage plugin closes the store.
   runtime.lifecycle.onShuttingDown(() => trackedWindows.flush())
   await pluginManager.activateAll()
@@ -151,6 +167,7 @@ async function createWindow() {
   // Maximizing shows a hidden window, so it waits for the reveal.
   reveal.track(win, { show: () => { if (state.maximized) win.maximize(); win.show() } })
   win.on('closed', () => { themeHost.detachWindow(id).catch(err => log.error('[theme] Could not save the theme', err)) })
+  win.on('closed', () => dialogs.windowClosed(id))
 
   win.loadURL('http://localhost:5173')
   return win

@@ -9,9 +9,12 @@
 
 export {
   Alert,
+  Autocomplete,
   Box,
   Button,
+  Checkbox,
   CircularProgress,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
@@ -19,22 +22,44 @@ export {
   Divider,
   FormControl,
   FormControlLabel,
+  FormHelperText,
   FormLabel,
   IconButton,
+  InputAdornment,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
   Paper,
   Radio,
   RadioGroup,
   Stack,
   Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   Tabs,
+  TextField,
   ToggleButton,
   ToggleButtonGroup,
   Toolbar,
+  Tooltip,
   Typography,
   useTheme
 } from '@mui/material'
 
-export type { Theme } from '@mui/material'
+export type {
+  AutocompleteProps,
+  MenuProps,
+  TextFieldProps,
+  Theme,
+  TooltipProps
+} from '@mui/material'
 
 // Build a component from path data, for an icon a plugin ships inside its view code.
 export { createSvgIcon } from '@mui/material/utils'

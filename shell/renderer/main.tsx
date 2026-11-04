@@ -2,6 +2,7 @@
 import { createRoot } from 'react-dom/client'
 import type { ShellBridge } from '../../shared/ipc'
 import App from './App'
+import { DialogHost } from './dialogs/DialogHost'
 import { IconsProvider } from './icons/IconsProvider'
 import { BarItemsProvider, createIpcBarItemSource } from './layout/BarItemsProvider'
 import { ShellStateProvider } from './state/ShellState'
@@ -28,6 +29,7 @@ root.render(
             <App />
             <WindowReady bridge={window.api} />
             <ThemeChooser bridge={window.api} />
+            <DialogHost bridge={window.api} loader={loader} />
           </BarItemsProvider>
         </ViewsProvider>
       </IconsProvider>
