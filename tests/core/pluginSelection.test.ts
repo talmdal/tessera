@@ -64,6 +64,30 @@ describe('plugin selection from the bootstrap configuration', () => {
     expect(activated).toEqual(['loki', 'state', 'other'])
   })
 
+  it("ranks the application's default preferences after the user's, so a default wins only when the user says nothing", async () => {
+    const byDefault = setup({ defaultPreferred: ['sqlite'] })
+    await byDefault.manager.activateAll()
+    expect(byDefault.activated).toEqual(['sqlite', 'state', 'other'])
+    expect(byDefault.log.warn).toHaveBeenCalledWith(expect.stringContaining('"loki"'))
+
+    const userChoice = setup({ preferred: ['loki'], defaultPreferred: ['sqlite'] })
+    await userChoice.manager.activateAll()
+    expect(userChoice.activated).toEqual(['loki', 'state', 'other'])
+  })
+
+  it('lets the user disable a default preference', async () => {
+    const { activated, manager } = setup({ disabled: ['sqlite'], defaultPreferred: ['sqlite'] })
+    await manager.activateAll()
+    expect(activated).toEqual(['loki', 'state', 'other'])
+  })
+
+  it('does not warn about a default preference that is not installed: it is not the user\'s setting', async () => {
+    const { activated, log, manager } = setup({ defaultPreferred: ['ghost'] })
+    await manager.activateAll()
+    expect(activated).toEqual(['loki', 'state', 'other'])
+    expect(log.warn).not.toHaveBeenCalledWith(expect.stringContaining('"ghost"'))
+  })
+
   it('warns about a named plugin that is not installed, and carries on', async () => {
     const { activated, log, manager } = setup({ preferred: ['ghost'], disabled: ['phantom'] })
     await manager.activateAll()

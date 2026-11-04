@@ -18,7 +18,7 @@ const rejects = async (work: Promise<unknown>, code: StorageErrorCode) => {
   expect(error?.code).toBe(code)
 }
 
-const LEDGER: Tx[] = [
+const BOOK: Tx[] = [
   { id: 't1', accountId: 'a1', date: '2026-01-03', amount: -50, category: 'food', payee: 'Amazon Fresh', tags: ['x', 'y'] },
   { id: 't2', accountId: 'a1', date: '2026-01-15', amount: -1200, category: 'rent', payee: 'Landlord' },
   { id: 't3', accountId: 'a2', date: '2026-01-20', amount: 3000, category: 'pay', payee: 'Employer' },
@@ -39,9 +39,9 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
     })
     afterEach(async () => { await harness.dispose() })
 
-    const ledger = async () => {
-      const tx = db.collection<Omit<Tx, 'id'>>('ledger')
-      await tx.insertMany(LEDGER.map(t => ({ ...t })))
+    const book = async () => {
+      const tx = db.collection<Omit<Tx, 'id'>>('book')
+      await tx.insertMany(BOOK.map(t => ({ ...t })))
       return tx
     }
 
@@ -133,7 +133,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
 
     describe('queries', () => {
       it('finds in id order, then by sort with id as the tie-break', async () => {
-        const c = await ledger()
+        const c = await book()
         expect((await c.find()).map(d => d.id)).toEqual(['t1', 't2', 't3', 't4', 't5'])
         expect((await c.find({}, { sort: { accountId: -1 } })).map(d => d.id)).toEqual(['t3', 't5', 't1', 't2', 't4'])
         expect((await c.find({}, { sort: { amount: 1 }, skip: 1, limit: 2 })).map(d => d.id)).toEqual(['t4', 't1'])
@@ -154,7 +154,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('supports every comparison and set operator', async () => {
-        const c = await ledger()
+        const c = await book()
         const ids = async (f: object) => (await c.find(f as never)).map(d => d.id)
         expect(await ids({ amount: -50 })).toEqual(['t1'])
         expect(await ids({ amount: { $eq: -50 } })).toEqual(['t1'])
@@ -169,7 +169,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('supports $regex with options and $contains', async () => {
-        const c = await ledger()
+        const c = await book()
         expect((await c.find({ payee: { $regex: '^amazon', $options: 'i' } })).map(d => d.id)).toEqual(['t1', 't4'])
         expect((await c.find({ payee: { $regex: '^amazon' } })).map(d => d.id)).toEqual(['t4'])
         expect((await c.find({ tags: { $contains: 'y' } })).map(d => d.id)).toEqual(['t1', 't4'])
@@ -177,14 +177,14 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('supports $and, $or, $not', async () => {
-        const c = await ledger()
+        const c = await book()
         expect((await c.find({ $or: [{ category: 'rent' }, { amount: { $in: [-10, 3000] } }] })).map(d => d.id)).toEqual(['t2', 't3', 't5'])
         expect((await c.find({ $and: [{ accountId: 'a1' }, { amount: { $lt: -60 } }] })).map(d => d.id)).toEqual(['t2', 't4'])
         expect((await c.find({ $not: { accountId: 'a1' } })).map(d => d.id)).toEqual(['t3', 't5'])
       })
 
       it('supports $text as case-insensitive whole-word matching', async () => {
-        const c = await ledger()
+        const c = await book()
         const search = async ($search: string) => (await c.find({ $text: { $search, $fields: ['payee', 'category'] } })).map(d => d.id)
         expect(await search('amazon')).toEqual(['t1', 't4'])
         expect(await search('AMAZON refund')).toEqual(['t4'])
@@ -202,7 +202,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('rejects what it can\'t evaluate instead of ignoring it', async () => {
-        const c = await ledger()
+        const c = await book()
         await rejects(c.find({ amount: { $near: 5 } } as never), 'UNSUPPORTED_QUERY')
         await rejects(c.find({ $nor: [] } as never), 'UNSUPPORTED_QUERY')
         await rejects(c.find({ amount: { $gt: 1, other: 2 } } as never), 'INVALID_ARGUMENT')
@@ -212,7 +212,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('findOne and count', async () => {
-        const c = await ledger()
+        const c = await book()
         expect((await c.findOne({ accountId: 'a2' }, { sort: { amount: 1 } }))?.id).toBe('t5')
         expect(await c.findOne({ accountId: 'zz' })).toBeUndefined()
         expect(await c.count({ accountId: 'a1' })).toBe(3)
@@ -220,7 +220,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('pages with cursors that survive inserts before the cursor', async () => {
-        const c = await ledger()
+        const c = await book()
         const sort = { date: 1 } as const
         const first = await c.findPage({}, { sort, limit: 2 })
         expect(first.items.map(d => d.id)).toEqual(['t1', 't2'])
@@ -235,7 +235,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('scans in batches', async () => {
-        const c = await ledger()
+        const c = await book()
         const sizes: number[] = []
         const ids: string[] = []
         for await (const batch of c.scan({}, { batchSize: 2 })) { sizes.push(batch.length); ids.push(...batch.map(d => d.id)) }
@@ -277,7 +277,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('updates the first match by id, or every match', async () => {
-        const c = await ledger()
+        const c = await book()
         expect(await c.updateOne({ accountId: 'a1' }, { $set: { flag: true } })).toEqual({ matched: 1, modified: 1 })
         expect((await c.find({ flag: true })).map(d => d.id)).toEqual(['t1'])
         expect(await c.updateMany({ accountId: 'a1' }, { $inc: { amount: 1 } })).toEqual({ matched: 3, modified: 3 })
@@ -307,7 +307,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('deletes one or many', async () => {
-        const c = await ledger()
+        const c = await book()
         expect(await c.deleteOne({ accountId: 'a1' })).toEqual({ deleted: 1 })
         expect(await c.deleteMany({ accountId: 'a1' })).toEqual({ deleted: 2 })
         expect((await c.find()).map(d => d.id)).toEqual(['t3', 't5'])
@@ -370,7 +370,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
 
     describe('aggregation', () => {
       it('groups, sums and sorts', async () => {
-        const c = await ledger()
+        const c = await book()
         const rows = await c.aggregate([
           { $match: { date: { $gte: '2026-01-01', $lt: '2026-03-01' }, amount: { $lt: 0 } } },
           { $group: { _id: '$category', total: { $sum: '$amount' }, count: { $count: {} } } },
@@ -384,7 +384,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('computes every accumulator', async () => {
-        const c = await ledger()
+        const c = await book()
         const [row] = await c.aggregate([{ $sort: { date: 1 } }, {
           $group: {
             _id: null, sum: { $sum: '$amount' }, avg: { $avg: '$amount' }, min: { $min: '$amount' }, max: { $max: '$amount' },
@@ -397,7 +397,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('buckets by month and joins another collection', async () => {
-        const c = await ledger()
+        const c = await book()
         await db.collection('accounts').insertMany([{ id: 'a1', name: 'Checking' }, { id: 'a2', name: 'Savings' }])
         const rows = await c.aggregate([
           { $project: { accountId: 1, amount: 1, month: { $substr: ['$date', 0, 7] } } },
@@ -433,7 +433,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('supports $skip, $limit, $count and $project exclusion', async () => {
-        const c = await ledger()
+        const c = await book()
         expect((await c.aggregate([{ $sort: { id: 1 } }, { $skip: 1 }, { $limit: 2 }, { $project: { id: 1 } }]))
           .map(r => r.id)).toEqual(['t2', 't3'])
         expect(await c.aggregate([{ $match: { accountId: 'a1' } }, { $count: 'n' }])).toEqual([{ n: 3 }])
@@ -442,7 +442,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('rejects unknown stages and operators, and mixed projections', async () => {
-        const c = await ledger()
+        const c = await book()
         await rejects(c.aggregate([{ $bucket: {} } as never]), 'UNSUPPORTED_QUERY')
         await rejects(c.aggregate([{ $project: { x: { $pow: [1, 2] } } as never }]), 'UNSUPPORTED_QUERY')
         await rejects(c.aggregate([{ $group: { _id: null, x: { $median: '$amount' } } as never }]), 'UNSUPPORTED_QUERY')
@@ -450,7 +450,7 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
 
       it('returns copies', async () => {
-        const c = await ledger()
+        const c = await book()
         const [row] = await c.aggregate([{ $match: { id: 't1' } }]) as any[]
         row.amount = 0
         expect((await c.get('t1'))?.amount).toBe(-50)

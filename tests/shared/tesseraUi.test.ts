@@ -9,10 +9,12 @@ const root = path.resolve(__dirname, '../../tessera-ui')
 describe('@tessera/ui', () => {
   it('exports exactly the curated components and helpers', () => {
     expect(Object.keys(ui).sort()).toEqual([
-      'Alert', 'Box', 'Button', 'CircularProgress', 'Dialog', 'DialogActions', 'DialogContent', 'DialogTitle', 'Divider',
-      'FormControl', 'FormControlLabel', 'FormLabel', 'Icon', 'IconButton', 'Paper', 'Radio', 'RadioGroup', 'Stack',
-      'TESSERA_UI_VERSION', 'Tab', 'Tabs', 'ToggleButton', 'ToggleButtonGroup', 'Toolbar', 'Typography', 'createSvgIcon',
-      'useTheme', 'useThemeState'
+      'Alert', 'Autocomplete', 'Box', 'Button', 'Checkbox', 'CircularProgress', 'Collapse', 'Dialog', 'DialogActions',
+      'DialogContent', 'DialogTitle', 'Divider', 'FormControl', 'FormControlLabel', 'FormHelperText', 'FormLabel', 'Icon',
+      'IconButton', 'InputAdornment', 'List', 'ListItemButton', 'ListItemIcon', 'ListItemText', 'Menu', 'MenuItem',
+      'Paper', 'Radio', 'RadioGroup', 'Stack', 'TESSERA_UI_VERSION', 'Tab', 'Table', 'TableBody', 'TableCell',
+      'TableContainer', 'TableHead', 'TableRow', 'Tabs', 'TextField', 'ToggleButton', 'ToggleButtonGroup', 'Toolbar',
+      'Tooltip', 'Typography', 'createSvgIcon', 'useTheme', 'useThemeState'
     ])
   })
 

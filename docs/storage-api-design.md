@@ -46,7 +46,7 @@ transactions and change events**.
 - Not a general query language or SQL. Reports that need joins and
   aggregates are a later, separate concern (see open question 1).
 - Not a sync protocol. Records carry a revision so sync is possible later.
-- Not for very large data. The working assumption is a personal ledger:
+- Not for very large data. The working assumption is a personal book:
   tens of thousands of transactions, rarely above one million records in
   total.
 

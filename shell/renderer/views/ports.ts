@@ -9,7 +9,10 @@ export interface ViewSource {
   onDidChange?(listener: () => void): () => void
 }
 
-/** Turns a view descriptor into a React component, loading plugin code as needed. */
+/** What names a component in a plugin's renderer remote: a view, or a dialog. */
+export type RemoteModule = Pick<ViewDescriptor, 'id' | 'pluginId' | 'module' | 'remoteEntry'>
+
+/** Turns a view (or dialog) descriptor into a React component, loading plugin code as needed. */
 export interface ViewLoader {
-  load(view: ViewDescriptor): Promise<ComponentType>
+  load(view: RemoteModule | ViewDescriptor): Promise<ComponentType<any>>
 }

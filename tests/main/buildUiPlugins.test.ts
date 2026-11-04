@@ -38,7 +38,12 @@ describe('building a plugin that uses @tessera/ui', () => {
     await buildPlugins({ pluginsDir: fixtures, outDir: out })
 
     const assets = path.join(out, 'themed/renderer/assets')
-    const map = fs.readFileSync(path.join(assets, fs.readdirSync(assets).find(f => f.startsWith('localSharedImportMap'))!), 'utf8')
+    const sharedMap = renderedFiles(assets).find(file => {
+      const contents = fs.readFileSync(file, 'utf8')
+      return contents.includes('const usedShared') && contents.includes('requiredVersion')
+    })
+    if (!sharedMap) throw new Error('The build did not emit shared-module version metadata')
+    const map = fs.readFileSync(sharedMap, 'utf8')
     const ranges = [...map.matchAll(/requiredVersion: "([^"]+)"/g)].map(m => m[1])
     expect(ranges.filter(r => r === react)).toHaveLength(3)        // react, react/jsx-runtime, react-dom
     expect(ranges).toContain(`^${ui}`)

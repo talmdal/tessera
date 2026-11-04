@@ -25,6 +25,11 @@ export interface PluginSelection {
   disabled?: readonly string[]
   /** Ids activated first, in this order; the first provider of a contested service wins. */
   preferred?: readonly string[]
+  /**
+   * The application's own defaults: ranked after `preferred` and before everything else, so the user's choices
+   * always win. Unlike `preferred`, an id that isn't installed is not worth a warning: it is not the user's setting.
+   */
+  defaultPreferred?: readonly string[]
 }
 
 const describe = (err: unknown) => err instanceof Error ? err.message : String(err)
@@ -109,9 +114,12 @@ export class PluginManager {
     return this.activePlugins
   }
 
-  /** Drops disabled plugins and moves preferred ones to the front, in the order they are preferred. */
+  /**
+   * Drops disabled plugins and moves preferred ones to the front, in the order they are preferred: the user's
+   * `preferred` first, then the application's `defaultPreferred`.
+   */
   private select(candidates: PluginDescriptor[]): PluginDescriptor[] {
-    const { disabled = [], preferred = [] } = this.selection
+    const { disabled = [], preferred = [], defaultPreferred = [] } = this.selection
     const known = new Set(candidates.map(c => c.manifest.id))
     for (const id of [...disabled, ...preferred]) {
       if (!known.has(id)) this.log.warn(`[plugins] The bootstrap configuration names "${id}", which is not installed`)
@@ -122,7 +130,8 @@ export class PluginManager {
       if (isDisabled) this.log.info(`[plugins] "${c.manifest.id}" is disabled by the bootstrap configuration`)
       return !isDisabled
     })
-    const rank = (c: PluginDescriptor) => { const i = preferred.indexOf(c.manifest.id); return i === -1 ? Infinity : i }
+    const ranking = [...preferred, ...defaultPreferred.filter(id => !preferred.includes(id))]
+    const rank = (c: PluginDescriptor) => { const i = ranking.indexOf(c.manifest.id); return i === -1 ? Infinity : i }
     // Array.prototype.sort is stable, so plugins of equal rank keep their discovery order.
     return [...enabled].sort((a, b) => rank(a) === rank(b) ? 0 : rank(a) < rank(b) ? -1 : 1)
   }

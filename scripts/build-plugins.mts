@@ -42,6 +42,14 @@ const sharedUiRange = () => {
   return `^${version}`
 }
 
+/**
+ * Plugins' published contracts (types and constants), which other plugins import. Each plugin bundles what it uses,
+ * in both halves, since they hold no state. Resolved against the working directory, like the other aliases.
+ */
+const API_PACKAGES = ['book-api', 'accounts-api']
+const API_PACKAGE_ALIASES = (): Record<string, string> => Object.fromEntries(
+  API_PACKAGES.map(name => [`@tessera/${name}`, path.resolve(process.cwd(), 'packages', name, 'index.ts')]))
+
 /** Libraries a plugin must reach through `@tessera/ui`, never directly: a second copy would ignore the shell's theme. */
 const PRIVATE_UI_LIBRARIES = /^@(mui|emotion)\//
 
@@ -132,7 +140,8 @@ async function buildPlugin(srcDir: string, outDir: string): Promise<string> {
       '@shell': path.resolve(process.cwd(), 'shell'),
       '@plugins': path.resolve(process.cwd(), 'plugins'),
       '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts'),
-      '@tessera/storage-kit': path.resolve(process.cwd(), 'packages/storage-kit/index.ts')
+      '@tessera/storage-kit': path.resolve(process.cwd(), 'packages/storage-kit/index.ts'),
+      ...API_PACKAGE_ALIASES()
     }
   })
 
@@ -219,7 +228,8 @@ async function buildRenderer(srcDir: string, id: string, entryOut: string, expos
     // Views import values (not just types) from the shared types package, as the privileged build allows.
     // Deliberately no alias for `@tessera/ui`: an alias resolves it before the federation plugin sees the import, and it
     // would be bundled rather than shared. The shell's copy is used at run time; types come from tsconfig paths.
-    resolve: { alias: { '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts') } },
+    // The API packages are types and constants, so bundling a copy into each plugin is right.
+    resolve: { alias: { '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts'), ...API_PACKAGE_ALIASES() } },
     build: {
       target: 'esnext',
       outDir: path.dirname(entryOut),
