@@ -15,7 +15,8 @@
       "@shared/*": ["shared/*"],
       "@extensions/*": ["extension-registry/*"],
       "@tessera/types": ["tessera-types/index.ts"],
-      "@tessera/types/*": ["tessera-types/*"]
+      "@tessera/types/*": ["tessera-types/*"],
+      "@tessera/ui": ["tessera-ui/index.ts"]
     }
   }
 }

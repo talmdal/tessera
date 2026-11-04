@@ -15,7 +15,11 @@
     "test:watch": "vitest --watch"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
     "@module-federation/runtime": "^2.9.2",
+    "@mui/icons-material": "^9.5.0",
+    "@mui/material": "^9.5.0",
     "@paymoapp/electron-shutdown-handler": "^1.2.0",
     "electron": "^45.0.0",
     "lokijs": "^1.5.12",

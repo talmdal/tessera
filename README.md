@@ -53,6 +53,15 @@ platform.
   `app-state` plugin that keeps window, theme and per-window layout state on
   top of it, exposed to views over IPC (`app.state:get`, `:set`, `:update`,
   `:remove`).
+- **Theming and Material UI:** the shell's components and icons are
+  [Material UI](https://mui.com/), and plugins reach them only through
+  `@tessera/ui` (never `@mui/*`), which the shell shares with plugin views. A theme
+  manager follows the operating system's light or dark setting (View ▸ Theme to
+  choose a theme, with a preview, or override it, for the application or one window), plugins can
+  contribute themes (`shell.themes`, checked for contrast) and icons
+  (`shell.icons`, fetched when first drawn), a window can use a theme of its own,
+  the choice is saved, and a window stays hidden until its theme is applied. See [docs/theming-design.md](docs/theming-design.md) and
+  [Styling and theming](docs/plugin-creation.md#styling-and-theming).
 - **IPC:** a single dispatcher channel. Handlers are registered on channels
   named `<pluginId>:<event>` by convention, and replies are a structured
   success-or-error envelope. Events flow the other way too: the shell publishes its phase,
@@ -172,6 +181,8 @@ files because it only holds project references.
 
 ```
 tessera-types/       @tessera/types: shared interfaces (no implementation)
+tessera-ui/          @tessera/ui: the curated Material UI components plugin
+                      views may use (renderer only; the shell provides it)
 core/                 Platform-free application core (see Architecture)
 shared/               Cross-process contracts
 shell/main/           Electron main process: composition root and adapters
@@ -202,6 +213,10 @@ modules/              Build output of plugins/ (gitignored); loaded at startup
   lower-level `StorageEngine` it would build on already exists)
 - [docs/settings-design.md](docs/settings-design.md): proposed settings
   framework where plugins own their settings shape and pages
+- [docs/theming-design.md](docs/theming-design.md): proposed move to
+  Material UI components and icons (`@tessera/ui`), and a theme manager that
+  follows the system light or dark setting, with plugin themes and per-window
+  overrides
 - [docs/todo.md](docs/todo.md): known gaps and planned work
 
 ## License

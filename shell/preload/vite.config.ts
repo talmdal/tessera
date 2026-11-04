@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@shared': path.resolve(pathName, '..'),
+      '@tessera/types': path.resolve(pathName, '../../tessera-types/index.ts'),
       '@core': path.resolve(pathName, '../../core'),
       '@shell': path.resolve(pathName, '..'),
       '@plugins': path.resolve(pathName, '../../plugins'),

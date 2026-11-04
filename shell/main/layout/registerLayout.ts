@@ -12,6 +12,7 @@ import {
 } from '../../../shared/layout/types'
 import { MENUS_EXTENSION_POINT } from '../../../shared/menus/types'
 import { registerBorderItemsIpc } from './borderItemsIpc'
+import { registerIconsIpc } from './iconsIpc'
 import { createLayoutKeys } from './layoutKeys'
 import { registerLayoutCommands } from './layoutCommands'
 import { layoutMenus } from './layoutMenus'
@@ -73,6 +74,7 @@ export function registerLayout(
     shell.extensions.contribute(shell.pluginId, MENUS_EXTENSION_POINT, contribution.id, contribution)
   }
   registerBorderItemsIpc(shell, iconUrlFor, event => runtime.events.publish(event), runtime.logger)
+  registerIconsIpc(shell, iconUrlFor, event => runtime.events.publish(event), runtime.logger)
 
   const syncKeys = createLayoutKeys(shell.contextKeys, layout, targetOrUndefined)
   syncKeys()

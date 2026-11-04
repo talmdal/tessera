@@ -15,11 +15,13 @@ const BAR_ITEM_SLOTS: readonly string[] = [TOP_SLOT, BOTTOM_SLOT, LEFT_SLOT, RIG
  * Validates `shell.bar.items` contributions and orders them by `order`, then
  * registration. Invalid ones are skipped and described in `diagnostics`.
  * `iconUrlFor` turns a file in a plugin's renderer folder into a URL; without
- * it, file icons are rejected.
+ * it, file icons are rejected. `isRegisteredIcon` says whether an id was
+ * registered through `shell.icons`.
  */
 export function resolveBarItems(
   contributions: readonly ContributedBarItem[],
-  iconUrlFor?: (pluginId: string, relativePath: string) => string | undefined
+  iconUrlFor?: (pluginId: string, relativePath: string) => string | undefined,
+  isRegisteredIcon?: (id: string) => boolean
 ): { items: BorderItemInfo[], diagnostics: string[] } {
   const diagnostics: string[] = []
   const seen = new Set<string>()
@@ -40,7 +42,7 @@ export function resolveBarItems(
 
     let icon: string | undefined
     if (item.icon !== undefined) {
-      const result = resolveIcon(item.icon, contributor, iconUrlFor)
+      const result = resolveIcon(item.icon, contributor, iconUrlFor, isRegisteredIcon)
       if ('problem' in result) {
         diagnostics.push(`Bar item "${item.id}" ignored: ${result.problem}`)
         return

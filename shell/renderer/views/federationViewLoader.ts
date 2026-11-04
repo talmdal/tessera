@@ -4,6 +4,7 @@ import * as React from 'react'
 import * as ReactDOM from 'react-dom'
 import * as JsxRuntime from 'react/jsx-runtime'
 import type { ComponentType } from 'react'
+import * as TesseraUi from '@tessera/ui'
 import type { ViewDescriptor } from '../../../shared/views/types'
 import { ViewLoader } from './ports'
 
@@ -13,7 +14,10 @@ const singleton = (lib: object, version: string) => ({
   shareConfig: { singleton: true, requiredVersion: `^${version}` }
 })
 
-/** The shell's federation host. Plugins receive the shell's React rather than bundling their own. */
+/**
+ * The shell's federation host. Plugins receive the shell's React rather than bundling their own, and
+ * the shell's `@tessera/ui`, whose MUI and Emotion hold the theme and style cache every view shares.
+ */
 export function createShellFederation(): ModuleFederation {
   return createInstance({
     name: 'tessera_shell',
@@ -21,7 +25,8 @@ export function createShellFederation(): ModuleFederation {
     shared: {
       'react': singleton(React, React.version),
       'react/jsx-runtime': singleton(JsxRuntime, React.version),
-      'react-dom': singleton(ReactDOM, ReactDOM.version)
+      'react-dom': singleton(ReactDOM, ReactDOM.version),
+      '@tessera/ui': singleton(TesseraUi, TesseraUi.TESSERA_UI_VERSION)
     }
   })
 }

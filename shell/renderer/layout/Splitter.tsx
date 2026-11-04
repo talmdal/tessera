@@ -1,5 +1,6 @@
 import { KeyboardEvent, MouseEvent as ReactMouseEvent, useEffect, useRef } from 'react'
 import type { Border } from '@tessera/types'
+import { Box } from '@tessera/ui'
 import { DEFAULT_BAR_SIZE, MIN_BAR_SIZE, maxBarSize } from '../../../shared/layout/types'
 
 const STEP = 10
@@ -71,12 +72,18 @@ export function Splitter({ side, size, onDrag, onCommit }: {
 
   const edge = { left: { right: 0 }, right: { left: 0 }, top: { bottom: 0 }, bottom: { top: 0 } }[side]
   return (
-    <div role="separator" aria-label={`Resize ${side} bar`} aria-orientation={vertical ? 'vertical' : 'horizontal'}
+    <Box role="separator" aria-label={`Resize ${side} bar`} aria-orientation={vertical ? 'vertical' : 'horizontal'}
       aria-valuenow={size} aria-valuemin={MIN_BAR_SIZE} aria-valuemax={maxBarSize(side, { width: window.innerWidth, height: window.innerHeight })}
       tabIndex={0} onMouseDown={startDrag} onKeyDown={onKeyDown} onDoubleClick={() => onCommit(DEFAULT_BAR_SIZE[side])}
-      style={{
+      sx={{
         position: 'absolute', zIndex: 1, ...edge,
-        ...(vertical ? { top: 0, bottom: 0, width: 6, cursor: 'col-resize' } : { left: 0, right: 0, height: 6, cursor: 'row-resize' })
+        ...(vertical ? { top: 0, bottom: 0, width: 6, cursor: 'col-resize' } : { left: 0, right: 0, height: 6, cursor: 'row-resize' }),
+        // Invisible until it is something you can grab: hovered, dragged, or focused with the keyboard
+        outline: 'none',
+        transition: theme => theme.transitions.create('background-color', { duration: theme.transitions.duration.shortest }),
+        '&:hover, &:active, &:focus-visible': { bgcolor: 'primary.main', opacity: 0.6 },
+        // High-contrast mode replaces background colours, so the handle would stay invisible; use the system's highlight
+        '@media (forced-colors: active)': { '&:hover, &:active, &:focus-visible': { bgcolor: 'Highlight', opacity: 1, forcedColorAdjust: 'none' } }
       }} />
   )
 }

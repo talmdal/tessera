@@ -28,3 +28,8 @@ export type ContextKeysChanged = Record<string, ContextKeyValue | null>
 export const COMMANDS_EXECUTE_EVENT = 'commands.execute'
 export const COMMANDS_EXECUTE = shell(COMMANDS_EXECUTE_EVENT)   // ExecuteCommandRequest → the command's result
 export interface ExecuteCommandRequest { id: string, args?: unknown[] }
+
+// Windows
+export const WINDOW_READY_EVENT = 'window.ready'
+/** Request: the sending window's first frame is ready to be seen (its theme applied, its layout loaded). */
+export const WINDOW_READY = shell(WINDOW_READY_EVENT)

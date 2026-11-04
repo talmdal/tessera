@@ -441,27 +441,53 @@ context.extensions.contribute('vault', B, 'vault.status.dirty',
 
 ### Icons
 
-An `icon` is a string in one of two forms:
+An `icon` is a string in one of three forms:
 
 | Form | Example | Resolved to |
 |---|---|---|
+| A name from the shell's icon set | `'Save'`, `'CalendarToday'` | A Material icon component, bundled in the shell. An unknown name is a validation failure |
+| The id of an icon a plugin registered through `shell.icons` | `'accounts.bank'` | Passed through for the renderer to look up; valid only while some plugin has registered it. See below |
 | A file in the plugin's renderer folder, starting with `./` | `'./icons/accounts.svg'` | `tessera-plugin://<pluginId>/icons/accounts.svg`, by the main process, like `remoteEntry`. Requires `renderer.entry`; otherwise the contribution is skipped with a warning |
-| A name from the shell's icon set | `'Save'`, `'CalendarToday'` | The shell's bundled glyph. An unknown name is a validation failure |
 
-The shell ships a built-in set whose names live in
-[shared/layout/icons.ts](../shared/layout/icons.ts) (so the main process can
-validate contributions) and whose glyphs live in
-[shell/renderer/layout/iconGlyphs.ts](../shell/renderer/layout/iconGlyphs.ts).
-The set is [MUI's Material icons](https://mui.com/material-ui/material-icons/)
-(`@mui/icons-material`), chosen to match the planned move to MUI for
-components. Names are Material icon names in PascalCase (`Save`,
-`CalendarToday`, `AccountBalance`), so swapping in the package later is a
-drop-in. It ships ten glyphs for now (`Add`, `AccountBalance`,
-`CalendarToday`, `Circle`, `Close`, `Home`, `Info`, `List`, `Save`,
-`Search`), and growing it only means growing those two files. Plugin files
-should be monochrome SVGs; the renderer paints them with CSS `mask-image` and
-`currentColor`, so icons follow the theme. The same `icon` is used on the rail, the tab, and for button items; a
-main-area view's icon is unused today and reserved for a future tab strip.
+**The standard set** is [MUI's Material icons](https://mui.com/material-ui/material-icons/)
+(`@mui/icons-material`), imported one by path (never from the package root) in
+[tessera-ui/standardIcons.ts](../tessera-ui/standardIcons.ts). The names live in
+[tessera-types/icons.ts](../tessera-types/icons.ts), so the main process can validate
+contributions without importing a component, and a
+[test](../tests/shared/standardIcons.test.ts) keeps the two lists in step and
+checks each name exists in the package. Names are Material icon names in
+PascalCase (`Save`, `CalendarToday`). It has 14 icons today (`Add`,
+`AccountBalance`, `CalendarToday`, `ChevronLeft`, `ChevronRight`, `Circle`, `Close`,
+`ExpandLess`, `ExpandMore`, `Home`, `Info`, `List`, `Save`, `Search`), and grows
+when the shell needs one.
+
+**Registered icons.** A plugin contributes the icons it needs beyond that set to
+`shell.icons`:
+
+```ts
+context.extensions.contribute(context.pluginId, 'shell.icons', 'accounts.bank',
+  { id: 'accounts.bank', file: './icons/bank.svg' })
+```
+
+The id must be prefixed by the plugin's id and the file must be an `.svg`
+inside its renderer folder (so it needs `renderer.entry`); an invalid
+registration is skipped with an `[icons]` warning. The main process publishes
+only ids and URLs (`shell:icons.list`, `shell:icons.changed`). The renderer
+fetches a file **the first time the icon is drawn**, keeps it for the session,
+and shares one request between icons drawn together; an icon nobody draws is never
+fetched. Until it arrives the icon shows the initial of its title at the same size,
+so nothing shifts. A file that is missing, not an SVG, or over 100 KB is reported
+once and not requested again. Once registered, the id is valid for any view or bar
+item, whichever plugin registered it, and for `<Icon name="accounts.bank" />` from
+`@tessera/ui` in a plugin's own views.
+
+**Painting.** Plugin icons (registered or files) are painted through a CSS mask in
+the current text colour, so they follow the theme and light or dark mode. They
+should be monochrome SVGs. The SVG's text is only ever used as an image (through an
+object URL), never inserted into the page, so it can't carry script. The same
+`icon` is used on the rail, the tab, and for button items; a main-area view's icon
+is unused today and reserved for a future tab strip. See
+[theming-design.md](theming-design.md#icons).
 
 ### Choosing between the two
 

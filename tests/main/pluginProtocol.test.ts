@@ -29,6 +29,8 @@ describe('plugin protocol', () => {
     expect(js.status).toBe(200)
     expect(js.headers.get('content-type')).toBe('text/javascript')
     expect(js.headers.get('access-control-allow-origin')).toBe('*')
+    // Plugin files change when a plugin is rebuilt or updated; a cached copy would keep running old code
+    expect(js.headers.get('cache-control')).toBe('no-cache')
     expect(await js.text()).toBe('export const x = 1')
 
     const css = await serve('tessera-plugin://alpha/assets/view.css')

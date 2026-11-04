@@ -15,9 +15,11 @@ import type {
 } from '@tessera/types'
 import { WhenExpression, evaluateWhen, parseWhen } from '../../shared/context/when'
 import { resolveBarItems } from '../../shared/layout/resolveBarItems'
+import { isRegisteredIconIn } from '../../shared/layout/resolveIcons'
 import {
   BAR_ITEMS_EXTENSION_POINT,
   BAR_SIDES,
+  ICONS_EXTENSION_POINT,
   DEFAULT_BAR_SIZE,
   MIN_BAR_SIZE,
   SLOT_FOR_SIDE,
@@ -153,7 +155,7 @@ export class LayoutService {
     this.resolve()
     this.subscriptions = [
       extensions.onDidChange(({ point }) => {
-        if (point === VIEWS_EXTENSION_POINT || point === BAR_ITEMS_EXTENSION_POINT) this.refresh()
+        if (point === VIEWS_EXTENSION_POINT || point === BAR_ITEMS_EXTENSION_POINT || point === ICONS_EXTENSION_POINT) this.refresh()
       }),
       contextKeys.onDidChange(() => this.refilter())
     ]
@@ -343,9 +345,12 @@ export class LayoutService {
   private resolve() {
     // Problems with contributions are reported by the list requests, which resolve the same set.
     const { remoteEntryFor, iconUrlFor } = this.resolvers
+    const isRegisteredIcon = iconUrlFor
+      ? isRegisteredIconIn(this.extensions.getContributions(ICONS_EXTENSION_POINT), iconUrlFor)
+      : undefined
     this.catalogue = {
-      views: resolveViews(this.extensions.getContributions(VIEWS_EXTENSION_POINT), remoteEntryFor, iconUrlFor).views,
-      items: resolveBarItems(this.extensions.getContributions(BAR_ITEMS_EXTENSION_POINT), iconUrlFor).items
+      views: resolveViews(this.extensions.getContributions(VIEWS_EXTENSION_POINT), remoteEntryFor, iconUrlFor, isRegisteredIcon).views,
+      items: resolveBarItems(this.extensions.getContributions(BAR_ITEMS_EXTENSION_POINT), iconUrlFor, isRegisteredIcon).items
     }
     this.filter()
   }

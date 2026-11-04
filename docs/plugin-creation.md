@@ -19,6 +19,7 @@ extension points.
 - [IPC between your view and your privileged code](#ipc-between-your-view-and-your-privileged-code)
 - [Providing and using services](#providing-and-using-services)
 - [Contributing views](#contributing-views)
+- [Styling and theming](#styling-and-theming)
 - [The renderer remote](#the-renderer-remote)
 - [Application lifecycle](#application-lifecycle)
 - [Lifecycle and cleanup](#lifecycle-and-cleanup)
@@ -856,6 +857,79 @@ In a slot:
 
 Views currently receive **no props**. Use `window.api.invoke` to get data.
 
+## Styling and theming
+
+The shell has a light and a dark theme and follows the operating system by
+default. Your views get the same look by using what `@tessera/ui` provides, and
+no colours of their own.
+
+```tsx
+import { Box, Button, Icon, Stack, Typography, useThemeState } from '@tessera/ui'
+
+export default function Summary() {
+  return (
+    <Stack spacing={1}>
+      <Typography variant="h6">Summary</Typography>
+      {/* Theme tokens in sx, never literal colours: these follow light and dark */}
+      <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.selected', color: 'text.primary' }}>
+        Balance
+      </Box>
+      <Button variant="outlined" startIcon={<Icon name="Save" />}>Save</Button>
+    </Stack>
+  )
+}
+```
+
+`@tessera/ui` exports a curated set, added when a view needs it: `Alert`, `Box`, `Button`,
+`CircularProgress`, `Dialog` (with `DialogTitle`, `DialogContent`, `DialogActions`), `Divider`,
+`FormControl`, `FormControlLabel`, `FormLabel`, `IconButton`, `Paper`, `Radio`, `RadioGroup`,
+`Stack`, `Tab`, `Tabs`, `ToggleButton`, `ToggleButtonGroup`, `Toolbar`, `Typography`,
+`useTheme`, `createSvgIcon`, `Icon` and `useThemeState`. Style with the `sx`
+prop and the theme's tokens (`primary.main`, `text.secondary`, `background.paper`,
+`action.selected`, `divider`, ...), never literal colours: a hex colour that suits the
+light theme is unreadable on the dark one. (A test fails the build of the shell's own
+code on a literal hex colour.) Compact density and the operating system's font are the
+shell's, so your views match without choosing them.
+
+**Icons.** `<Icon name="Save" />` draws one of the shell's standard icons; see
+[the layout note](layout-controller-design.md#icons) for the set. For others, register
+your own with `shell.icons` (`{ id: 'budget.chart', file: './icons/chart.svg' }`) and use
+`<Icon name="budget.chart" />`: it is fetched when first drawn and cached, and is painted
+in the text colour. Or build a component from path data with `createSvgIcon` and ship it
+inside your view code. The same ids work for the `icon` of a view or bar item.
+
+**Theme as data.** `useThemeState()` returns `{ theme, mode }` (`'light'` or `'dark'`),
+for what the MUI theme can't style, such as a canvas or a third-party chart. It is read
+only: the user changes the theme, plugins don't.
+
+**Contributing a theme.** A plugin can offer a colour scheme by contributing to
+`shell.themes`; see [theming-design.md](theming-design.md#themes) for the token set. A
+theme with a `light` and a `dark` variant can follow the system; one with a single
+variant is shown in that variant only.
+
+```ts
+context.extensions.contribute(context.pluginId, 'shell.themes', 'budget.sunrise', {
+  id: 'budget.sunrise',                 // prefixed by your plugin id
+  label: 'Sunrise',                     // what the menu shows
+  light: { primary: '#c2410c', background: { default: '#fff7ed', paper: '#ffffff' } },
+  dark:  { primary: '#fb923c', background: { default: '#1c1410', paper: '#271c15' } }
+})
+```
+
+Set only the tokens you want to change (`primary`, `secondary`, `error`, `warning`, `info`,
+`success`, `background.default`, `background.paper`, `text.primary`, `text.secondary`,
+`divider`); the rest come from the shell's theme. Colours are hex or `rgb()`/`hsl()`:
+colour names are rejected so every colour can be parsed and adjusted. A theme with a
+mistake is skipped with a `[theme]` warning. The theme then appears in **View ▸ Theme**
+(and **This Window**), and in the **Choose Theme…** dialog, which shows the user a preview of it
+in each mode before they choose; plugins can't change the theme themselves.
+The sample [test-layout](../plugins/test-layout/src/privileged/index.ts) contributes two.
+
+A theme that is hard to read still works, but the log says so: `Theme "budget.sunrise"
+may be hard to read: text.primary on background.paper is 3.1:1 in light mode (WCAG AA asks
+for 4.5:1)`. Check yours against the figures: 4.5:1 for text and 3:1 for the primary
+colour on the paper.
+
 ---
 
 ## The renderer remote
@@ -882,6 +956,12 @@ rather than bundle its own copies:
 | `react` | the shell's React 18 (`requiredVersion: ^<shell version>`) |
 | `react/jsx-runtime` | same as React |
 | `react-dom` | the shell's react-dom |
+| `@tessera/ui` | the shell's components, icons and theme access (see [Styling and theming](#styling-and-theming)) |
+
+A plugin may import only `@tessera/types` and `@tessera/ui` from the framework,
+and **never `@mui/*` or `@emotion/*` directly**: they are the shell's private
+dependencies, and a second copy would ignore the shell's theme. The plugin build
+fails with a message pointing at `@tessera/ui` if you do.
 
 Bundling your own React breaks hooks ("Invalid hook call"), because your
 components would run on a different React from the one rendering them.

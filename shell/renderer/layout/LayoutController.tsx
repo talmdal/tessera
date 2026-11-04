@@ -1,5 +1,6 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import type { Border, BorderState } from '@tessera/types'
+import { Box } from '@tessera/ui'
 import { BAR_SIDES, RAIL_SIZE, SLOT_FOR_SIDE, barHasContent } from '../../../shared/layout/types'
 import { useLayout, useLayoutActions, useRevealed } from '../state/ShellState'
 import { Bar } from './Bar'
@@ -74,15 +75,12 @@ export function LayoutController({ welcome }: { welcome: ReactNode }) {
   }, [])
 
   return (
-    <div ref={root} data-layout style={{
-      display: 'grid',
-      height: '100vh',
-      gridTemplateAreas: '"top top top" "left main right" "bottom bottom bottom"',
+    <Box ref={root} data-layout sx={{ display: 'grid', height: '100vh', gridTemplateAreas: '"top top top" "left main right" "bottom bottom bottom"' }} style={{
       gridTemplateColumns: `${track('left')} minmax(0, 1fr) ${track('right')}`,
       gridTemplateRows: `${track('top')} minmax(0, 1fr) ${track('bottom')}`
     }}>
       {BAR_SIDES.map(side => <Bar key={side} side={side} size={sizeOf(side)} onDrag={onDrag} onResize={onResize} />)}
       <MainArea fallback={welcome} />
-    </div>
+    </Box>
   )
 }

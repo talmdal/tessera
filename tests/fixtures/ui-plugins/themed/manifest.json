@@ -1,0 +1,10 @@
+{
+  "id": "themed",
+  "name": "Themed fixture",
+  "version": "1.0.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": { "./ThemedView": "src/renderer/ThemedView.tsx" }
+  }
+}

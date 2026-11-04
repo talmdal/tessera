@@ -41,6 +41,7 @@ vi.mock('electron', () => {
   )
 
   const handlers: Record<string, any> = {}
+  const syncHandlers: Record<string, any> = {}
   const liveWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } }
 
   return {
@@ -48,10 +49,19 @@ vi.mock('electron', () => {
       handle: vi.fn((channel, fn) => {
         handlers[channel] = fn
       }),
+      on: vi.fn((channel, fn) => {
+        syncHandlers[channel] = fn
+      }),
       __invoke: async (channel: string, payload: any) => {
         const handler = handlers[channel]
         if (!handler) throw new Error(`No IPC handler for ${channel}`)
         return handler({}, payload)
+      },
+      // A synchronous request, as the preload sends: the handler answers by setting returnValue
+      __sendSync: (channel: string) => {
+        const event: any = { sender: {} }
+        syncHandlers[channel](event)
+        return event.returnValue
       }
     },
 
@@ -75,6 +85,8 @@ vi.mock('electron', () => {
       setApplicationMenu: vi.fn()
     },
 
+    nativeTheme: { themeSource: 'system', shouldUseDarkColors: false, on: vi.fn(), removeListener: vi.fn() },
+
     dialog: {
       showMessageBox: vi.fn()
     },
@@ -91,6 +103,11 @@ vi.mock('electron', () => {
     BrowserWindow: Object.assign(vi.fn(function () { return {
       id: 7,
       loadURL: vi.fn(),
+      setBackgroundColor: vi.fn(),
+      show: vi.fn(),
+      maximize: vi.fn(),
+      once: vi.fn(),
+      isDestroyed: () => false,
     getNativeWindowHandle: vi.fn(() => Buffer.alloc(8)),
       on: vi.fn(),
       webContents: { openDevTools: vi.fn() }
@@ -177,6 +194,58 @@ describe('main process (dynamic plugin system)', () => {
     expect(reset).toMatchObject({ ok: true })
     expect(slot).toMatchObject({ ok: true, data: { bars: { top: { collapsed: true } } } })
     expect(window.webContents.send.mock.calls.slice(before).map((call: any[]) => call[1].name)).toContain('shell:layout.changed')
+  })
+
+  it('answers a window with its theme, following the system by default', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+
+    const response = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:theme.get' })
+
+    expect(response).toMatchObject({
+      ok: true,
+      data: { state: { windowId: 7, theme: 'tessera.default', mode: 'light', global: { mode: 'system' } }, themes: [{ id: 'tessera.default' }] }
+    })
+  })
+
+  it('runs a theme command from the renderer, switches the native theme and publishes the new theme', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const [window] = electron.BrowserWindow.getAllWindows() as any[]
+    const before = window.webContents.send.mock.calls.length
+
+    const dark = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:commands.execute', data: { id: 'shell.theme.useDark' } })
+
+    expect(dark).toMatchObject({ ok: true })
+    expect(electron.nativeTheme.themeSource).toBe('dark')
+    expect(window.webContents.send.mock.calls.slice(before).map((call: any[]) => call[1].name)).toContain('shell:theme.changed')
+    await expect((electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:theme.get' }))
+      .resolves.toMatchObject({ data: { state: { mode: 'dark' } } })
+  })
+
+  it('answers the preload synchronously with the window theme, so the first render is themed', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+
+    const snapshot = (electron.ipcMain as any).__sendSync('shell:theme.initial')
+
+    expect(snapshot).toMatchObject({ state: { windowId: 7, theme: 'tessera.default', mode: expect.stringMatching(/^(light|dark)$/) }, themes: [{ id: 'tessera.default' }] })
+  })
+
+  it('creates the window hidden, painted in its theme colour, and shows it once page and renderer are ready', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const options = vi.mocked(electron.BrowserWindow).mock.calls[0][0] as any
+    const win = vi.mocked(electron.BrowserWindow).mock.results[0].value as any
+
+    expect(options.show).toBe(false)
+    expect(win.setBackgroundColor).toHaveBeenCalledWith(expect.stringMatching(/^#[0-9a-f]{6}$/i))
+    expect(win.show).not.toHaveBeenCalled()
+
+    // The page is ready to show, but its renderer has not said its first frame is ready
+    const pageReady = win.once.mock.calls.find((call: any[]) => call[0] === 'ready-to-show')![1]
+    pageReady()
+    expect(win.show).not.toHaveBeenCalled()
+
+    await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:window.ready' })
+
+    expect(win.show).toHaveBeenCalledTimes(1)
   })
 
   it('lists no bar items when no plugin contributes any', async () => {

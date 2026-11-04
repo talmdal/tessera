@@ -91,3 +91,8 @@ export function barHasContent(bar: { views: readonly string[], items: readonly s
 export function maxBarSize(side: Border, window: { width: number, height: number }) {
   return Math.max(MIN_BAR_SIZE, Math.floor((side === 'left' || side === 'right' ? window.width : window.height) / 2))
 }
+
+// Icons registered by plugins (`shell.icons`)
+export const ICONS_EXTENSION_POINT = 'shell.icons'
+export const ICONS_LIST_CHANNEL = shell('icons.list')         // → RegisteredIcon[]
+export const ICONS_CHANGED = shell('icons.changed')           // no payload; re-request the list

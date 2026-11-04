@@ -90,15 +90,42 @@ export function activate(context: PluginContext) {
 
   // ---- Bar items and a menu entry, bound to the commands above ---------------
 
+  // An icon of our own: registered here, fetched by the renderer when it is first drawn. The file is
+  // plugins/test-layout/public/icons/ping.svg, which the build copies next to the renderer remote.
+  const PING_ICON = `${PLUGIN_ID}.ping`
+  context.subscriptions.push(
+    context.extensions.contribute(PLUGIN_ID, 'shell.icons', PING_ICON, { id: PING_ICON, file: './icons/ping.svg' })
+  )
+
+  // ---- Themes: colour schemes this plugin offers -----------------------------
+  //
+  // Declarative data: a variant sets only the tokens it wants to change; the rest come from the shell's theme.
+  // One has both a light and a dark variant, so it can follow the system; the other is dark only, so it
+  // can't. Choose one from View > Theme (or the shell.theme.select command).
+  const T = 'shell.themes'
+  context.subscriptions.push(
+    context.extensions.contribute(PLUGIN_ID, T, `${PLUGIN_ID}.sunrise`, {
+      id: `${PLUGIN_ID}.sunrise`,
+      label: 'Sunrise',
+      light: { primary: '#c2410c', secondary: '#a16207', background: { default: '#fff7ed', paper: '#ffffff' } },
+      dark: { primary: '#fb923c', secondary: '#facc15', background: { default: '#1c1410', paper: '#271c15' } }
+    }),
+    context.extensions.contribute(PLUGIN_ID, T, `${PLUGIN_ID}.midnight`, {
+      id: `${PLUGIN_ID}.midnight`,
+      label: 'Midnight',
+      dark: { primary: '#a5b4fc', secondary: '#f0abfc', background: { default: '#05060f', paper: '#0d1020' } }
+    })
+  )
+
   const B = 'shell.bar.items'
   context.subscriptions.push(
     context.extensions.contribute(PLUGIN_ID, B, `${PLUGIN_ID}.toolbar.reset`, {
       kind: 'button', id: `${PLUGIN_ID}.toolbar.reset`, slot: 'shell.top', align: 'end',
-      label: 'Reset sample', icon: 'Circle', command: COMMANDS.reset, tooltip: 'Zero the sample counters'
+      label: 'Reset sample', icon: PING_ICON, command: COMMANDS.reset, tooltip: 'Zero the sample counters'
     }),
     context.extensions.contribute(PLUGIN_ID, B, `${PLUGIN_ID}.status.pings`, {
       kind: 'text', id: `${PLUGIN_ID}.status.pings`, slot: 'shell.bottom', align: 'end',
-      text: 'Sample pings: {layout-sample.pings}', icon: 'Info', when: `${PLUGIN_ID}.pings`
+      text: `Sample pings: {${PLUGIN_ID}.pings}`, icon: 'Info', when: `${PLUGIN_ID}.pings`
     }),
     context.extensions.contribute(PLUGIN_ID, 'shell.menus', `${PLUGIN_ID}.menu.dashboard`, {
       kind: 'item', id: `${PLUGIN_ID}.menu.dashboard`, label: 'Sample &Dashboard',

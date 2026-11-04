@@ -1,5 +1,7 @@
 // shell/main/views/viewsIpc.ts
 import { PluginContext, Logger } from '@tessera/types'
+import { isRegisteredIconIn } from '../../../shared/layout/resolveIcons'
+import { ICONS_EXTENSION_POINT } from '../../../shared/layout/types'
 import { resolveViews } from '../../../shared/views/resolveViews'
 import { VIEWS_EXTENSION_POINT, VIEWS_LIST_CHANNEL } from '../../../shared/views/types'
 
@@ -14,7 +16,9 @@ export function registerViewsIpc(
   log: Logger
 ) {
   shell.ipc.register(VIEWS_LIST_CHANNEL, () => {
-    const { views, diagnostics } = resolveViews(shell.extensions.getContributions(VIEWS_EXTENSION_POINT), remoteEntryFor, iconUrlFor)
+    const { views, diagnostics } = resolveViews(
+      shell.extensions.getContributions(VIEWS_EXTENSION_POINT), remoteEntryFor, iconUrlFor,
+      isRegisteredIconIn(shell.extensions.getContributions(ICONS_EXTENSION_POINT), iconUrlFor))
     for (const message of diagnostics) log.warn(`[views] ${message}`)
     return views
   })
