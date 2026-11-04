@@ -15,6 +15,7 @@
       "@shared/*": ["shared/*"],
       "@extensions/*": ["extension-registry/*"],
       "@tessera/types": ["tessera-types/index.ts"],
+      "@tessera/storage-kit": ["packages/storage-kit/index.ts"],
       "@tessera/types/*": ["tessera-types/*"],
       "@tessera/ui": ["tessera-ui/index.ts"]
     }

@@ -1,55 +1,48 @@
-import { AppState, StorageEngine } from "@tessera/types"
-import { TransactionManager } from "../../../../core/storage/TransactionManager"
+import type { AppState, Collection, Database, Json, StorageEngine } from '@tessera/types'
 
-type Result<T> = {key: string, value: T}
+/** One document per key: `{ id: key, value }`. */
+type Entry = { value: Json }
+
+/** The application's own database, apart from any vault. */
+const DATABASE = 'app'
+const COLLECTION = 'app-state.entries'
 
 export class AppStateStore implements AppState {
-  private trxMgr: TransactionManager
-  constructor(private storage: StorageEngine) {
-    this.trxMgr = new TransactionManager(storage)
-  }
+  private db!: Database
+  private entries!: Collection<Entry>
+
+  constructor(private readonly engine: StorageEngine) {}
 
   async init() {
-    const exists = await this.storage.getOne('app.state', { key: '__init__' })
-    if (!exists) {
-      await this.storage.insert('app.state', { key: '__init__', value: true })
-    }
+    this.db = await this.engine.open({ name: DATABASE })
+    this.entries = this.db.collection<Entry>(COLLECTION)
   }
 
+  /** Never writes: a missing key yields the default without storing it. */
   async get<T>(key: string, defaultFn?: () => T): Promise<T | undefined> {
-    const entry = (await this.storage.getOne('app.state', { key })) as Result<T>
-    if (entry) return entry.value
-
-    if (!defaultFn) return undefined
-
-    const value = defaultFn()
-    await this.trxMgr.run(async tx => {
-      await tx.insert('app.state', { key, value })
-    })
-    return value
+    const entry = await this.entries.get(key)
+    if (entry) return entry.value as T
+    return defaultFn?.()
   }
 
   async set<T>(key: string, value: T): Promise<void> {
-    await this.trxMgr.run(async tx => {
-      await tx.upsert('app.state', { key }, { key, value })
-    })
+    await this.entries.replace({ id: key, value: value as Json }, { upsert: true })
   }
 
   async update<T>(key: string, patch: Partial<T>): Promise<void> {
-    await this.trxMgr.run(async tx => {
-      const existing = await tx.getOne<{ key: string; value: T }>('app.state', { key })
-      const next = { ...(existing?.value ?? {}), ...patch }
-      await tx.upsert('app.state', { key }, { key, value: next })
+    await this.db.transaction(async tx => {
+      const entries = tx.collection<Entry>(COLLECTION)
+      const existing = await entries.get(key)
+      const next = { ...(existing?.value as object ?? {}), ...patch } as Json
+      await entries.replace({ id: key, value: next }, { upsert: true })
     })
   }
 
   async remove(key: string): Promise<void> {
-    await this.trxMgr.run(async tx => {
-      await tx.delete('app.state', { key })
-    })
+    await this.entries.deleteOne({ id: key })
   }
 
   async flush(): Promise<void> {
-    // Loki autosave handles this; hook exists for future engines
+    await this.db.flush()
   }
 }

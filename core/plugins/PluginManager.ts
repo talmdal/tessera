@@ -19,6 +19,14 @@ interface Candidate {
   manifest: PluginManifest
 }
 
+/** Which plugins the user's bootstrap configuration (read before activation) lets through, and in what order. */
+export interface PluginSelection {
+  /** Ids left out of activation entirely. */
+  disabled?: readonly string[]
+  /** Ids activated first, in this order; the first provider of a contested service wins. */
+  preferred?: readonly string[]
+}
+
 const describe = (err: unknown) => err instanceof Error ? err.message : String(err)
 
 export class PluginManager {
@@ -27,7 +35,8 @@ export class PluginManager {
   constructor(
     private readonly source: PluginSource,
     private readonly runtime: PluginRuntime,
-    private readonly log: Logger
+    private readonly log: Logger,
+    private readonly selection: PluginSelection = {}
   ) {}
 
   get activePlugins(): PluginManifest[] {
@@ -67,7 +76,8 @@ export class PluginManager {
       candidates.push(descriptor)
     }
 
-    const { order, skipped } = planActivation(candidates, id => this.runtime.services.has(id))
+    const selected = this.select(candidates)
+    const { order, skipped } = planActivation(selected, id => this.runtime.services.has(id))
     for (const { candidate, reason } of skipped) {
       this.log.warn(`[plugins] Skipping "${candidate.manifest.id}": ${reason}`)
     }
@@ -97,6 +107,24 @@ export class PluginManager {
     }
 
     return this.activePlugins
+  }
+
+  /** Drops disabled plugins and moves preferred ones to the front, in the order they are preferred. */
+  private select(candidates: PluginDescriptor[]): PluginDescriptor[] {
+    const { disabled = [], preferred = [] } = this.selection
+    const known = new Set(candidates.map(c => c.manifest.id))
+    for (const id of [...disabled, ...preferred]) {
+      if (!known.has(id)) this.log.warn(`[plugins] The bootstrap configuration names "${id}", which is not installed`)
+    }
+
+    const enabled = candidates.filter(c => {
+      const isDisabled = disabled.includes(c.manifest.id)
+      if (isDisabled) this.log.info(`[plugins] "${c.manifest.id}" is disabled by the bootstrap configuration`)
+      return !isDisabled
+    })
+    const rank = (c: PluginDescriptor) => { const i = preferred.indexOf(c.manifest.id); return i === -1 ? Infinity : i }
+    // Array.prototype.sort is stable, so plugins of equal rank keep their discovery order.
+    return [...enabled].sort((a, b) => rank(a) === rank(b) ? 0 : rank(a) < rank(b) ? -1 : 1)
   }
 
   /** Deactivates a plugin, first deactivating any active plugin that requires a service it provides. */

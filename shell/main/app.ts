@@ -12,6 +12,7 @@ import { SHELL_CONTRIBUTOR_ID } from '../../shared/plugins/manifest'
 import { registerCommandsIpc } from './commands/commandsIpc'
 import { forwardEventsToWindows } from './events/forwardEvents'
 import { registerShellEvents } from './events/shellEvents'
+import { loadBootstrapConfig, toPluginSelection } from './bootstrap/bootstrapConfig'
 import { bindRouterToElectron } from './ipc/bindRouter'
 import { createAppStatePersistence } from './layout/appStatePersistence'
 import { LayoutHost, registerLayout } from './layout/registerLayout'
@@ -47,7 +48,10 @@ const pluginSource = new FsPluginSource([
   { dir: bundledPluginsDir, origin: 'bundled' },
   { dir: path.join(app.getPath('userData'), 'modules'), origin: 'user' }
 ], log)
-const pluginManager = new PluginManager(pluginSource, runtime, log)
+// Tier-0 configuration, read before anything activates: which plugins are left out, and which are activated
+// first (so which of several `storage.engine` providers wins). It can't live in app-state, which needs storage.
+const bootstrapConfig = loadBootstrapConfig(app.getPath('userData'), log)
+const pluginManager = new PluginManager(pluginSource, runtime, log, toPluginSelection(bootstrapConfig))
 
 /** Folder holding an active plugin's renderer remote entry, served over PLUGIN_SCHEME. */
 function rendererRootFor(pluginId: string) {
