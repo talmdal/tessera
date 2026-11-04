@@ -9,6 +9,7 @@ export default defineConfig({
       '@shared': path.resolve(__dirname, 'shared'),
       '@core': path.resolve(__dirname, 'core'),
       '@tessera/types': path.resolve(__dirname, 'tessera-types/index.ts'),
+      '@tessera/storage-kit': path.resolve(__dirname, 'packages/storage-kit/index.ts'),
       '@tessera/ui': path.resolve(__dirname, 'tessera-ui/index.ts')
     }
   },

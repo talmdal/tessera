@@ -21,6 +21,9 @@ function importsOf(file: string) {
   return specifiers.map(spec => spec.startsWith('.') ? path.relative(repo, path.resolve(path.dirname(file), spec)) : spec)
 }
 
+/** The start of a path inside this repository, as `importsOf` reports a relative import. */
+const REPO_DIRS = /^(core|shell|shared|plugins|packages|tessera-types|tessera-ui|tests|scripts)\//
+
 const PLATFORM = /^(electron|node:|fs$|path$|os$|child_process$|url$)/
 
 function violations(layer: string, forbidden: (spec: string) => boolean) {
@@ -60,6 +63,29 @@ describe('architecture boundaries', () => {
   it('tessera-ui/ depends on React, MUI and @tessera/types only', () => {
     expect(violations('tessera-ui', spec =>
       PLATFORM.test(spec) || inLayer(spec, 'core') || inLayer(spec, 'shell') || inLayer(spec, 'shared'))).toEqual([])
+  })
+
+  it('plugins reach the framework only through @tessera/*, never core/, shell/ or shared/', () => {
+    const plugins = path.join(repo, 'plugins')
+    const found = fs.readdirSync(plugins, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && fs.existsSync(path.join(plugins, entry.name, 'src')))
+      .flatMap(entry => sourceFiles(path.join(plugins, entry.name, 'src')).flatMap(file =>
+        importsOf(file).filter(spec => {
+          const normal = spec.split(path.sep).join('/')
+          if (/^@(core|shell|shared|plugins|extensions)\//.test(normal)) return true
+          // A relative import (already resolved against the repo) must stay inside this plugin.
+          return REPO_DIRS.test(normal) && !normal.startsWith(`plugins/${entry.name}/`)
+        }).map(spec => `${path.relative(repo, file)} imports ${spec}`)))
+    expect(found).toEqual([])
+  })
+
+  it('@tessera/storage-kit is platform-free and depends on @tessera/types alone', () => {
+    expect(violations('packages/storage-kit', spec => {
+      const normal = spec.split(path.sep).join('/')
+      if (PLATFORM.test(normal)) return true
+      if (REPO_DIRS.test(normal)) return !normal.startsWith('packages/storage-kit/')
+      return normal !== '@tessera/types'
+    })).toEqual([])
   })
 
   it('renderer code takes its colours from the theme, never from literals that ignore dark mode', () => {

@@ -131,7 +131,8 @@ async function buildPlugin(srcDir: string, outDir: string): Promise<string> {
       '@shared': path.resolve(process.cwd(), 'shared'),
       '@shell': path.resolve(process.cwd(), 'shell'),
       '@plugins': path.resolve(process.cwd(), 'plugins'),
-      '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts')
+      '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts'),
+      '@tessera/storage-kit': path.resolve(process.cwd(), 'packages/storage-kit/index.ts')
     }
   })
 

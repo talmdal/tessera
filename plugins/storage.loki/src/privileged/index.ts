@@ -1,28 +1,25 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { LokiStorageEngine } from './LokiStorageEngine'
-import { PluginContext } from '@tessera/types'
+import { KitStorageEngine } from '@tessera/storage-kit'
+import type { PluginContext } from '@tessera/types'
+import { lokiDriver } from './LokiDriver'
+
+let engine: KitStorageEngine | undefined
 
 export async function activate(context: PluginContext) {
-  const root = context.paths // e.g. %APPDATA%/tessera
-  const storageDir = path.join(root, 'storage')
+  const directory = path.join(context.paths, 'storage')
+  fs.mkdirSync(directory, { recursive: true })
 
-  // Ensure directory exists
-  fs.mkdirSync(storageDir, { recursive: true })
-
-  const dbPath = path.join(storageDir, 'tessera.json')
-  const engine = new LokiStorageEngine(dbPath)
-  await engine.init()
-
+  engine = new KitStorageEngine(lokiDriver({ directory, log: context.logger }))
   context.services.provide('storage-loki', 'storage.engine', engine)
+}
 
-  // Clean shutdown
-  context.lifecycle.onShuttingDown(async () => {
-    try {
-      await engine.close()
-      context.logger.info('[storage.loki] Clean shutdown complete')
-    } catch (err) {
-      context.logger.error('[storage.loki] Error during shutdown:', err)
-    }
-  })
+/**
+ * Runs after every plugin that requires `storage.engine` has deactivated, so their last writes (their own
+ * `onShuttingDown` flushes included) are in before the databases close.
+ */
+export async function deactivate() {
+  const closing = engine
+  engine = undefined
+  await closing?.closeAll()
 }
