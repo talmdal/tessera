@@ -2,15 +2,19 @@
 // place; the new-entry row at the bottom adds one. Space clears, Delete deletes, Ctrl+Shift+V voids; the toolbar and
 // a row's context menu do the same. While the account is being reconciled, the register lists only what the
 // statement can include (see ../reconcile/ReconcileList).
+// Other plugins can mark rows (accounts.register.annotations): a second line under the row, up to two buttons in a
+// Review column, more actions in the row's menu, and a bar above the table while rows need review. F8 and Shift+F8 go
+// through those rows; Ctrl+Enter and Ctrl+Shift+Enter run the selected row's first and second buttons.
 import { KeyboardEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ACCOUNTS_CHANNELS, ACCOUNTS_COMMANDS, ACCOUNTS_EVENTS, ACCOUNTS_VIEWS, ACCOUNT_TYPE_LABELS, STATUS_LETTERS, formatAmount,
   maskAccountNumber, shownRunningBalance, showsAvailable, todayIso,
-  type Account, type AccountsResult, type Category, type Chart, type Confirmation, type ReconcileActionArgs, type RegisterRow,
-  type RegisterSnapshot, type ResolvedReconcileAction, type SaveTransactionRequest, type Transaction, type TransactionsRequest
+  type Account, type AccountsResult, type AnnotationAction, type Category, type Chart, type Confirmation, type ReconcileActionArgs,
+  type RegisterRow, type RegisterView, type ResolvedReconcileAction, type ResolvedRowAnnotation, type SaveTransactionRequest,
+  type Transaction, type TransactionsRequest
 } from '@tessera/accounts-api'
 import {
-  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Icon, ListItemIcon,
+  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Icon, ListItemIcon,
   ListItemText, Menu, MenuItem, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Toolbar, Tooltip, Typography
 } from '@tessera/ui'
 import { runCommand } from '../bridge'
@@ -21,10 +25,13 @@ import {
   categoryChoices, columnsFor, draftFrom, emptyDraft, isDirty, nextAfter, toTransactionDraft, toggledStatus,
   type Draft, type DraftField
 } from './model'
+import { AnnotationLine, annotationId, reviewBar } from './AnnotationLine'
+import { ReviewBar } from './ReviewBar'
 import { TransactionEditor } from './TransactionEditor'
 import { useRegisterData } from './useRegister'
 
 const NEW = 'new'
+const NO_ANNOTATIONS: RegisterView['annotations'] = { rows: [], summaries: [] }
 const OPENING = 'opening'
 
 export default function Register() {
@@ -46,7 +53,7 @@ export default function Register() {
 
 interface Question { title: string, message: string, confirmLabel: string, destructive?: boolean, resolve(yes: boolean): void }
 
-function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: RegisterSnapshot, chart: Chart | null, categories: Category[], reload(): void }) {
+function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: RegisterView, chart: Chart | null, categories: Category[], reload(): void }) {
   const { account, rows, balances } = snapshot
   const columns = columnsFor(account)
   const editable = !account.closed
@@ -54,6 +61,14 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
   const available = showsAvailable(account)
   const accounts: Account[] = useMemo(() => chart?.accounts.map(s => s.account) ?? [], [chart])
   const choices = useMemo(() => categoryChoices(categories, accounts, account), [categories, accounts, account])
+
+  // Other plugins' marks on the rows. Their buttons need an account that can change: a closed one shows marks only
+  // (A reply without any is a register nobody marks: marks decorate it, and must never stop it showing)
+  const annotations = snapshot.annotations ?? NO_ANNOTATIONS
+  const marks = useMemo(() => new Map(annotations.rows.map(mark => [mark.transactionId, mark])), [annotations])
+  const toReview = rows.filter(row => marks.get(row.transaction.id)?.review).map(row => row.transaction.id)
+  const reviewColumn = editable && annotations.rows.some(mark => mark.buttons.length > 0)
+  const columnCount = reviewColumn ? 9 : 8
 
   const lastRow = rows[rows.length - 1]
   const defaults = () => ({ date: lastRow?.transaction.date ?? todayIso(), number: '' })
@@ -92,6 +107,28 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
     setReconcileMenu(undefined)
     const args: ReconcileActionArgs = { accountId: account.id, ...(transactionIds && { transactionIds }) }
     runCommand(action.command, args).catch(err => setNotice(String((err as Error)?.message ?? err)))
+  }
+
+  /** Runs a plugin's action on a row; a failure it reports (a result that isn't ok, or an error) shows as a notice. */
+  const runAnnotation = (action: AnnotationAction) => {
+    setMenu(undefined)
+    runCommand<unknown>(action.command, action.args).then(result => {
+      const failed = result as { ok?: unknown, error?: { message?: unknown } } | null | undefined
+      if (failed?.ok === false) setNotice(String(failed.error?.message ?? 'That didn’t work.'))
+    }, err => setNotice(String((err as Error)?.message ?? err)))
+  }
+
+  /** Selects the next row to review after the selection (or the previous one), going round, and shows it. */
+  const goToReview = (step: 1 | -1) => {
+    if (toReview.length === 0) return
+    const at = order.indexOf(selected)
+    const positions = toReview.map(id => order.indexOf(id))
+    const next = step === 1
+      ? toReview[positions.findIndex(p => p > at)] ?? toReview[0]
+      : toReview[positions.map((p, i) => [p, i] as const).filter(([p]) => p < at).pop()?.[1] ?? toReview.length - 1]
+    void select(next)
+    document.querySelector(`[data-row="${next}"]`)?.scrollIntoView?.({ block: 'nearest' })
+    tableRef.current?.focus()
   }
 
   // New Transaction from the menu: to the entry row
@@ -205,6 +242,13 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
     if (editing || event.target !== tableRef.current) return
     const index = order.indexOf(selected)
     const handled = (() => {
+      if (event.key === 'F8') { goToReview(event.shiftKey ? -1 : 1); return true }
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        // The selected row's first button, or with Shift its second
+        const action = editable ? marks.get(selected)?.buttons[event.shiftKey ? 1 : 0] : undefined
+        if (action) runAnnotation(action)
+        return true
+      }
       switch (event.key) {
         case 'ArrowDown': if (index < order.length - 1) void select(order[index + 1]); return true
         case 'ArrowUp': if (index > 0) void select(order[index - 1]); return true
@@ -308,6 +352,10 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
         </Alert>
       )}
       {notice && <Alert severity="warning" sx={{ mx: 2, my: 1 }} onClose={() => setNotice(undefined)}>{notice}</Alert>}
+      {!reconciling && (toReview.length > 0 || annotations.summaries.length > 0) && (
+        <ReviewBar count={toReview.length} summaries={annotations.summaries} editable={editable}
+          onNext={() => goToReview(1)} onRun={runAnnotation} />
+      )}
 
       {reconciling
         ? <ReconcileList state={reconciling} withConfirmation={withConfirmation} onProblem={setNotice} entry={entryRow} />
@@ -317,6 +365,7 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
           <colgroup>
             <col style={{ width: 36 }} /><col style={{ width: 80 }} /><col style={{ width: 150 }} /><col /><col />
             <col style={{ width: 115 }} /><col style={{ width: 115 }} /><col style={{ width: 130 }} />
+            {reviewColumn && <col style={{ width: 210 }} />}
           </colgroup>
           <TableHead>
             <TableRow>
@@ -332,6 +381,7 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
                   ? <Tooltip title={`The balance above the minimum of ${formatAmount(account.minimumBalance!, account.currency)}`}><span>Available</span></Tooltip>
                   : 'Balance'}
               </TableCell>
+              {reviewColumn && <TableCell>Review</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -357,15 +407,27 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
                   onCancel={() => { setEditing(null); setProblems(undefined); tableRef.current?.focus() }}
                 />
               )
-              : (
-                <TransactionLine
-                  key={row.transaction.id} row={row} account={account} selected={selected === row.transaction.id}
-                  onSelect={() => void select(row.transaction.id)}
-                  onEdit={() => startEditing(row)}
-                  onToggle={() => toggleCleared(row)}
-                  onContextMenu={event => onContextMenu(event, row)}
-                />
-              ))}
+              : (() => {
+                const mark = marks.get(row.transaction.id)
+                const described = mark !== undefined && mark.detail.parts.length > 0
+                return [
+                  <TransactionLine
+                    key={row.transaction.id} row={row} account={account} selected={selected === row.transaction.id}
+                    mark={mark} described={described} reviewColumn={reviewColumn}
+                    onSelect={() => void select(row.transaction.id)}
+                    onEdit={() => startEditing(row)}
+                    onToggle={() => toggleCleared(row)}
+                    onContextMenu={event => onContextMenu(event, row)}
+                    onRun={runAnnotation}
+                  />,
+                  described && (
+                    <AnnotationLine
+                      key={`${row.transaction.id}-annotation`} mark={mark} columns={columnCount} selected={selected === row.transaction.id}
+                      onSelect={() => void select(row.transaction.id)} onContextMenu={event => onContextMenu(event, row)}
+                    />
+                  )
+                ]
+              })())}
 
             {entryRow}
           </TableBody>
@@ -392,7 +454,16 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
               <ListItemIcon>{action.icon && !action.icon.startsWith('./') && <Icon name={action.icon} fontSize="small" />}</ListItemIcon>
               <ListItemText>{action.label}</ListItemText>
             </MenuItem>
-          ))
+          )),
+          // What plugins offer for this row: its buttons too, so they can be reached from the keyboard menu
+          ...annotationMenu(marks.get(selectedRow.transaction.id)).map(action => action === 'divider'
+            ? <Divider key="annotations" />
+            : (
+              <MenuItem key={`annotation-${action.id}`} title={action.tooltip} onClick={() => runAnnotation(action)}>
+                <ListItemIcon>{action.icon && <Icon name={action.icon} fontSize="small" />}</ListItemIcon>
+                <ListItemText>{action.label}</ListItemText>
+              </MenuItem>
+            ))
         ]}
       </Menu>
 
@@ -427,10 +498,21 @@ function Figure({ label, minor, currency }: { label: string, minor: number, curr
   )
 }
 
-/** One transaction, on one line. */
-function TransactionLine({ row, account, selected, onSelect, onEdit, onToggle, onContextMenu }: {
+/** A row's annotation actions for its context menu, set apart from the register's own. */
+function annotationMenu(mark: ResolvedRowAnnotation | undefined): (AnnotationAction | 'divider')[] {
+  const all = mark ? [...mark.buttons, ...mark.menu] : []
+  return all.length > 0 ? ['divider', ...all] : []
+}
+
+/** One transaction, on one line; a plugin's mark adds a bar at its edge and buttons in the Review column. */
+function TransactionLine({ row, account, selected, mark, described, reviewColumn, onSelect, onEdit, onToggle, onContextMenu, onRun }: {
   row: RegisterRow, account: Account, selected: boolean
+  mark?: ResolvedRowAnnotation
+  /** A second line follows, which describes this row. */
+  described: boolean
+  reviewColumn: boolean
   onSelect(): void, onEdit(): void, onToggle(): void, onContextMenu(event: MouseEvent): void
+  onRun(action: AnnotationAction): void
 }) {
   const t = row.transaction
   const amount = formatAmount(t.amount, account.currency, { sign: 'never', currency: false })
@@ -439,8 +521,14 @@ function TransactionLine({ row, account, selected, onSelect, onEdit, onToggle, o
   return (
     <TableRow
       hover selected={selected} onClick={onSelect} onDoubleClick={onEdit} onContextMenu={onContextMenu}
-      data-row={t.id} data-voided={t.voided || undefined}
-      sx={{ cursor: 'default', '& td': { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }}
+      data-row={t.id} data-voided={t.voided || undefined} data-review={mark?.review || undefined}
+      aria-describedby={described ? annotationId(t.id) : undefined}
+      sx={{
+        cursor: 'default', '& td': { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+        // Joined to its second line: no rule between them
+        ...(described && { '& > td': { borderBottom: 0 } }),
+        ...(mark?.review && reviewBar(mark.tone))
+      }}
     >
       <TableCell align="center" onClick={event => { if (selected) { event.stopPropagation(); onToggle() } }}
         title={t.voided ? 'Void' : t.status === 'uncleared' ? 'Uncleared' : `${t.status[0].toUpperCase()}${t.status.slice(1)}`}>
@@ -453,6 +541,23 @@ function TransactionLine({ row, account, selected, onSelect, onEdit, onToggle, o
       <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', ...struck }}>{t.amount < 0 ? amount : ''}</TableCell>
       <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', ...struck }}>{t.amount > 0 ? amount : ''}</TableCell>
       <TableCell align="right"><Balance minor={shownRunningBalance(account, row)} currency={account.currency} /></TableCell>
+      {reviewColumn && (
+        <TableCell sx={{ py: 0.25 }}>
+          {mark && mark.buttons.length > 0 && (
+            <Box sx={{ display: 'flex', gap: 0.5 }}>
+              {mark.buttons.map(action => (
+                <Tooltip key={action.id} describeChild title={action.tooltip ?? ''}>
+                  <Button size="small" variant="outlined" {...(action.icon && { startIcon: <Icon name={action.icon} /> })}
+                    onClick={event => { event.stopPropagation(); onSelect(); onRun(action) }}
+                    onDoubleClick={event => event.stopPropagation()}>
+                    {action.label}
+                  </Button>
+                </Tooltip>
+              ))}
+            </Box>
+          )}
+        </TableCell>
+      )}
     </TableRow>
   )
 }

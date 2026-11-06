@@ -1,0 +1,14 @@
+{
+  "about": "Purchases in US dollars, entered at the day's rate; the card's rate differs by a few cents",
+  "currency": "CAD",
+  "register": [
+    { "id": "hotel", "date": "2026-10-12", "amount": "-412.30", "payee": "Marriott Boston" },
+    { "id": "museum", "date": "2026-10-13", "amount": "-41.20", "payee": "Museum of Science" },
+    { "id": "fee", "date": "2026-10-15", "amount": "-12.37", "payee": "Foreign transaction fee" }
+  ],
+  "statement": [
+    { "date": "2026-10-14", "amount": "-415.86", "payee": "MARRIOTT BOSTON COPLEY USD 298.00", "expect": "hotel" },
+    { "date": "2026-10-15", "amount": "-41.57", "payee": "MUSEUM OF SCIENCE BOSTON MA", "expect": "museum" },
+    { "date": "2026-10-15", "amount": "-12.37", "payee": "FOREIGN TRANSACTION FEE", "expect": "fee" }
+  ]
+}

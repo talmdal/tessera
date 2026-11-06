@@ -11,6 +11,7 @@ import ChevronLeft from '@mui/icons-material/ChevronLeft'
 import ChevronRight from '@mui/icons-material/ChevronRight'
 import Circle from '@mui/icons-material/Circle'
 import Close from '@mui/icons-material/Close'
+import CompareArrows from '@mui/icons-material/CompareArrows'
 import CreditCard from '@mui/icons-material/CreditCard'
 import Delete from '@mui/icons-material/Delete'
 import Edit from '@mui/icons-material/Edit'
@@ -22,15 +23,20 @@ import Home from '@mui/icons-material/Home'
 import Info from '@mui/icons-material/Info'
 import List from '@mui/icons-material/List'
 import MoreVert from '@mui/icons-material/MoreVert'
+import NewReleases from '@mui/icons-material/NewReleases'
 import Save from '@mui/icons-material/Save'
 import Savings from '@mui/icons-material/Savings'
 import Search from '@mui/icons-material/Search'
 import ShowChart from '@mui/icons-material/ShowChart'
+import Undo from '@mui/icons-material/Undo'
+import UploadFile from '@mui/icons-material/UploadFile'
 import Warning from '@mui/icons-material/Warning'
 
 export const STANDARD_ICONS: Record<IconName, typeof SvgIcon> = {
-  Add, AccountBalance, Block, CalendarToday, Check, ChevronLeft, ChevronRight, Circle, Close, CreditCard, Delete, Edit,
+  Add, AccountBalance, Block, CalendarToday, Check, ChevronLeft, ChevronRight, Circle, Close, CompareArrows, CreditCard,
+  Delete, Edit,
   // `Error` would shadow the global Error constructor in this module
   Error: ErrorIcon,
-  ExpandLess, ExpandMore, Folder, Home, Info, List, MoreVert, Save, Savings, Search, ShowChart, Warning
+  ExpandLess, ExpandMore, Folder, Home, Info, List, MoreVert, NewReleases, Save, Savings, Search, ShowChart, Undo,
+  UploadFile, Warning
 }

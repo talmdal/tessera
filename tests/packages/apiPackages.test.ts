@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import * as ledger from '@tessera/ledger-api'
 import * as accounts from '@tessera/accounts-api'
+import * as imports from '@tessera/import-api'
 import { parseManifest, SERVICE_ID_PATTERN } from '../../shared/plugins/manifest'
 import { parseWhen } from '../../shared/context/when'
 
@@ -81,5 +82,53 @@ describe('@tessera/accounts-api', () => {
     // The accounts command is a thin wrapper; the ledger command it runs must exist in the ledger contract
     expect(accounts.ACCOUNTS_COMMANDS.newSubLedger).toBe('accounts.subLedger.new')
     expect(values(ledger.LEDGER_COMMANDS)).toEqual(expect.arrayContaining(['ledger.new', 'ledger.subLedger.rename', 'ledger.subLedger.delete']))
+  })
+})
+
+describe('@tessera/import-api', () => {
+  it('names everything after the import plugin, which is a valid plugin id', () => {
+    expect(() => parseManifest({ id: imports.IMPORT_PLUGIN_ID, name: 'x', version: '1', privileged: { entry: 'x' } })).not.toThrow()
+    namedAfter(imports.IMPORT_PLUGIN_ID, {
+      commands: imports.IMPORT_COMMANDS, keys: imports.IMPORT_CONTEXT_KEYS, channels: imports.IMPORT_CHANNELS,
+      events: imports.IMPORT_EVENTS, views: imports.IMPORT_VIEWS, dialogs: imports.IMPORT_DIALOGS
+    })
+    for (const id of [imports.IMPORT_MANAGER_SERVICE, imports.IMPORT_ANNOTATOR_SERVICE, imports.IMPORT_MIGRATOR_SERVICE]) {
+      expect(id).toMatch(SERVICE_ID_PATTERN)
+      expect(id.startsWith('import.'), id).toBe(true)
+    }
+    for (const name of [...Object.values(imports.IMPORT_COLLECTIONS), ...Object.values(imports.IMPORT_STATE_KEYS)]) {
+      expect(name.startsWith('import.'), name).toBe(true)
+    }
+    expect(imports.IMPORT_FORMATS_POINT).toBe('import.formats')
+  })
+
+  it('has the commands the design names, and no account argument on File › Import… (review decision 14)', () => {
+    expect(imports.IMPORT_COMMANDS).toEqual({
+      file: 'import.file',
+      accept: 'import.review.accept',
+      acceptAll: 'import.review.acceptAll',
+      change: 'import.review.change',
+      showHistory: 'import.history.show',
+      manageLinks: 'import.links.manage',
+      undoImport: 'import.batch.undo'
+    })
+    // Unmatch is an option of the Change Match dialog, not a command of its own (review decision 15)
+    expect(values(imports.IMPORT_COMMANDS).some(id => /unmatch/i.test(id))).toBe(false)
+    expect(imports.IMPORT_CONTEXT_KEYS).toEqual({ hasFormats: 'import.hasFormats', isRunning: 'import.isRunning' })
+  })
+
+  it("doesn't collide with the accounts plugin's names", () => {
+    const ours = [imports.IMPORT_COMMANDS, imports.IMPORT_CONTEXT_KEYS, imports.IMPORT_CHANNELS, imports.IMPORT_EVENTS,
+      imports.IMPORT_VIEWS, imports.IMPORT_DIALOGS].flatMap(values)
+    const theirs = new Set([accounts.ACCOUNTS_COMMANDS, accounts.ACCOUNTS_CONTEXT_KEYS, accounts.ACCOUNTS_CHANNELS,
+      accounts.ACCOUNTS_EVENTS, accounts.ACCOUNTS_VIEWS, accounts.ACCOUNTS_DIALOGS].flatMap(values))
+    expect(ours.filter(name => theirs.has(name))).toEqual([])
+    expect(new Set(ours).size).toBe(ours.length)
+  })
+
+  it('sets the limits the design states', () => {
+    expect(imports.IMPORT_LIMITS).toEqual({ maxFileSize: 25 * 1024 * 1024, sniffBytes: 4096, parseTimeoutMs: 30_000 })
+    expect(imports.FINGERPRINT_PREFIX).toBe('fp:')
+    expect(new Set(imports.STATEMENT_LINE_KINDS).size).toBe(imports.STATEMENT_LINE_KINDS.length)
   })
 })

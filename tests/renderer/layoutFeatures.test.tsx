@@ -8,6 +8,7 @@ import App from '../../shell/renderer/App'
 import { ShellStateProvider } from '../../shell/renderer/state/ShellState'
 import { ViewsProvider } from '../../shell/renderer/views/ViewsProvider'
 import { fakeBridge, layoutOf, renderFrame, view } from '../helpers/layoutFrame'
+import { settle } from '../helpers/settle'
 
 const button = (id: string, extra: Partial<BorderItemDescriptor> = {}): BorderItemDescriptor =>
   ({ kind: 'button', id, slot: 'shell.top', label: `Label ${id}`, command: `p.${id}`, pluginId: 'p', enabled: true, ...extra }) as BorderItemDescriptor
@@ -108,7 +109,6 @@ describe('bar items', () => {
 
     bridge.items = [button('save', { enabled: true })]
     await bridge.emit(BAR_ITEMS_CHANGED)
-    await act(async () => {})
 
     expect(screen.getByRole('button', { name: 'Label save' })).toBeEnabled()
   })
@@ -217,6 +217,7 @@ describe('resizing a bar', () => {
 
     fireEvent.mouseUp(document)
     expect(bridge.sent).toEqual([{ slot: 'shell.left', size: 320 }])
+    await settle()   // the controller's answer to the reported size
 
     fireEvent.mouseMove(document, { clientX: 500 })           // no longer dragging
     expect(bridge.sent).toHaveLength(1)
@@ -231,7 +232,6 @@ describe('resizing a bar', () => {
     expect(columns(container)).toContain('min(320px')                // before the reply: no jump back
 
     await bridge.emit(LAYOUT_CHANGED, left(320))
-    await act(async () => {})
     expect(columns(container)).toBe('min(320px, 50%) minmax(0, 1fr) 0px')
   })
 
@@ -243,6 +243,7 @@ describe('resizing a bar', () => {
     fireEvent.mouseUp(document)
 
     expect(bridge.sent).toEqual([{ slot: 'shell.right', size: 350 }])
+    await settle()
   })
 
   it('uses the vertical position for the top and bottom bars', async () => {
@@ -253,6 +254,7 @@ describe('resizing a bar', () => {
     fireEvent.mouseUp(document)
 
     expect(bridge.sent).toEqual([{ slot: 'shell.bottom', size: 240 }])
+    await settle()
   })
 
   it('never goes below the minimum or above half the window', async () => {
@@ -267,6 +269,7 @@ describe('resizing a bar', () => {
     fireEvent.mouseUp(document)
 
     expect(bridge.sent).toEqual([{ slot: 'shell.left', size: 100 }, { slot: 'shell.left', size: Math.floor(window.innerWidth / 2) }])
+    await settle()
   })
 
   it('sends nothing for a click that does not move, or for a button other than the primary one', async () => {
@@ -358,7 +361,6 @@ describe('revealing a view', () => {
 
     await bridge.emit(LAYOUT_CHANGED, state('register'))
     await bridge.emit(LAYOUT_REVEALED, { windowId: 1, viewId: 'register', slot: 'shell.main' })
-    await act(async () => {})
 
     expect(await screen.findByText('Content of register')).toBeVisible()
     expect(screen.getByRole('region', { name: 'Title register' })).toHaveFocus()
@@ -371,7 +373,6 @@ describe('revealing a view', () => {
 
     await bridge.emit(LAYOUT_CHANGED, bar('b'))
     await bridge.emit(LAYOUT_REVEALED, { windowId: 1, viewId: 'b', slot: 'shell.right' })
-    await act(async () => {})
 
     expect(await screen.findByRole('region', { name: 'Title b' })).toHaveFocus()
   })
@@ -382,7 +383,6 @@ describe('revealing a view', () => {
     await bridge.emit(LAYOUT_CHANGED, state('register'))
 
     await bridge.emit(LAYOUT_REVEALED, { windowId: 2, viewId: 'register', slot: 'shell.main' })
-    await act(async () => {})
 
     expect(screen.getByRole('region', { name: 'Title register' })).not.toHaveFocus()
   })

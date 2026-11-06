@@ -813,7 +813,7 @@ export interface Transaction {
   voided: boolean
   /** Reserved: split lines, summing to `amount` (later). */
   splits?: { amount: number, categoryId?: string, memo?: string }[]
-  /** Reserved for import: the bank's id for this transaction (OFX FITID). */
+  /** The bank line this transaction is (OFX FITID, or an importer's fingerprint); unique in the account. See import-manager-design.md. */
   externalId?: string
   createdAt: string
   updatedAt: string

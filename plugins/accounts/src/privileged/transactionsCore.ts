@@ -6,10 +6,10 @@
 import { randomUUID } from 'node:crypto'
 import type { Doc } from '@tessera/types'
 import {
-  AccountsError, CATEGORY_NAME_MAX_LENGTH, CATEGORY_SEPARATOR, CLEARED_STATUSES, CLEARING_STATUSES, MEMO_MAX_LENGTH,
+  AccountsError, isAccountsError, CATEGORY_NAME_MAX_LENGTH, CATEGORY_SEPARATOR, CLEARED_STATUSES, CLEARING_STATUSES, EXTERNAL_ID_MAX_LENGTH, MEMO_MAX_LENGTH,
   PAYEE_NAME_MAX_LENGTH, TRANSACTION_NUMBER_MAX_LENGTH, accountNameKey, categoryLabel, isAmount, isIsoDate,
   transferLabel,
-  type Account, type AccountBalances, type Category, type ClearingStatus, type Confirmation, type PayeeSuggestion,
+  type Account, type AccountBalances, type BankMatch, type BankUnmatch, type Category, type ClearingStatus, type Confirmation, type PayeeSuggestion,
   type RegisterSnapshot, type Transaction, type TransactionDraft, type TransactionPatch, type WriteOptions
 } from '@tessera/accounts-api'
 import {
@@ -133,6 +133,27 @@ interface Checked {
   categoryId?: string
   transferAccountId?: string
   status: ClearingStatus
+  externalId?: string
+}
+
+/**
+ * A bank line's identity, exactly as given: bank ids are compared as they are, so nothing is trimmed. Absent when
+ * undefined or null.
+ */
+function checkExternalId(value: unknown, field = 'externalId'): string | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string' || value === '') throw invalid(field, 'A bank line needs an id.')
+  if (value.length > EXTERNAL_ID_MAX_LENGTH) throw invalid(field, `A bank line's id has at most ${EXTERNAL_ID_MAX_LENGTH} characters.`)
+  if (/[\u0000-\u001f\u007f]/.test(value)) throw invalid(field, "A bank line's id can't contain control characters.")
+  return value
+}
+
+/** Refuses a bank line already in the account (on a transaction other than `except`): it was imported before. */
+async function ensureExternalIdFree(c: Collections, accountId: string, externalId: string, except?: string) {
+  const holder = await c.transactions.findOne({ accountId, externalId })
+  if (holder && holder.id !== except) {
+    throw new AccountsError('DUPLICATE_EXTERNAL_ID', `That bank line is already in this account (the transaction of ${holder.date}).`, 'externalId')
+  }
 }
 
 export function checkDraft(draft: TransactionDraft): Checked {
@@ -145,8 +166,10 @@ export function checkDraft(draft: TransactionDraft): Checked {
   const number = optionalText(draft.number, 'number', TRANSACTION_NUMBER_MAX_LENGTH)
   const payee = optionalText(draft.payee, 'payee', PAYEE_NAME_MAX_LENGTH)
   const memo = optionalText(draft.memo, 'memo', MEMO_MAX_LENGTH)
+  const externalId = checkExternalId(draft.externalId)
   return {
     date: draft.date, amount: draft.amount, status,
+    ...(externalId !== undefined && { externalId }),
     ...(number !== undefined && { number }),
     ...(payee !== undefined && { payee }),
     ...(memo !== undefined && { memo }),
@@ -195,11 +218,14 @@ export async function createTransaction(c: Collections, accountId: string, draft
   if (fields.status === 'reconciled') throw invalid('status', 'Transactions become reconciled by reconciling the account.')
   if (fields.categoryId !== undefined) await checkCategory(c, fields.categoryId)
   const target = fields.transferAccountId === undefined ? undefined : await transferTarget(c, account, fields.transferAccountId)
+  if (fields.externalId !== undefined) await ensureExternalIdFree(c, accountId, fields.externalId)
   const payeeId = fields.payee === undefined ? undefined : await payeeNamed(c, fields.payee)
 
   const transferId = target ? randomUUID() : undefined
+  // The bank line's id stays on this side: the other side of a transfer is another account's line
   const doc: StoredTransaction = {
     accountId, date: fields.date, amount: fields.amount, status: fields.status, voided: false, createdAt: now, updatedAt: now,
+    ...(fields.externalId !== undefined && { externalId: fields.externalId }),
     ...(fields.number !== undefined && { number: fields.number }),
     ...(payeeId !== undefined && { payeeId }),
     ...(fields.memo !== undefined && { memo: fields.memo }),
@@ -239,13 +265,15 @@ export async function updateTransaction(
   const payeeName = current.payeeId === undefined ? undefined : (await c.payees.get(current.payeeId))?.name
   const merged: Record<string, unknown> = {
     date: current.date, number: current.number, amount: current.amount, payee: payeeName, memo: current.memo,
-    categoryId: current.categoryId, transferAccountId: current.transferAccountId, status: current.status
+    categoryId: current.categoryId, transferAccountId: current.transferAccountId, status: current.status,
+    externalId: current.externalId
   }
   for (const [key, value] of Object.entries(patch)) if (value !== undefined) merged[key] = value === null ? undefined : value
   if (patch.categoryId != null && patch.transferAccountId === undefined) merged.transferAccountId = undefined
   if (patch.transferAccountId != null && patch.categoryId === undefined) merged.categoryId = undefined
   const fields = checkDraft(merged as unknown as TransactionDraft)
   if (fields.categoryId !== undefined && fields.categoryId !== current.categoryId) await checkCategory(c, fields.categoryId)
+  if (fields.externalId !== undefined && fields.externalId !== current.externalId) await ensureExternalIdFree(c, accountId, fields.externalId, id)
 
   const other = await otherSide(c, current)
   const sameTransfer = other !== undefined && fields.transferAccountId === current.transferAccountId
@@ -293,7 +321,7 @@ export async function updateTransaction(
     id, accountId, date: fields.date, amount: fields.amount, status: fields.status, voided: current.voided,
     createdAt: keep.createdAt, updatedAt: now, number: fields.number, payeeId, memo: fields.memo,
     categoryId: fields.categoryId, transferId, transferAccountId: transferId === undefined ? undefined : fields.transferAccountId,
-    externalId: keep.externalId, splits: keep.splits
+    externalId: fields.externalId, splits: keep.splits
   })
   const saved = await c.transactions.replace(next as StoredTransaction & { id: string })
   return { transaction: toTransaction(saved), touched }
@@ -352,6 +380,137 @@ export async function setVoided(c: Collections, accountId: string, ids: string[]
   return touched
 }
 
+// ---- For importers: bank lines in, and matched to what the user entered
+
+/** Runs `work`, naming where its accounts error comes from: field `date` becomes `drafts[3].date`, say. */
+async function naming<T>(prefix: string, work: () => Promise<T> | T): Promise<T> {
+  try {
+    return await work()
+  } catch (err) {
+    if (!isAccountsError(err)) throw err
+    throw new AccountsError(err.code, err.message, err.field === undefined ? prefix : `${prefix}.${err.field}`, err.reasons)
+  }
+}
+
+const merge = (into: Touched, from: Iterable<string>) => { for (const id of from) into.add(id) }
+
+/**
+ * Creates every draft, or none: the caller runs it in one storage transaction. Every draft is checked first, so a
+ * problem anywhere is found before anything is written, and names its draft (`drafts[3].date`).
+ */
+export async function createTransactions(c: Collections, accountId: string, drafts: TransactionDraft[], now: string): Promise<{ transactions: Transaction[], touched: Touched }> {
+  if (!Array.isArray(drafts)) throw invalid('drafts', 'Give the transactions as a list.')
+  await openAccount(c, accountId)
+  const lines = new Map<string, number>()
+  for (const [i, draft] of drafts.entries()) {
+    const fields = await naming(`drafts[${i}]`, () => checkDraft(draft))
+    if (fields.status === 'reconciled') throw invalid(`drafts[${i}].status`, 'Transactions become reconciled by reconciling the account.')
+    if (fields.externalId === undefined) continue
+    const first = lines.get(fields.externalId)
+    if (first !== undefined) {
+      throw new AccountsError('DUPLICATE_EXTERNAL_ID', `Transactions ${first + 1} and ${i + 1} are the same bank line.`, `drafts[${i}].externalId`)
+    }
+    lines.set(fields.externalId, i)
+  }
+
+  const touched: Touched = new Set([accountId])
+  const transactions: Transaction[] = []
+  for (const [i, draft] of drafts.entries()) {
+    const result = await naming(`drafts[${i}]`, () => createTransaction(c, accountId, draft, now))
+    transactions.push(result.transaction)
+    merge(touched, result.touched)
+  }
+  return { transactions, touched }
+}
+
+/** What a bank line changes: checked before anything is written. Fields are named under `prefix`. */
+function checkBankFields(values: { date?: unknown, amount?: unknown, status?: unknown }, prefix = '') {
+  if (values.date !== undefined && !isIsoDate(values.date)) throw invalid(`${prefix}date`, 'Enter a date.')
+  if (values.amount !== undefined && !isAmount(values.amount)) throw invalid(`${prefix}amount`, 'Enter an amount.')
+  if (values.status !== undefined && !(CLEARING_STATUSES as readonly unknown[]).includes(values.status)) throw invalid(`${prefix}status`, 'Choose a status.')
+}
+
+/**
+ * Links a bank line to a transaction already in the account. Deletes `replaces` first (the transaction the same line
+ * was added as, so it must carry the line's id), then gives the transaction the line's id, date, amount and status
+ * through the same rules as any edit: a transfer's other side follows, and a reconciled one needs confirming.
+ */
+export async function matchTransaction(
+  c: Collections, accountId: string, id: string, match: BankMatch, options: WriteOptions, now: string
+): Promise<{ transaction: Transaction, touched: Touched }> {
+  await openAccount(c, accountId)
+  if (typeof match !== 'object' || match === null) throw invalid('externalId', 'Give the bank line to match.')
+  const externalId = checkExternalId(match.externalId)
+  if (externalId === undefined) throw invalid('externalId', 'A bank line needs an id.')
+  checkBankFields(match)
+  if (match.status === 'reconciled') throw invalid('status', 'Transactions become reconciled by reconciling the account.')
+
+  const target = await ownTransaction(c, accountId, id)
+  if (options.expectedRev !== undefined && target.rev !== options.expectedRev) {
+    throw new AccountsError('CONFLICT', 'This transaction was changed elsewhere. Try again.')
+  }
+  if (target.voided) throw invalid('id', 'A void transaction can’t be matched to a bank line. Unvoid it first.')
+  if (target.externalId !== undefined && target.externalId !== externalId) {
+    throw invalid('id', 'That transaction is already matched to another bank line. Unmatch it first.')
+  }
+
+  const touched: Touched = new Set([accountId])
+  if (match.replaces !== undefined) {
+    if (typeof match.replaces !== 'string' || match.replaces === id) throw invalid('replaces', 'Choose the transaction the bank line was added as.')
+    const replaced = await naming('replaces', () => ownTransaction(c, accountId, match.replaces!))
+    // Only the line's own earlier transaction may go, so a match can never lose another bank line
+    if (replaced.externalId !== externalId) throw invalid('replaces', 'That transaction isn’t the one this bank line was added as.')
+    merge(touched, await deleteTransactions(c, accountId, [replaced.id], options))
+  }
+
+  // A user's cleared mark is stronger than the bank's: it stays
+  const status = match.status ?? (target.status === 'cleared' || target.status === 'reconciled' ? target.status : 'electronic')
+  const patch: TransactionPatch = {
+    externalId, status,
+    ...(match.date !== undefined && { date: match.date }),
+    ...(match.amount !== undefined && { amount: match.amount })
+  }
+  const updated = await updateTransaction(c, accountId, id, patch, options, now)
+  merge(touched, updated.touched)
+  return { transaction: updated.transaction, touched }
+}
+
+/**
+ * Takes the bank line off a transaction: clears its id and puts back `restore` (through the same rules as any edit),
+ * then creates `add`, which takes over the id.
+ */
+export async function unmatchTransaction(
+  c: Collections, accountId: string, id: string, unmatch: BankUnmatch, options: WriteOptions, now: string
+): Promise<{ transaction: Transaction, added?: Transaction, touched: Touched }> {
+  await openAccount(c, accountId)
+  if (typeof unmatch !== 'object' || unmatch === null) throw invalid('restore', 'Say what to put back.')
+  const restore = unmatch.restore ?? {}
+  if (typeof restore !== 'object' || restore === null) throw invalid('restore', 'Say what to put back.')
+  checkBankFields(restore, 'restore.')
+  if (unmatch.add !== undefined && (typeof unmatch.add !== 'object' || unmatch.add === null)) throw invalid('add', 'Give the bank line as a transaction.')
+
+  const target = await ownTransaction(c, accountId, id)
+  const externalId = target.externalId
+  if (externalId === undefined) throw invalid('id', 'That transaction isn’t matched to a bank line.')
+  if (unmatch.add?.externalId != null && unmatch.add.externalId !== externalId) {
+    throw invalid('add.externalId', 'The bank line keeps its id: leave it out, or give the same one.')
+  }
+
+  const patch: TransactionPatch = {
+    externalId: null,
+    ...(restore.date !== undefined && { date: restore.date }),
+    ...(restore.amount !== undefined && { amount: restore.amount }),
+    ...(restore.status !== undefined && { status: restore.status })
+  }
+  const updated = await updateTransaction(c, accountId, id, patch, options, now)
+  const touched: Touched = new Set(updated.touched)
+  if (unmatch.add === undefined) return { transaction: updated.transaction, touched }
+
+  const created = await naming('add', () => createTransaction(c, accountId, { ...unmatch.add!, externalId }, now))
+  merge(touched, created.touched)
+  return { transaction: updated.transaction, added: created.transaction, touched }
+}
+
 /**
  * Deletes an account's transactions. The other side of each transfer stays, in its own account, as an ordinary
  * uncategorised transaction with a note, so no other account's balance changes. Returns the accounts touched.
@@ -406,6 +565,15 @@ export async function registerOf(c: Collections, accountId: string): Promise<Reg
   })
   const sums = (await sumsByAccount(c)).get(accountId)
   return { account, rows, balances: balancesFor(account, sums) }
+}
+
+/** The account's transactions carrying one of these bank line ids, in register order. */
+export async function findByExternalIds(c: Collections, accountId: string, ids: string[]): Promise<Transaction[]> {
+  await accountOf(c, accountId)
+  if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')) throw invalid('ids', 'Give the bank line ids as a list of text.')
+  const wanted = [...new Set(ids.filter(id => id !== ''))]
+  if (wanted.length === 0) return []
+  return (await c.transactions.find({ accountId, externalId: { $in: wanted } }, { sort: { date: 1 } })).map(toTransaction)
 }
 
 export async function nextNumber(c: Collections, accountId: string): Promise<string | undefined> {

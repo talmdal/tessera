@@ -52,6 +52,7 @@ export function fakeFiles(driver: ReturnType<typeof memoryDriver>, disk: ReturnT
   const trashed: string[] = []
   const files = {
     showOpenDialog: vi.fn(async (): Promise<string | undefined> => undefined),
+    showOpenFilesDialog: vi.fn(async (): Promise<string[]> => []),
     showSaveDialog: vi.fn(async (): Promise<string | undefined> => undefined),
     exists: vi.fn(async (f: string) => disk.disk.exists(f)),
     trash: vi.fn(async (f: string) => {
@@ -60,7 +61,8 @@ export function fakeFiles(driver: ReturnType<typeof memoryDriver>, disk: ReturnT
       disk.foreign.delete(f)
       disk.sides.delete(f)
     }),
-    documentsPath: vi.fn(() => path.join(DIR, 'Documents'))
+    documentsPath: vi.fn(() => path.join(DIR, 'Documents')),
+    downloadsPath: vi.fn(() => path.join(DIR, 'Downloads'))
   } satisfies ShellFiles
   return { files, trashed }
 }

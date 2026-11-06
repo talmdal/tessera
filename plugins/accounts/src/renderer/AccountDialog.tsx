@@ -47,22 +47,32 @@ interface Form {
   notes: string
 }
 
-function initialForm(input: AccountDialogInput): Form {
-  if (input.mode === 'edit') {
-    const a: Account = input.account
-    const shown = isLiability(a.type) ? -a.openingBalance : a.openingBalance
-    return {
-      name: a.name, type: a.type, subLedger: a.subLedgerId ?? IN_LEDGER, currency: a.currency, openingDate: a.openingDate,
-      openingBalance: amountToInput(shown, a.currency), creditLimit: a.creditLimit === undefined ? '' : amountToInput(a.creditLimit, a.currency),
-      minimumBalance: a.minimumBalance === undefined ? '' : amountToInput(a.minimumBalance, a.currency),
-      showAvailableBalance: a.showAvailableBalance === true,
-      institution: a.institution ?? '', accountNumber: a.accountNumber ?? '', notes: a.notes ?? ''
-    }
-  }
+/** Minor units as the form shows them; as they are when the currency isn't one, so a bad currency never stops the form. */
+function shownAmount(minor: number, currency: string): string {
+  return isCurrencyCode(currency) ? amountToInput(minor, currency) : String(minor)
+}
+
+/** An account's values as the form holds them: text as typed, and what a liability owes shown as a positive amount. */
+function formOf(a: Omit<AccountInput, 'subLedgerId'> & { subLedgerId: string | null }): Form {
+  const shown = isLiability(a.type) ? -a.openingBalance : a.openingBalance
   return {
-    name: '', type: 'chequing', subLedger: input.subLedgerId ?? IN_LEDGER, currency: input.defaultCurrency, openingDate: todayIso(),
-    openingBalance: '0', creditLimit: '', minimumBalance: '', showAvailableBalance: false, institution: '', accountNumber: '', notes: ''
+    name: a.name, type: a.type, subLedger: a.subLedgerId ?? IN_LEDGER, currency: a.currency, openingDate: a.openingDate,
+    openingBalance: shownAmount(shown, a.currency), creditLimit: a.creditLimit === undefined ? '' : shownAmount(a.creditLimit, a.currency),
+    minimumBalance: a.minimumBalance === undefined ? '' : shownAmount(a.minimumBalance, a.currency),
+    showAvailableBalance: a.showAvailableBalance === true,
+    institution: a.institution ?? '', accountNumber: a.accountNumber ?? '', notes: a.notes ?? ''
   }
+}
+
+function initialForm(input: AccountDialogInput): Form {
+  if (input.mode === 'edit') return formOf(input.account)
+  // A new account starts blank, or from what the caller knows (an importer's statement): still checked as typed
+  const initial = input.initial ?? {}
+  return formOf({
+    name: '', type: 'chequing', currency: input.defaultCurrency, openingDate: todayIso(), openingBalance: 0,
+    ...initial,
+    subLedgerId: initial.subLedgerId !== undefined ? initial.subLedgerId : input.subLedgerId
+  })
 }
 
 /** The form as an `AccountInput`, or the problems that stop it being one. */

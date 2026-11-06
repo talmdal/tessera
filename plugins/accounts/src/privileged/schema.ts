@@ -3,6 +3,7 @@ import type { Migrator, SchemaContribution } from '@tessera/ledger-api'
 import {
   ACCOUNTS_COLLECTIONS, ACCOUNTS_MIGRATOR_SERVICE, ACCOUNTS_PLUGIN_ID, ACCOUNTS_SCHEMA_VERSION, accountNameKey
 } from '@tessera/accounts-api'
+import { TRANSACTIONS_EXTERNAL_ID_INDEX } from './store'
 
 export const ACCOUNTS_SCHEMA: SchemaContribution = {
   id: ACCOUNTS_PLUGIN_ID,
@@ -25,7 +26,7 @@ export const ACCOUNTS_SCHEMA: SchemaContribution = {
         { name: 'byPayee', fields: ['payeeId', 'date'] },
         { name: 'byCategory', fields: ['categoryId', 'date'] },
         // Sparse: only imported transactions have one; a re-import of the same statement line is refused
-        { name: 'uniqueExternalId', fields: ['accountId', 'externalId'], unique: true }
+        { name: TRANSACTIONS_EXTERNAL_ID_INDEX, fields: ['accountId', 'externalId'], unique: true }
       ]
     },
     { name: ACCOUNTS_COLLECTIONS.payees, indexes: [{ name: 'uniqueName', fields: ['nameKey'], unique: true }] },

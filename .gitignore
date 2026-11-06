@@ -158,3 +158,5 @@ package-lock.json
 .__mf__temp
 
 .history
+
+*.diff

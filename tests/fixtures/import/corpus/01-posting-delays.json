@@ -1,0 +1,18 @@
+{
+  "about": "Card purchases the bank posts a day or three after the user entered them, in the bank's words",
+  "currency": "CAD",
+  "register": [
+    { "id": "costco", "date": "2026-10-05", "amount": "-84.12", "payee": "Costco" },
+    { "id": "loblaws", "date": "2026-10-08", "amount": "-142.87", "payee": "Loblaws" },
+    { "id": "metro", "date": "2026-10-11", "amount": "-36.40", "payee": "Metro" },
+    { "id": "lcbo", "date": "2026-10-14", "amount": "-27.95", "payee": "LCBO" },
+    { "id": "pharmacy", "date": "2026-10-17", "amount": "-18.49", "payee": "Shoppers Drug Mart" }
+  ],
+  "statement": [
+    { "date": "2026-10-06", "userDate": "2026-10-05", "amount": "-84.12", "payee": "POS PURCHASE COSTCO WHSE #0123", "expect": "costco" },
+    { "date": "2026-10-10", "amount": "-142.87", "payee": "LOBLAWS #1001 OTTAWA ON", "expect": "loblaws" },
+    { "date": "2026-10-12", "amount": "-36.40", "payee": "METRO 0456 KANATA", "expect": "metro" },
+    { "date": "2026-10-17", "amount": "-27.95", "payee": "LCBO/RAO #0217", "expect": "lcbo" },
+    { "date": "2026-10-18", "amount": "-18.49", "payee": "SHOPPERS DRUG MART #1234", "expect": "pharmacy" }
+  ]
+}

@@ -106,8 +106,9 @@ The storage engine it builds on is done ([storage-engine-redesign.md](storage-en
       [account-manager-implementation.md](account-manager-implementation.md#transactions-and-register-results-phase-2-transactions-half-and-phase-4).
 - [ ] **Phase 3, rest:** the accounts home view.
 - [ ] **Register, later:** the two-line layout, windowed rendering for very
-      long registers, sorting and filtering, splits, and an `externalId` on
-      drafts for import.
+      long registers, sorting and filtering, and splits. (`externalId` on
+      drafts is done, with the other methods importers need: see
+      [import-manager-design.md](import-manager-design.md#03-results).)
 - [x] **Phase 5, reconciliation:** Reconcile with Statement (statement date,
       starting and ending balance), the register's reconcile mode (ticks,
       correcting amounts, voiding), the Reconcile panel (Complete with an
@@ -120,9 +121,19 @@ The storage engine it builds on is done ([storage-engine-redesign.md](storage-en
       dialog, added as marked transactions (deleted again on Cancel).
 - [ ] **Reconciliation, later:** undo last reconciliation, and a history of
       past statements.
-- [ ] **Later:** statement import (`accounts.importers`, from
-      [vault-design.md](vault-design.md)), per-file storage formats, splits,
-      `.mny` migration.
+- [x] **Statement import, phases 0 and 1:** *File › Import…* with OFX and QFX
+      files, the account found or chosen and remembered, no line imported twice.
+      Design and results: [import-manager-design.md](import-manager-design.md).
+- [x] **Statement import, phase 2:** fuzzy matching to transactions the user
+      entered, proposals reviewed in the register (*Accept*, *Change…*, *Accept
+      All…*), the Change Match dialog with *Unmatch*, and payee aliases.
+      Results: [import-manager-design.md](import-manager-design.md#phase-2-results).
+- [ ] **Statement import, later phases:** CSV (phase 3), history and undo (phase 4).
+- [ ] **Statement import, by hand:** go through the matching walkthrough in
+      [samples/statements](../samples/statements/README.md#matching-and-review) in
+      `npm run dev`, in light and dark themes: the register's marks, buttons and
+      review bar, and the Change Match dialog, have only been tested, not seen.
+- [ ] **Later:** per-file storage formats, splits, `.mny` migration.
 
 ## State and settings (proposed design)
 
@@ -240,16 +251,20 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
 
 ## Build and packaging
 
-- [ ] **`npm install` fails from a clean checkout.** There is no lockfile, and
-      `package.json` asks for versions that aren't published:
-      `@rollup/plugin-alias@^6.0.1` (latest 6.0.0),
-      `@rollup/plugin-typescript@^12.3.1` (12.3.0) and `rollup@^4.65.0`
-      (4.64.12). `rollup-plugin-typescript2` also needs `--legacy-peer-deps`.
-      Fix the ranges and commit a lockfile.
-- [ ] **`@types/react` is not a dependency**, so every `.tsx` file reports
-      "Could not find a declaration file for module 'react'" under
-      `tsc --noEmit`, which hides real type errors in the renderer. Add
-      `@types/react` and `@types/react-dom` (18.x) to `devDependencies`.
+- [ ] **Commit a lockfile.** A plain `npm install` from a clean checkout
+      works again (checked on 2026-11-06, with no `--legacy-peer-deps`), but
+      with no lockfile two installs of the same package.json can differ: that
+      is how two copies of `@testing-library/dom`, and React 19's types, got
+      in. (`package-lock.json` is in `.gitignore`.) It is also how an old
+      `@module-federation/vite` (before 1.16.0) stayed installed after the range
+      moved, and broke the build once there were three federated plugins. The
+      range is now `^1.23.0`, and `build-plugins.mts` names an old install
+      (see [import-manager-design.md](import-manager-design.md#fixes-after-the-first-windows-run)).
+- [x] **`@types/react` and `@types/react-dom` 18.x are devDependencies.**
+      Without them `tsc` hid every renderer type error. Once MUI's optional
+      peer brought in React 19's types, it also reported false ones. `tsc -p plugins`
+      is clean. `-p shell` (16) and `-p tests` (34) still report the stale
+      imports below, which the missing types used to bury under ~380 errors.
 
 - [ ] **Production loading.** The window always loads
       `http://localhost:5173`; add a production `loadFile` path, a renderer
@@ -292,6 +307,35 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
       `mockReset` and `restoreMocks` to `false` because Vitest 5 resets
       mocks before each test, which discards the calls made when the preload
       script is imported.
+- [ ] **Slow dialog tests.** Tests that type into MUI forms key by key take 1 to 4 seconds each in jsdom, because
+      every keystroke re-renders the whole form. The full suite flaked at Vitest's default 5-second timeout, so it is
+      now 15 seconds (`vitest.config.ts`). Making those forms cheaper to re-render, or typing only where per-key
+      behaviour is what is tested (`userEvent.paste` elsewhere), would let the limit come back down.
+- [x] **React `act(...)` warnings fail the test.** They were noise that came and went with timing: a test asserted
+      before the component had settled (a click's reply, a load on mount). `tests/setup/setupTests.ts` now fails the
+      test that caused one, naming the component. Wait for what the user sees (`findBy…`, `waitFor`); when nothing
+      visible changes, such as a load that confirms what is drawn, `await settle()` from `tests/helpers/settle.ts`.
+      The 18 tests that warned were fixed, plus 7 plugin-dialog tests whose race showed only with slower replies.
+- [x] **One copy of `@testing-library/dom`.** It is a peer dependency of user-event, and wasn't in package.json, so a
+      plain `npm install` put 10.x at the top for user-event and kept React Testing Library's 9.x nested. user-event's
+      events then skipped act(...), and about 90 tests failed with act errors in MUI's ForwardRef and Transition.
+      React Testing Library is now 16, which takes `@testing-library/dom` as a peer dependency, and package.json
+      names the `^10.4.0` all three share. (The first fix, pinning 9.x for React Testing Library 14, clashed with
+      jest-dom 6.10's peer dependency on 10.x, and a clean install failed.) `tests/setup/singleDomCopy.ts` stops the
+      run with the real cause if two copies appear again. The missing lockfile (see "Build and packaging") is why two
+      installs of the same package.json differed.
+- [x] **Test files share workers where they can** (`vitest.config.ts` projects): `electron` (tests/main,
+      tests/preload) stays isolated, because those tests mock Electron per file and load `shell/main` against the mock;
+      `shared` (everything else) runs with `isolate: false`, about a third faster here. The setup file unmounts every
+      test's components itself, and switches on React's act checks for every file: Testing Library does both only in
+      a worker's first file, so later files had no cleanup and no act warnings at all.
+      A test that mocks modules (`vi.mock`) must go in the isolated project. Checked with shuffled file and test order,
+      which also found that `tests/main/app.test.ts` (one app shared by the file) depended on its test order; its
+      theme test now restores the theme, and the file keeps its written order (`shuffle: false`), as its start-up test
+      needs.
+- [ ] **Quiet the expected output.** The build tests print Module Federation's warnings about shared dependencies,
+      one test builds a broken plugin on purpose, and error-path tests log (a missing icon, a provider outside its
+      tree). None is a failure, but they fill the output; capture or silence them in the tests that cause them.
 - [ ] **Linting.** ESLint isn't configured.
 - [ ] **CI.** Run tests, type-checks and the architecture boundary test on
       every push.

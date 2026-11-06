@@ -877,7 +877,7 @@ plugin activates**, so you can list them in `services.requires`. Their types are
 | Service | Methods | Shown as |
 |---|---|---|
 | `shell.prompts` (`ShellPrompts`) | `confirm`, `message`, `prompt`, `show` | native message boxes; the shell's dialog frame for `prompt` and `show` |
-| `shell.files` (`ShellFiles`) | `showOpenDialog`, `showSaveDialog`, `exists`, `trash`, `documentsPath` | native file dialogs; the OS trash |
+| `shell.files` (`ShellFiles`) | `showOpenDialog`, `showOpenFilesDialog`, `showSaveDialog`, `exists`, `trash`, `documentsPath`, `downloadsPath` | native file dialogs; the OS trash |
 
 ```json
 "services": { "requires": ["shell.prompts", "shell.files"] }
@@ -908,6 +908,12 @@ const file = await files.showSaveDialog({
   defaultPath: path.join(files.documentsPath(), 'My Finances.tessera'),
   filters: [{ name: 'Tessera ledger', extensions: ['tessera'] }]
 })                                              // undefined when cancelled; the platform asks before replacing
+
+const chosen = await files.showOpenFilesDialog({ // several files at once: a list, empty when cancelled
+  defaultPath: files.downloadsPath(),           // where browsers save downloaded statements
+  filters: [{ name: 'OFX statement', extensions: ['ofx', 'qfx'] }]
+})
+for (const statement of chosen) { /* … */ }
 ```
 
 Every method takes an optional `windowId`; by default the question belongs to the focused window.
@@ -1086,8 +1092,22 @@ const account = match ?? await accounts.createAccount({
   openingDate: '2026-01-01', openingBalance: -54000           // minor units; what is owed is negative
 })
 const transactions = accounts.transactions(account.id)
-await transactions.create({ date: '2026-10-02', amount: -5025, payee: 'Metro', status: 'electronic' })
+
+// Each bank line carries its id (OFX FITID, or a fingerprint of the line) as externalId, so it is never added twice
+const seen = new Set((await transactions.findByExternalIds(lines.map(l => l.id))).map(t => t.externalId))
+await transactions.createMany(lines.filter(l => !seen.has(l.id)).map(l => ({
+  date: l.date, amount: l.amount, payee: l.payee, status: 'electronic', externalId: l.id
+})))                                              // all or none, announced once; a problem names its draft: drafts[3].date
+
+// A line that is a transaction the user already typed: it takes the bank's id, date and amount, and stays the user's
+await transactions.match(typedId, { externalId: 'FIT-7', date: '2026-10-06', amount: -8412 })
+// …and taken off again, putting back what the match changed, with the line as a transaction of its own
+await transactions.unmatch(typedId, { restore: { date: '2026-10-05', amount: -8400, status: 'uncleared' }, add: draftOfTheLine })
 ```
+
+Statement import as a whole is the `import` plugin's job
+([import-manager-design.md](import-manager-design.md)); a file format is a small plugin of its own. The methods above
+are for plugins that bring bank lines another way.
 
 **A report** over transactions:
 
@@ -1112,7 +1132,11 @@ const categories = await accounts.categories.list()                     // categ
   - a transfer (`transferAccountId`) is two transactions, one in each account, kept consistent;
   - a payee is created from its name on first use;
   - changing a reconciled transaction needs `confirm: ['reconciled']`.
-  An `externalId` on drafts, which would let a re-import be recognised, is still planned.
+  - **bank lines** (for importers): `externalId` identifies the line a transaction came from, is unique in the account
+    (`DUPLICATE_EXTERNAL_ID`), and isn't mirrored to a transfer's other side. `createMany` is all or nothing, and its
+    errors name the draft (`drafts[3].date`). `match` and `unmatch` link a line to a transaction and take it off
+    again, each in one step. `match`'s `replaces` deletes the transaction the same line was added as, and only that
+    one. Views can't set or clear `externalId`: the register's channels drop it.
 - **The Accounts menu's commands** (`accounts.account.new`…) are user actions that follow the navigator's
   selection. From code, use the service.
 
@@ -1166,6 +1190,147 @@ context.subscriptions.push(
 - **Your own UI** is an ordinary view with `when: "accounts.reconciler == 'bank-import.match'"`: the context key holds
   the id of the option that started the reconciliation on the register's account.
 - `accounts.onDidChange` lists the accounts whose reconciliation changed in `reconciliations`.
+
+### Marking register rows
+
+A plugin can mark rows in an account's register, with up to two buttons per row, through
+**`accounts.register.annotations`**. The import manager uses it for the bank lines to review (*Accept* and
+*Change…*). The register draws everything; your plugin supplies data through a `RegisterAnnotator` service, and its
+buttons run your commands:
+
+```ts
+import {
+  REGISTER_ANNOTATIONS_POINT, type AccountAnnotations, type RegisterAnnotationsContribution, type RegisterAnnotator
+} from '@tessera/accounts-api'
+
+const changed = new Set<(change: { accounts: string[] }) => void>()
+const annotator: RegisterAnnotator = {
+  async annotate(accountId): Promise<AccountAnnotations> {
+    return {
+      rows: [{
+        transactionId, review: true, tone: 'warning',                       // 'info', 'warning' or 'success'
+        detail: { icon: 'CompareArrows', parts: [{ text: 'Possible match: ' }, { text: '57.50', emphasis: true }] },
+        actions: [
+          { id: 'accept', label: 'Accept', icon: 'Check', placement: 'button', command: 'bank-import.accept', args: { lineId } },
+          { id: 'why', label: 'Why this match?', placement: 'menu', command: 'bank-import.explain', args: { lineId } }
+        ]
+      }],
+      summary: { message: '1 bank line to review', actions: [/* Accept All…, as above */] }
+    }
+  },
+  onDidChange: listener => { changed.add(listener); return { dispose: () => changed.delete(listener) } }
+}
+const contribution: RegisterAnnotationsContribution = { id: 'bank-import.review', service: 'bank-import.annotator' }
+context.subscriptions.push(
+  context.services.provide('bank-import', 'bank-import.annotator', annotator),
+  context.extensions.contribute('bank-import', REGISTER_ANNOTATIONS_POINT, contribution.id, contribution)
+)
+// After your own data changes: the registers of these accounts reload and ask again
+changed.forEach(listener => listener({ accounts: [accountId] }))
+```
+
+- **What the register shows:**
+  - a row with `detail.parts` gets a second line under it, with the `emphasis` parts in the tone's colour;
+  - a row with `review: true` gets a bar at its left edge, is counted in a bar above the register (with your
+    `summary`), and is visited by *Next* and `F8`;
+  - something to review that isn't a row (the import's bank line that lost its transaction) keeps your summary's bar
+    up while `summary.outstanding` is above zero, with its actions (*Resolve…*), but no *Next*;
+  - the first two `'button'` actions become buttons in a *Review* column, and `Ctrl+Enter` and `Ctrl+Shift+Enter` run
+    them;
+  - every action is also in the row's context menu.
+- **Your commands get `args`** as their only argument (`shell:commands.execute`). A result of `{ ok: false, error: {
+  message } }`, or an error thrown, is shown in the register's notice area.
+- **A closed account** shows your marks, but no buttons or actions. In reconcile mode nothing is shown.
+- **A broken annotator can't break the register.** Answer within 2 seconds (`ANNOTATE_TIMEOUT_MS`). One that throws,
+  is slow or isn't provided is logged (`[accounts]`) and left out. What you return is checked: rows for
+  transactions the register doesn't show, and actions without an id, label, command or placement, are dropped.
+- **Two annotators on one row:** the first by `order` draws the second line and the buttons, and the other's actions
+  go to the row's menu.
+- **Reloads:** the register reloads after `accounts.onDidChange` for its account, so call your `onDidChange`
+  listeners only for changes of your own.
+
+To let the user **create an account with values filled in**, say from a statement, open the accounts plugin's own
+dialog with `initial`. The form starts from it, every field stays editable, and it is checked as if typed:
+
+```ts
+const chart = await accounts.chart()
+const created = await prompts.show<{ id: string }>(ACCOUNTS_DIALOGS.account, {
+  mode: 'create', subLedgerId: null, subLedgers: chart.subLedgers, ledgerName: chart.ledger.name, defaultCurrency: 'CAD',
+  initial: { name: 'TD Visa 3456', type: 'creditCard', currency: 'CAD', openingDate: '2026-09-30', openingBalance: -54000 }
+} satisfies AccountDialogInput)                  // what is owed is negative, and shown as the amount owed
+```
+
+## Adding an import format
+
+*File › Import…* belongs to the bundled `import` plugin (the import manager), which knows no file format. A format is
+a small plugin that turns a file's bytes into statements; the import manager does everything else:
+- it finds each statement's account, and remembers it;
+- it leaves out lines imported before;
+- it adds the rest.
+
+The bundled OFX plugin ([plugins/import-ofx/](../plugins/import-ofx/)) is the example to follow. The contract is
+`@tessera/import-api`.
+
+```json
+{ "id": "bank-csv", "name": "Bank CSV", "version": "0.1.0", "privileged": { "entry": "privileged/index.js" },
+  "services": { "provides": ["bank-csv.format"] } }
+```
+
+```ts
+import type { PluginContext } from '@tessera/types'
+import { IMPORT_FORMATS_POINT, ImportError, canonicalDecimal, isoDate, type ImportFormat, type ImportFormatContribution } from '@tessera/import-api'
+
+const FORMAT: ImportFormatContribution = {
+  id: 'bank-csv.csv', label: 'Bank CSV export', extensions: ['csv'], service: 'bank-csv.format',
+  description: 'The CSV file your bank’s website exports.'
+}
+const format: ImportFormat = {
+  sniff: ({ head }) => new TextDecoder().decode(head).startsWith('Date,Description,Amount'),   // optional
+  async parse(file, context) {
+    const rows = file.text().split(/\r?\n/).slice(1).filter(Boolean).map(row => row.split(','))
+    if (rows.length === 0) throw new ImportError('UNREADABLE', `${file.name} has no transactions.`)
+    return {
+      statements: [{
+        account: { key: 'bank-csv:my-bank', keyStrength: 'weak', label: 'My Bank (CSV)' },
+        lines: rows.map(([date, payee, amount]) => ({ date: isoDate(date, 'MDY')!, payee, amount: canonicalDecimal(amount)! }))
+      }]
+    }
+  }
+}
+
+export function activate(context: PluginContext) {
+  context.subscriptions.push(
+    context.extensions.contribute('bank-csv', IMPORT_FORMATS_POINT, FORMAT.id, FORMAT),
+    context.services.provide('bank-csv', FORMAT.service, format)
+  )
+}
+```
+
+- **Your extensions appear in the import dialog's filters.** With more than one format for an extension, `sniff`
+  decides, and the user is asked if it can't.
+- **Amounts are canonical decimal strings** (`'-84.12'`), signed from the account's side: positive raises its balance,
+  so a card's charges are negative. Use `canonicalDecimal(text, { decimal })` for what a bank writes (`'1.234,56'`,
+  `'(12.00)'`), and never a JavaScript number. The import manager converts them once it knows the account's currency.
+- **Dates are `YYYY-MM-DD`.** `isoDate(text, 'MDY' | 'DMY' | 'YMD')` reads a bank's and refuses what is ambiguous.
+  A line you can't read should go into `warnings`, not the statement.
+- **Say how your files name their account**, with `account.key`:
+  - `'strong'` when it is an account number: the account is then found, or remembered, without asking;
+  - `'weak'` when it only suggests one (a column layout): the user is asked each time, with the last answer chosen;
+  - with no key, the file's name is used, weakly.
+- **Give `externalId`** when the format has the bank's own ids, so re-imports are recognised exactly. Without one,
+  lines are recognised by a fingerprint of their content. Set `stableIds: false` on the contribution if your source
+  changes its ids between downloads.
+- **Ask the user only through a dialog of your own** (`shell.dialogs`), and resolve `undefined` if they cancel: the file
+  is then skipped. `context.memory` keeps small values in the ledger between imports, such as a column layout.
+- **Don't read files or touch accounts.** `parse` gets the bytes (`file.bytes`, `file.text(encoding)`); a byte-order
+  mark wins over the encoding you ask for. Use `file.text('windows-1252')` rather than your own `TextDecoder`: Node's
+  reads windows-1252 as ISO-8859-1 and loses `€` and curly quotes, and `text()` doesn't. Throw
+  `ImportError('UNREADABLE', message)` for a file you can't read: the message is shown. `parse` has 30 seconds, and
+  files over 25 MB are refused before it is called.
+
+Other plugins can also import statements they already have (from a bank connection, say) through the `import.manager`
+service: `importStatements(statements, { label }, { interactive })`. They go through the same account resolution,
+duplicate checks and summary report.
 
 ## Styling and theming
 

@@ -10,6 +10,7 @@ import { IconRegistryProvider } from '../../tessera-ui/internal'
 import { createFederationViewLoader } from '../../shell/renderer/views/federationViewLoader'
 import { ShellThemeProvider } from '../../shell/renderer/theme/ShellThemeProvider'
 import { createFakeRemote } from '../helpers/fakeBridge'
+import { settle } from '../helpers/settle'
 
 const red: ThemeDescriptor = { id: 'p.red', label: 'Red', light: { primary: '#ff0000' }, dark: { primary: '#aa0000' } }
 const green: ThemeDescriptor = { id: 'p.green', label: 'Green', light: { primary: '#00ff00' } }
@@ -46,6 +47,7 @@ describe('a plugin view using @tessera/ui', () => {
     expect(screen.getByTestId('mode')).toHaveTextContent('dark')
     expect(screen.getByRole('button', { name: 'Press' })).toBeInTheDocument()
     expect(screen.getByText('Themed view')).toBeInTheDocument()
+    await settle()
   })
 
   it('follows a theme change without reloading the plugin', async () => {
@@ -86,5 +88,6 @@ describe('a plugin view using @tessera/ui', () => {
     const { container } = render(<ShellThemeProvider bridge={bridge} initial={snapshot(red, 'light')}><ThemedView /></ShellThemeProvider>)
 
     expect(container.querySelector('.MuiButton-root')).toBeInTheDocument()
+    await settle()
   })
 })

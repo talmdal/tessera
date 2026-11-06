@@ -46,7 +46,7 @@ const sharedUiRange = () => {
  * Plugins' published contracts (types and constants), which other plugins import. Each plugin bundles what it uses,
  * in both halves, since they hold no state. Resolved against the working directory, like the other aliases.
  */
-const API_PACKAGES = ['ledger-api', 'accounts-api']
+const API_PACKAGES = ['ledger-api', 'accounts-api', 'import-api']
 const API_PACKAGE_ALIASES = (): Record<string, string> => Object.fromEntries(
   API_PACKAGES.map(name => [`@tessera/${name}`, path.resolve(process.cwd(), 'packages', name, 'index.ts')]))
 
@@ -191,7 +191,38 @@ function checkExposes(srcDir: string, expose: unknown) {
   }
 }
 
+/**
+ * The oldest `@module-federation/vite` that builds more than two federated plugins in one process. Earlier versions
+ * write their virtual modules to `<plugin>/node_modules/__mf__virtual` and lose track of them from the third build on
+ * ("Rollup failed to resolve import …__mf__virtual/…hostAutoInit…"). There is no lockfile yet, so an old install can
+ * survive a `package.json` bump until `npm install` is run; this says so, rather than failing obscurely.
+ */
+const MIN_FEDERATION_VITE = [1, 16, 0] as const
+
+/** Why the installed `@module-federation/vite` version can't be used, or undefined when it can (or can't be read). */
+export function federationVersionProblem(version: string): string | undefined {
+  const parts = version.split(/[.-]/).slice(0, 3).map(Number)
+  if (parts.length < 3 || parts.some(Number.isNaN)) return undefined
+  for (let i = 0; i < 3; i++) {
+    if (parts[i] > MIN_FEDERATION_VITE[i]) return undefined
+    if (parts[i] < MIN_FEDERATION_VITE[i]) {
+      return `@module-federation/vite ${version} is installed; ${MIN_FEDERATION_VITE.join('.')} or later is ` +
+        'needed to build several federated plugins together. Run "npm install" to update it.'
+    }
+  }
+  return undefined
+}
+
+function checkFederationVersion() {
+  const file = path.resolve(process.cwd(), 'node_modules', '@module-federation', 'vite', 'package.json')
+  if (!fs.existsSync(file)) return
+  const { version } = JSON.parse(fs.readFileSync(file, 'utf8')) as { version?: unknown }
+  const problem = typeof version === 'string' ? federationVersionProblem(version) : undefined
+  if (problem) throw new Error(problem)
+}
+
 async function buildRenderer(srcDir: string, id: string, entryOut: string, expose: Record<string, string>) {
+  checkFederationVersion()
   const { federation } = await import('@module-federation/vite')
 
   const stub = '\0tessera-stub-entry'

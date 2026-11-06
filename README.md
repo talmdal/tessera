@@ -51,6 +51,25 @@ platform.
   add ways to reconcile through `accounts.reconcile.actions`
   ([how](docs/plugin-creation.md#adding-a-way-to-reconcile)).
 
+- **Importing statements** (the `import` plugin, with `import-ofx`): *File › Import…*
+  imports bank and card statements into their accounts:
+  - OFX and QFX files, from Microsoft Money or Quicken downloads;
+  - the account is found by a remembered match or its number, or the user picks it,
+    or creates it from the statement;
+  - the same bank line is never added twice, even across overlapping files;
+  - lines the user already entered are matched to them, fuzzily, by date, amount
+    and payee, and proposed for review. The register shows the bank's version
+    under each row, with **Accept** and **Change…**; the Change Match dialog moves
+    a line to another transaction, unmatches it or leaves it out. The rest is
+    added as new, and acknowledged the same way;
+  - how the bank writes a payee is learnt from the user's choices, for matching
+    and for new lines.
+
+  Other file types are plugins of their own
+  ([how](docs/plugin-creation.md#adding-an-import-format),
+  [design](docs/import-manager-design.md)). There are sample statements to try in
+  [samples/statements](samples/statements/).
+
 - **Plugin runtime:** discovers plugins on disk, validates their manifests,
   orders activation by service dependencies, isolates failures (a broken
   plugin is logged and skipped), and disposes what the plugin context tracks
@@ -238,15 +257,18 @@ tests/                Vitest suites, mirroring the source folders, plus
 docs/                 Plugin guide, design notes and open-work list
 packages/             Libraries plugins bundle: storage-kit (the shared half
                       of every storage backend), and the Finance plugins'
-                      published contracts, ledger-api and accounts-api
+                      published contracts, ledger-api, accounts-api and
+                      import-api
 plugins/              Source of bundled (built-in) plugins, one folder each:
                       accounts (accounts and the navigator), app-state
                       (application state), ledger (ledger files
-                      and sub-ledgers), storage-sqlite (the default
+                      and sub-ledgers), import (File › Import…) and
+                      import-ofx (OFX and QFX statements), storage-sqlite (the default
                       storage engine), storage-loki (LokiJS storage
                       engine) and test-layout (exercises every layout
                       slot)
 modules/              Build output of plugins/ (gitignored); loaded at startup
+samples/statements/   Sample bank statements to import by hand, with walkthroughs (importing, matching)
 ```
 
 ## Documentation
@@ -259,6 +281,11 @@ modules/              Build output of plugins/ (gitignored); loaded at startup
   of the first Finance feature: ledgers and sub-ledgers, accounts,
   transactions, the register and reconciliation; with its
   [implementation outline](docs/account-manager-implementation.md)
+- [docs/import-manager-design.md](docs/import-manager-design.md): the design
+  and implementation plan for importing statements (phases 0 to 2 done): the
+  `import.formats` extension point for file-format plugins, choosing the
+  account (and remembering it), fuzzy matching against entered transactions,
+  and accepting or changing matches in the register
 - [docs/vault-design.md](docs/vault-design.md): the earlier proposal for
   pluggable storage, importers and file handling; its session half is
   superseded by the account manager design

@@ -1,0 +1,18 @@
+{
+  "about": "Pairs that look alike but aren't the same transaction, and must not be proposed",
+  "currency": "CAD",
+  "register": [
+    { "id": "groceries", "date": "2026-10-04", "amount": "-52.10", "payee": "Loblaws" },
+    { "id": "keg", "date": "2026-10-03", "amount": "-50.00", "payee": "The Keg" },
+    { "id": "gym", "date": "2026-09-01", "amount": "-45.00", "payee": "GoodLife Fitness" },
+    { "id": "books", "date": "2026-10-12", "amount": "-30.00", "payee": "Indigo" },
+    { "id": "hardware", "date": "2026-10-15", "amount": "-61.00", "payee": "Home Depot" }
+  ],
+  "statement": [
+    { "date": "2026-10-05", "amount": "-51.30", "payee": "SHOPPERS DRUG MART #1234", "expect": null },
+    { "date": "2026-10-03", "amount": "-57.50", "payee": "SOBEYS #773", "expect": null },
+    { "date": "2026-10-01", "amount": "-45.00", "payee": "GOODLIFE CLUBS", "expect": null },
+    { "date": "2026-10-13", "amount": "-42.00", "payee": "INDIGO #981", "expect": null },
+    { "date": "2026-10-16", "amount": "-61.00", "payee": "HOME DEPOT #7012", "expect": "hardware" }
+  ]
+}

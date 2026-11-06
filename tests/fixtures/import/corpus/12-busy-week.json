@@ -1,0 +1,23 @@
+{
+  "about": "A real-looking week: typing slips, a user who entered some things and not others, and a pending cheque",
+  "currency": "CAD",
+  "register": [
+    { "id": "costco", "date": "2026-10-05", "amount": "-84.21", "payee": "Costco" },
+    { "id": "hydro", "date": "2026-10-07", "amount": "-80.00", "payee": "Hydro One" },
+    { "id": "bell", "date": "2026-10-16", "amount": "-65.00", "payee": "Bell" },
+    { "id": "pay1", "date": "2026-10-04", "amount": "3000.00", "payee": "Northern Lights" },
+    { "id": "pay2", "date": "2026-10-18", "amount": "3000.00", "payee": "Northern Lights" },
+    { "id": "pending", "date": "2026-10-30", "number": "110", "amount": "-95.00", "payee": "Piano Lessons" },
+    { "id": "lunch", "date": "2026-10-09", "amount": "-14.50", "payee": "Subway" }
+  ],
+  "statement": [
+    { "date": "2026-10-06", "amount": "-84.12", "payee": "POS PURCHASE COSTCO WHSE #0123", "expect": "costco" },
+    { "date": "2026-10-07", "amount": "-80.00", "payee": "HYDRO ONE NETWORKS", "expect": "hydro" },
+    { "date": "2026-10-16", "amount": "-65.00", "payee": "BELL CANADA", "expect": "bell" },
+    { "date": "2026-10-04", "amount": "3000.00", "payee": "NORTHERN LIGHTS INC PAYROLL", "expect": "pay1" },
+    { "date": "2026-10-18", "amount": "3000.00", "payee": "NORTHERN LIGHTS INC PAYROLL", "expect": "pay2" },
+    { "date": "2026-10-12", "amount": "-6.45", "payee": "CAFE DEPOT #204", "expect": null },
+    { "date": "2026-10-15", "amount": "-142.87", "payee": "LOBLAWS #1001", "expect": null },
+    { "date": "2026-10-09", "amount": "-15.40", "payee": "SUBWAY 33021", "expect": "lunch" }
+  ]
+}

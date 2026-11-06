@@ -91,7 +91,8 @@ describe('architecture boundaries', () => {
   it('the plugin API packages are platform-free contracts: @tessera/types and each other only', () => {
     const allowed: Record<string, string[]> = {
       'ledger-api': ['@tessera/types'],
-      'accounts-api': ['@tessera/types', '@tessera/ledger-api']
+      'accounts-api': ['@tessera/types', '@tessera/ledger-api'],
+      'import-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api']
     }
     const found = Object.entries(allowed).flatMap(([name, deps]) => violations(`packages/${name}`, spec => {
       const normal = spec.split(path.sep).join('/')

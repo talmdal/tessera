@@ -12,6 +12,8 @@ export type AccountsErrorCode =
   | 'INVALID'
   /** An account with this name exists, ignoring case. */
   | 'DUPLICATE_NAME'
+  /** A transaction in this account already carries this bank line's `externalId`: the line was imported before. */
+  | 'DUPLICATE_EXTERNAL_ID'
   /** The account is closed, so it is read-only. */
   | 'ACCOUNT_CLOSED'
   /** A transfer between accounts in different currencies (transactions, later). */

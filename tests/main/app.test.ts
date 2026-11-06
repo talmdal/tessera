@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, onTestFinished } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -144,7 +144,10 @@ import * as electron from 'electron'
 // -----------------------------
 // 3. Tests
 // -----------------------------
-describe('main process (dynamic plugin system)', () => {
+// These tests share one app, started once for the file, so they run in the order written even when tests are shuffled:
+// the window's start-up sequence (hidden until page and renderer are ready) can only be seen before another test has
+// signalled that the renderer is ready. Tests that change the app's settings put them back (see the theme command test).
+describe('main process (dynamic plugin system)', { shuffle: false }, () => {
   it('binds a single invoke channel', async () => {
     await electron.app.whenReady()
     expect(vi.mocked(electron.ipcMain.handle).mock.calls.map(c => c[0])).toEqual(['tessera:invoke'])
@@ -217,6 +220,9 @@ describe('main process (dynamic plugin system)', () => {
   })
 
   it('runs a theme command from the renderer, switches the native theme and publishes the new theme', async () => {
+    // Every test in this file shares one app: put the theme back afterwards, even if this test fails, so no other test
+    // depends on running before this one
+    onTestFinished(() => (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:commands.execute', data: { id: 'shell.theme.useSystem' } }))
     await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
     const [window] = electron.BrowserWindow.getAllWindows() as any[]
     const before = window.webContents.send.mock.calls.length

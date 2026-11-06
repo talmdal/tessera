@@ -189,10 +189,11 @@ describe('the account dialog', () => {
     await userEvent.type(field('Institution'), 'TD')
     await userEvent.click(screen.getByRole('button', { name: 'Create' }))
 
+    // The dialog closes once the plugin has saved the account
+    await waitFor(() => expect(close).toHaveBeenCalledWith({ id: 'new' }))
     expect(calls(ACCOUNTS_CHANNELS.saveAccount)).toEqual([{ input: expect.objectContaining({
       name: 'Everyday', type: 'chequing', subLedgerId: 'p', currency: 'CAD', openingBalance: 123456, institution: 'TD'
     }) }])
-    expect(close).toHaveBeenCalledWith({ id: 'new' })
   })
 
   it('asks for the amount owed on a credit card, stores it negative, and takes a credit limit', () => {
@@ -218,10 +219,10 @@ describe('the account dialog', () => {
     expect(field('Credit limit')).toHaveValue('5000.00')
     await userEvent.clear(field('Notes'))
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(close).toHaveBeenCalledWith({ id: 'v' }))
     const [request] = calls(ACCOUNTS_CHANNELS.saveAccount) as any[]
     expect(request).toMatchObject({ id: 'v', expectedRev: 7, input: { openingBalance: -54000, creditLimit: 500000 } })
     expect(request.input).not.toHaveProperty('notes')
-    expect(close).toHaveBeenCalledWith({ id: 'v' })
   })
 
   it('shows problems on their fields, before sending and after', async () => {
@@ -254,8 +255,9 @@ describe('the move dialog', () => {
     expect(screen.getAllByRole('option').map(o => o.textContent)).toEqual(['Home', 'A', 'B', 'X'])
     await userEvent.click(screen.getByRole('option', { name: 'B' }))
     await userEvent.click(screen.getByRole('button', { name: 'Move' }))
+    // The dialog closes once the plugin has moved it
+    await waitFor(() => expect(close).toHaveBeenCalledWith({ to: 'b' }))
     expect(b.calls(ACCOUNTS_CHANNELS.move)).toEqual([{ kind: 'account', id: 'c', to: 'b' }])
-    expect(close).toHaveBeenCalledWith({ to: 'b' })
   })
 
   it('never offers a sub-ledger a place inside itself, and shows why a move failed', async () => {

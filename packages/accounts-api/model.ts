@@ -126,7 +126,10 @@ export interface Transaction {
   voided: boolean
   /** Reserved (later): split lines, summing to `amount`. */
   splits?: Split[]
-  /** Reserved for import: the bank's id for this transaction (OFX FITID). */
+  /**
+   * The import's identity for the bank line this transaction is: the bank's own id (OFX FITID), or an importer's
+   * fingerprint ('fp:…') when the file has none. Unique in the account, so a line can't be imported twice. Never shown.
+   */
   externalId?: string
   createdAt: string
   updatedAt: string

@@ -4,8 +4,8 @@
 
 export const ICON_NAMES = [
   'Add', 'AccountBalance', 'Block', 'CalendarToday', 'Check', 'ChevronLeft', 'ChevronRight', 'Circle', 'Close',
-  'CreditCard', 'Delete', 'Edit', 'Error', 'ExpandLess', 'ExpandMore', 'Folder', 'Home', 'Info', 'List', 'MoreVert',
-  'Save', 'Savings', 'Search', 'ShowChart', 'Warning'
+  'CompareArrows', 'CreditCard', 'Delete', 'Edit', 'Error', 'ExpandLess', 'ExpandMore', 'Folder', 'Home', 'Info', 'List',
+  'MoreVert', 'NewReleases', 'Save', 'Savings', 'Search', 'ShowChart', 'Undo', 'UploadFile', 'Warning'
 ] as const
 
 export type IconName = typeof ICON_NAMES[number]

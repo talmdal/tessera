@@ -2,7 +2,8 @@
 // dialogs and the reconciliation extension point.
 import { channelFor } from '@tessera/types'
 import type { Confirmation } from './errors'
-import type { Account, AccountType, Category, Chart, ClearingStatus } from './model'
+import type { RegisterAnnotations } from './annotations'
+import type { Account, AccountType, Category, Chart, ClearingStatus, RegisterSnapshot } from './model'
 import type { StatementFigures } from './reconciliation'
 import type { AccountInput } from './service'
 import type { TransactionDraft, TransactionPatch } from './transactions'
@@ -45,7 +46,12 @@ export const ACCOUNTS_COMMANDS = {
   /** Argument (optional): `ReconcileActionArgs`; else the register's account. Reconciles against a statement. */
   reconcileStatement: 'accounts.reconcile.statement',
   /** Argument (optional): `{ id }` of an account, else the selected account. Shows that account's register. */
-  showRegister: 'accounts.register.show'
+  showRegister: 'accounts.register.show',
+  /**
+   * Argument: `{ id }` of an account. Shows that account's register and selects it, whatever was selected: for other
+   * plugins (an import's summary, a report). `showRegister` is the menu's, and needs an account selected.
+   */
+  openRegister: 'accounts.register.open'
 } as const
 
 /**
@@ -98,6 +104,7 @@ export const ACCOUNTS_CHANNELS = {
   saveAccount: channel('account.save'),
   /** `MoveRequest` → `AccountsResult<void>`. */
   move: channel('move'),
+  /** `{ accountId }` → `RegisterView`, or null when the account (or the ledger) is gone. */
   loadRegister: channel('register.load'),
   saveTransaction: channel('transaction.save'),
   deleteTransactions: channel('transaction.delete'),
@@ -140,8 +147,13 @@ export const ACCOUNTS_EVENTS = {
   /** `{}`: New Transaction from the menu; the register focuses its entry row. */
   newTransaction: channel('transaction.new'),
   /** `Category[]`: categories were added. */
-  categories: channel('categories.changed')
+  categories: channel('categories.changed'),
+  /** `{ accounts: string[] }`: a plugin's marks on these registers changed; reload them. */
+  annotations: channel('annotations.changed')
 } as const
+
+/** What the register view loads: the snapshot, with every plugin's marks on its rows already merged. */
+export type RegisterView = RegisterSnapshot & { annotations: RegisterAnnotations }
 
 export const ACCOUNTS_VIEWS = {
   navigator: 'accounts.navigator',
@@ -250,7 +262,16 @@ export type AccountDialogInput = {
   ledgerName: string
   /** Suggested for a new account: the currency most accounts in the ledger use. */
   defaultCurrency: string
-} & ({ mode: 'create', subLedgerId: string | null } | { mode: 'edit', account: Account })
+} & ({
+  mode: 'create'
+  subLedgerId: string | null
+  /**
+   * What the form starts with, instead of the blanks: an importer's account from a statement, say. Everything stays
+   * editable, and is checked as if typed. A liability's `openingBalance` is signed as stored (owed is negative), and
+   * shown as the amount owed.
+   */
+  initial?: Partial<AccountInput>
+} | { mode: 'edit', account: Account })
 
 /** The move dialog: what moves, and the sub-ledgers it can move to. */
 export interface MoveDialogInput {

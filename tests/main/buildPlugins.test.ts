@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PluginManager } from '../../core/plugins/PluginManager'
-import { buildPlugins } from '../../scripts/build-plugins.mts'
+import { buildPlugins, federationVersionProblem } from '../../scripts/build-plugins.mts'
 import { FsPluginSource } from '../../shell/main/plugins/FsPluginSource'
 import { writeFakePlugin } from '../helpers/fakePlugin'
 import { createLogger, createRuntime } from '../helpers/runtime'
@@ -72,8 +72,10 @@ describe('building bundled plugins', { timeout: 60_000 }, () => {
       fs.writeFileSync(path.join(plugin, 'src/privileged/index.ts'), `
         import type { PluginContext } from '@tessera/types'
         import { LEDGER_SESSION_SERVICE } from '@tessera/ledger-api'
+        import { IMPORT_FORMATS_POINT, canonicalDecimal } from '@tessera/import-api'
         export function activate(context: PluginContext) {
           context.ipc.register('sample-builtin:hello', async () => LEDGER_SESSION_SERVICE)
+          context.ipc.register('sample-builtin:format', async () => [IMPORT_FORMATS_POINT, canonicalDecimal('1,234.50')])
         }
       `)
       fs.writeFileSync(path.join(plugin, 'src/renderer/HelloView.tsx'), `
@@ -85,6 +87,7 @@ describe('building bundled plugins', { timeout: 60_000 }, () => {
     expect(result).toEqual({ id: 'sample-builtin', ok: true })
     const privileged = fs.readFileSync(path.join(out, 'sample-builtin', 'privileged/index.js'), 'utf8')
     expect(privileged).toContain('ledger.session')
+    expect(privileged).toContain('import.formats')
     expect(privileged).not.toMatch(/require\(["']@tessera\//)
     const assets = path.join(out, 'sample-builtin', 'renderer/assets')
     const view = fs.readdirSync(assets).find(f => f.startsWith('HelloView-'))!
@@ -179,6 +182,20 @@ describe('building bundled plugins', { timeout: 60_000 }, () => {
 
       expect(result).toMatchObject({ ok: false, error: expect.stringContaining('was not produced') })
     })
+  })
+
+  // Versions before 1.16.0 lose their virtual modules from the third federated build in a process on.
+  it('names an installed federation plugin too old to build several remotes, and asks for npm install', () => {
+    expect(federationVersionProblem('1.15.5')).toMatch(/1\.15\.5 is installed; 1\.16\.0 or later .*npm install/)
+    expect(federationVersionProblem('1.14.2')).toBeDefined()
+    expect(federationVersionProblem('0.99.0')).toBeDefined()
+    for (const ok of ['1.16.0', '1.23.0', '1.100.0', '2.0.0', '1.16.0-beta.1']) expect(federationVersionProblem(ok)).toBeUndefined()
+    expect(federationVersionProblem('not-a-version')).toBeUndefined()
+  })
+
+  it('accepts the installed federation plugin', () => {
+    const { version } = JSON.parse(fs.readFileSync(path.resolve('node_modules/@module-federation/vite/package.json'), 'utf8'))
+    expect(federationVersionProblem(version)).toBeUndefined()
   })
 })
 

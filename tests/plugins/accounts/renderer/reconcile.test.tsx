@@ -237,6 +237,8 @@ describe('the reconcile panel', () => {
     const { calls } = setup()
     await userEvent.click(await screen.findByRole('button', { name: 'Pause' }))
     expect(calls(ACCOUNTS_CHANNELS.reconcilePause)).toEqual([{ accountId: 'c' }])
+    // The panel's buttons are disabled while the pause is saved, for the user as for the test
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled())
 
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     const dialog = await screen.findByRole('dialog', { name: 'Cancel this reconciliation?' })
@@ -326,9 +328,16 @@ describe('the register while reconciling', () => {
   it('marks and unmarks by ticking, one at a time or a group at once', async () => {
     const { calls } = setup()
     await list()
-    await userEvent.click(within(line('h')).getByRole('checkbox'))
-    await userEvent.click(within(line('a')).getByRole('checkbox'))
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Mark every transaction up to the statement date' }))
+    // Each tick is saved before the next can be made: the boxes are disabled meanwhile, for the user as for the test
+    const group = () => screen.getByRole('checkbox', { name: 'Mark every transaction up to the statement date' })
+    const tick = async (box: () => HTMLElement) => {
+      await waitFor(() => expect(box()).toBeEnabled())
+      await userEvent.click(box())
+    }
+    await tick(() => within(line('h')).getByRole('checkbox'))
+    await tick(() => within(line('a')).getByRole('checkbox'))
+    await tick(group)
+    await waitFor(() => expect(group()).toBeEnabled())
     expect(calls(ACCOUNTS_CHANNELS.reconcileMark)).toEqual([
       { accountId: 'c', ids: ['h'], marked: true }, { accountId: 'c', ids: ['a'], marked: false }, { accountId: 'c', ids: ['h'], marked: true }
     ])

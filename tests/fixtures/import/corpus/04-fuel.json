@@ -1,0 +1,14 @@
+{
+  "about": "Fuel: the user writes down the pump's figure or a round number; the bank's station codes are noise",
+  "currency": "CAD",
+  "register": [
+    { "id": "shell", "date": "2026-10-20", "amount": "-48.00", "payee": "Shell" },
+    { "id": "petro", "date": "2026-10-27", "amount": "-60.00", "payee": "Petro-Canada" },
+    { "id": "esso", "date": "2026-11-02", "amount": "-55.10", "payee": "Esso" }
+  ],
+  "statement": [
+    { "date": "2026-10-20", "amount": "-48.20", "payee": "SHELL C12345 KANATA ON", "expect": "shell" },
+    { "date": "2026-10-28", "amount": "-57.31", "payee": "PETRO-CANADA 98765", "expect": "petro" },
+    { "date": "2026-11-03", "amount": "-55.10", "payee": "ESSO CIRCLE K 4411", "expect": "esso" }
+  ]
+}

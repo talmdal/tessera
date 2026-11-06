@@ -55,6 +55,9 @@ export const toCategory = ({ id, parentId, name, kind, rev }: Doc<StoredCategory
 
 export const invalid = (field: string, message: string) => new AccountsError('INVALID', message, field)
 
+/** The unique index on `[accountId, externalId]` in the transactions collection (see schema.ts). */
+export const TRANSACTIONS_EXTERNAL_ID_INDEX = 'uniqueExternalId'
+
 /** Storage and ledger errors that mean something to the user, as accounts errors; anything else as it was. */
 export function translate(err: unknown): unknown {
   if (isAccountsError(err)) return err
@@ -64,7 +67,14 @@ export function translate(err: unknown): unknown {
     return err
   }
   const code = (err as { code?: unknown } | null)?.code
-  if (code === 'UNIQUE_VIOLATION') return new AccountsError('DUPLICATE_NAME', 'There is already one with this name.', 'name')
+  if (code === 'UNIQUE_VIOLATION') {
+    // Writes check these first, with better messages; this catches what a check could miss. Storage names the index
+    // only in its message, and the transactions' one is about bank lines, not names.
+    if (String((err as Error).message).includes(`"${TRANSACTIONS_EXTERNAL_ID_INDEX}"`)) {
+      return new AccountsError('DUPLICATE_EXTERNAL_ID', 'That bank line is already in this account.', 'externalId')
+    }
+    return new AccountsError('DUPLICATE_NAME', 'There is already one with this name.', 'name')
+  }
   if (code === 'CONFLICT') return new AccountsError('CONFLICT', 'This was changed elsewhere. Try again.')
   if (code === 'READ_ONLY') return new AccountsError('READ_ONLY', 'This ledger is open read-only.')
   if (code === 'NOT_OPEN') return new AccountsError('NO_LEDGER', 'No ledger is open.')

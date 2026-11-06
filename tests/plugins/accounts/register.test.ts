@@ -344,3 +344,37 @@ describe('reconciling with a statement', () => {
     expect(await ask(ACCOUNTS_CHANNELS.reconcileActions, { accountId: 'gone', scope: 'account' })).toEqual([])
   })
 })
+
+describe("a bank line's id, through the register's channels", () => {
+  it('survives saving the whole row, and a view can neither set, change nor clear it: only importers can', async () => {
+    const { ask, accounts, chq } = await setup()
+    const imported = await accounts.transactions(chq.id).create({ date: '2026-10-06', amount: -8412, payee: 'Costco', externalId: 'FIT-1' })
+
+    // The register saves an edited row whole; a field it leaves out is cleared, but not the bank line's id
+    const saved = await ask(ACCOUNTS_CHANNELS.saveTransaction, { accountId: chq.id, id: imported.id, expectedRev: imported.rev, draft: { date: '2026-10-06', amount: -8412, payee: 'Costco', memo: 'Groceries' } })
+    expect(saved).toMatchObject({ ok: true, value: { memo: 'Groceries', externalId: 'FIT-1' } })
+
+    await ask(ACCOUNTS_CHANNELS.saveTransaction, { accountId: chq.id, id: imported.id, draft: { date: '2026-10-06', amount: -8412, externalId: null } })
+    await ask(ACCOUNTS_CHANNELS.patchTransaction, { accountId: chq.id, id: imported.id, patch: { externalId: 'FIT-2' } })
+    expect((await accounts.transactions(chq.id).get(imported.id))?.externalId).toBe('FIT-1')
+
+    const created = await ask(ACCOUNTS_CHANNELS.saveTransaction, { accountId: chq.id, draft: { date: '2026-10-07', amount: -100, externalId: 'FIT-3' } })
+    expect(created.ok).toBe(true)
+    expect(created.value.externalId).toBeUndefined()
+  })
+})
+
+describe('opening a register for another plugin', () => {
+  it("shows a given account's register whatever is selected, selecting it, and does nothing for one that's gone", async () => {
+    const { run, key, sav, runtime } = await setup()
+    expect(key(K.selectionKind)).not.toBe('account')                 // nothing selected: the menu's command is off…
+    expect(runtime.commands.isEnabled(C.showRegister)).toBe(false)
+    expect(runtime.commands.isEnabled(C.openRegister)).toBe(true)    // …but another plugin can still open a register
+
+    expect(await run(C.openRegister, { id: sav.id })).toBe(true)
+    expect(key(K.registerAccount)).toBe(sav.id)
+    expect([key(K.selectionKind), key(K.selectionId)]).toEqual(['account', sav.id])
+    expect(await run(C.openRegister, { id: 'gone' })).toBe(false)
+    expect(key(K.registerAccount)).toBe(sav.id)
+  })
+})

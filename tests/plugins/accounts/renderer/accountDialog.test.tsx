@@ -82,6 +82,69 @@ describe('the account dialog: minimum balance', () => {
   })
 })
 
+describe('the account dialog: starting from what an importer knows', () => {
+  const subLedgers = [{ id: 'p', parentId: null, name: 'Personal', order: 0, totals: {} }]
+  const textbox = (name: string) => screen.getByRole('textbox', { name })
+
+  it('starts with every field it is given, as they would be typed', () => {
+    showDialog({
+      ...base, subLedgers, mode: 'create', subLedgerId: null,
+      initial: {
+        name: 'TD Chequing 5678', type: 'savings', subLedgerId: 'p', currency: 'USD', institution: 'TD Canada Trust',
+        accountNumber: '5678', openingDate: '2026-09-30', openingBalance: 123456, minimumBalance: 50000,
+        showAvailableBalance: true, notes: 'From October.ofx'
+      }
+    })
+    expect(textbox('Name')).toHaveValue('TD Chequing 5678')
+    expect(screen.getByRole('combobox', { name: 'Type' })).toHaveTextContent('Savings')
+    expect(screen.getByRole('combobox', { name: 'In' })).toHaveTextContent('Personal')     // the one it was given
+    expect(screen.getByRole('combobox', { name: 'Currency' })).toHaveValue('USD')
+    expect(textbox('Institution')).toHaveValue('TD Canada Trust')
+    expect(textbox('Account number')).toHaveValue('5678')
+    expect(screen.getByLabelText('Opened')).toHaveValue('2026-09-30')
+    expect(textbox('Opening balance')).toHaveValue('1234.56')
+    expect(textbox('Minimum balance')).toHaveValue('500.00')
+    expect(screen.getByRole('checkbox', { name: 'Show the balance above the minimum' })).toBeChecked()
+    expect(textbox('Notes')).toHaveValue('From October.ofx')
+  })
+
+  it("shows a card's opening balance as the amount owed, and saves it back as owed", async () => {
+    const { calls, close } = showDialog({
+      ...base, mode: 'create', subLedgerId: null,
+      initial: { name: 'Visa', type: 'creditCard', currency: 'CAD', openingDate: '2026-09-30', openingBalance: -54000, creditLimit: 500000 }
+    })
+    expect(textbox('Amount owed')).toHaveValue('540.00')
+    expect(textbox('Credit limit')).toHaveValue('5000.00')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(close).toHaveBeenCalledWith({ id: 'new' }))
+    expect(calls(ACCOUNTS_CHANNELS.saveAccount)).toEqual([{ input: expect.objectContaining({ name: 'Visa', type: 'creditCard', openingBalance: -54000, creditLimit: 500000 }) }])
+  })
+
+  it('keeps the blanks for what it is not given, and the sub-ledger it was opened in', () => {
+    showDialog({ ...base, subLedgers, mode: 'create', subLedgerId: 'p', initial: { accountNumber: '9012' } })
+    expect(textbox('Name')).toHaveValue('')
+    expect(screen.getByRole('combobox', { name: 'Type' })).toHaveTextContent('Chequing')
+    expect(screen.getByRole('combobox', { name: 'In' })).toHaveTextContent('Personal')
+    expect(screen.getByRole('combobox', { name: 'Currency' })).toHaveValue('CAD')
+    expect(textbox('Opening balance')).toHaveValue('0.00')
+    expect(textbox('Account number')).toHaveValue('9012')
+  })
+
+  it('checks what it was given as if typed: a bad value is shown, and nothing is sent', async () => {
+    const { calls, close } = showDialog({
+      ...base, mode: 'create', subLedgerId: null,
+      initial: { name: '   ', type: 'chequing', currency: 'XX', openingDate: '2026-09-30', openingBalance: 1000 }
+    })
+    expect(textbox('Opening balance')).toHaveValue('1000')        // a currency it can't use: shown as given, not a crash
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }))
+    expect(await screen.findByText('Enter a name.')).toBeInTheDocument()
+    expect(screen.getByText('Choose a currency, like CAD.')).toBeInTheDocument()
+    expect(calls(ACCOUNTS_CHANNELS.saveAccount)).toEqual([])
+    expect(close).not.toHaveBeenCalled()
+  })
+})
+
 describe('the navigator, with registers and minimum balances', () => {
   const account = (over: Partial<Account>): Account => ({ id: 'a', rev: 1, name: 'A', type: 'savings', subLedgerId: null, currency: 'CAD', openingDate: '2026-01-01', openingBalance: 0, order: 0, closed: false, ...over })
   const chart: Chart = {

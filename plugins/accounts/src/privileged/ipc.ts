@@ -4,10 +4,11 @@ import type { LedgerSession } from '@tessera/ledger-api'
 import { isLedgerError } from '@tessera/ledger-api'
 import {
   ACCOUNTS_CHANNELS, ACCOUNTS_EVENTS, AccountsError, CLEARING_STATUSES, isAccountsError, toAccountsResult,
-  type AccountPatch, type Category, type Chart, type ClearingStatus, type MoveRequest, type RegisterSnapshot,
+  type AccountPatch, type Category, type Chart, type ClearingStatus, type MoveRequest, type RegisterView,
   type AccountsChange, type PatchTransactionRequest, type ReconcileRequest, type ReconcileState, type ResolvedReconcileAction,
   type SaveAccountRequest, type SaveTransactionRequest, type Selection, type TransactionPatch, type TransactionsRequest
 } from '@tessera/accounts-api'
+import type { RegisterAnnotationsReader } from './annotations'
 import type { ReconcileActions } from './reconcileActions'
 import type { AccountsServiceImpl } from './AccountsServiceImpl'
 import type { RegisterState } from './register'
@@ -73,7 +74,8 @@ export function registerIpc(
   session: LedgerSession,
   selection: SelectionState,
   register: RegisterState,
-  actions: ReconcileActions
+  actions: ReconcileActions,
+  annotations: RegisterAnnotationsReader
 ): Disposable[] {
   return [
     context.ipc.register(ACCOUNTS_CHANNELS.chart, () => chartOrNull(service, session)),
@@ -120,10 +122,12 @@ export function registerIpc(
 
     context.ipc.register(ACCOUNTS_CHANNELS.registerAccount, () => ({ accountId: register.get() ?? null })),
 
-    context.ipc.register(ACCOUNTS_CHANNELS.loadRegister, async (msg: IpcMessage<{ accountId?: string }>): Promise<RegisterSnapshot | null> => {
+    context.ipc.register(ACCOUNTS_CHANNELS.loadRegister, async (msg: IpcMessage<{ accountId?: string }>): Promise<RegisterView | null> => {
       const accountId = msg.data?.accountId
-      if (!session.current || typeof accountId !== 'string') return null
-      return (await service.get(accountId)) ? service.transactions(accountId).register() : null
+      if (!session.current || typeof accountId !== 'string' || !(await service.get(accountId))) return null
+      const snapshot = await service.transactions(accountId).register()
+      // Other plugins' marks, for the rows it shows; reports asking the service for a register never see them
+      return { ...snapshot, annotations: await annotations.load(accountId, snapshot.rows.map(row => row.transaction.id)) }
     }),
 
     context.ipc.register(ACCOUNTS_CHANNELS.saveTransaction, async (msg: IpcMessage<SaveTransactionRequest>) => {
@@ -131,9 +135,10 @@ export function registerIpc(
       return toAccountsResult(async () => {
         const manager = service.transactions(accountIdOf(request))
         if (typeof request.draft !== 'object' || request.draft === null) throw new AccountsError('INVALID', 'Enter the transaction.', 'date')
-        if (typeof request.id !== 'string') return manager.create(request.draft)
+        // A bank line's id is the importer's, through the service: a view can neither set it nor clear it
+        const { externalId: _bankLine, ...draft } = request.draft
+        if (typeof request.id !== 'string') return manager.create(draft)
         // The whole row: an optional field it leaves out was emptied, so it is cleared
-        const { draft } = request
         const patch: TransactionPatch = {
           ...draft,
           number: draft.number ?? null, payee: draft.payee ?? null, memo: draft.memo ?? null,
@@ -165,7 +170,8 @@ export function registerIpc(
         if (typeof request?.id !== 'string' || typeof request.patch !== 'object' || request.patch === null) {
           throw new AccountsError('INVALID', 'Choose the transaction and what to change.', 'id')
         }
-        return service.transactions(accountIdOf(request)).update(request.id, request.patch, {
+        const { externalId: _bankLine, ...patch } = request.patch   // the importer's, as for transaction.save
+        return service.transactions(accountIdOf(request)).update(request.id, patch, {
           ...(typeof request.expectedRev === 'number' && { expectedRev: request.expectedRev }),
           ...(Array.isArray(request.confirm) && { confirm: request.confirm })
         })

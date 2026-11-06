@@ -8,6 +8,7 @@ import {
   isCurrencyCode, isIsoDate, todayIso, validateAccountName,
   type Account, type AccountBalances, type AccountFilter, type AccountInput, type AccountPatch, type AccountsChange,
   type AccountsService, type AccountSummary, type CategoryDirectory, type Chart, type ClearingStatus, type CurrencyTotals,
+  type BankMatch, type BankUnmatch,
   type PayeeDirectory, type ReconciliationService, type TransactionDraft, type TransactionManager, type TransactionPatch,
   type WriteOptions
 } from '@tessera/accounts-api'
@@ -392,7 +393,20 @@ export class AccountsServiceImpl implements AccountsService {
         await this.write(c => core.setVoided(c, accountId, ids, voided, options, this.now()), touchedChange)
       },
       balances: () => this.balances(accountId),
-      nextNumber: () => this.read(c => core.nextNumber(c, accountId))
+      nextNumber: () => this.read(c => core.nextNumber(c, accountId)),
+
+      // For importers. Nothing to create writes nothing and announces nothing, but still checks the account
+      createMany: (drafts: TransactionDraft[]) => Array.isArray(drafts) && drafts.length === 0
+        ? this.read(async c => { await core.openAccount(c, accountId); return [] })
+        : this.write(c => core.createTransactions(c, accountId, drafts, this.now()), result => touchedChange(result.touched))
+          .then(result => result.transactions),
+      findByExternalIds: (ids: string[]) => this.read(c => core.findByExternalIds(c, accountId, ids)),
+      match: (id: string, match: BankMatch, options: WriteOptions = {}) =>
+        this.write(c => core.matchTransaction(c, accountId, id, match, options, this.now()), result => touchedChange(result.touched))
+          .then(result => result.transaction),
+      unmatch: (id: string, unmatch: BankUnmatch, options: WriteOptions = {}) =>
+        this.write(c => core.unmatchTransaction(c, accountId, id, unmatch, options, this.now()), result => touchedChange(result.touched))
+          .then(({ transaction, added }) => added ? { transaction, added } : { transaction })
     }
   }
 

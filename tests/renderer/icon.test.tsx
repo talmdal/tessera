@@ -166,6 +166,8 @@ describe('Icon: registered icons', () => {
   it('is hidden from assistive technology unless given a title', async () => {
     setup()
     render(withRegistry(<><Icon name="p.bank" /><Icon name="p.bank" titleAccess="Bank" /></>))
+    // Checked on the loaded icon, which is what the user ends up with
+    await waitFor(() => expect(document.head.innerHTML).toContain('blob:icon-1'))
 
     const [plain, titled] = [...document.querySelectorAll('[data-icon="p.bank"]')]
     expect(plain.getAttribute('aria-hidden')).toBe('true')

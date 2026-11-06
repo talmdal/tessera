@@ -29,8 +29,9 @@ describe('the built ledger plugin', () => {
     const runtime = createPluginRuntime(userData, log)
     // The shell's services, as app.ts provides them before plugins activate
     runtime.services.provide('shell', SHELL_FILES_SERVICE, {
-      showOpenDialog: async () => undefined, showSaveDialog: async () => undefined,
-      exists: async (f: string) => fs.existsSync(f), trash: vi.fn(async () => {}), documentsPath: () => userData
+      showOpenDialog: async () => undefined, showOpenFilesDialog: async () => [], showSaveDialog: async () => undefined,
+      exists: async (f: string) => fs.existsSync(f), trash: vi.fn(async () => {}), documentsPath: () => userData,
+      downloadsPath: () => userData
     })
     runtime.services.provide('shell', SHELL_PROMPTS_SERVICE, { confirm: async () => true, message: async () => {}, prompt: async () => undefined, show: async () => undefined })
 

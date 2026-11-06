@@ -184,9 +184,10 @@ describe('the New Ledger dialog', () => {
     const { close, calls, setBusy } = setup({ tree: TREE, parentId: null })
     await userEvent.type(screen.getByRole('textbox', { name: 'Name' }), 'Cottage')
     await userEvent.click(screen.getByRole('button', { name: 'Create' }))
+    // The dialog closes once the plugin has answered; by then it is no longer busy
+    await waitFor(() => expect(close).toHaveBeenCalledWith({ kind: 'subLedger', id: 'n' }))
     expect(calls(LEDGER_CHANNELS.createSubLedger)).toEqual([{ name: 'Cottage', parentId: null }])
     expect(setBusy.mock.calls).toEqual([[true], [false]])
-    expect(close).toHaveBeenCalledWith({ kind: 'subLedger', id: 'n' })
   })
 
   it('shows a duplicate name on the name field and stays open', async () => {
@@ -229,8 +230,8 @@ describe('the rename dialog', () => {
     expect(field).toHaveValue('Personal')
     await userEvent.clear(field)
     await userEvent.type(field, 'Household{Enter}')
+    await waitFor(() => expect(close).toHaveBeenCalledWith({ id: 'p' }))
     expect(calls(LEDGER_CHANNELS.renameSubLedger)).toEqual([{ id: 'p', name: 'Household', expectedRev: 4 }])
-    expect(close).toHaveBeenCalledWith({ id: 'p' })
   })
 
   it('closes without a request when the name is unchanged', async () => {

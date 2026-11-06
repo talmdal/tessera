@@ -27,7 +27,11 @@ describe('the built accounts plugin', () => {
     const userData = createTempModulesDir()
     const log = createLogger()
     const shellServices = {
-      files: { showOpenDialog: async () => undefined, showSaveDialog: async () => undefined, exists: async (f: string) => fs.existsSync(f), trash: vi.fn(async () => {}), documentsPath: () => userData },
+      files: {
+        showOpenDialog: async () => undefined, showOpenFilesDialog: async () => [], showSaveDialog: async () => undefined,
+        exists: async (f: string) => fs.existsSync(f), trash: vi.fn(async () => {}), documentsPath: () => userData,
+        downloadsPath: () => userData
+      },
       prompts: { confirm: async () => true, message: async () => {}, prompt: async () => undefined, show: async () => undefined }
     }
     const start = async () => {

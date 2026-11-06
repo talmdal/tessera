@@ -209,6 +209,17 @@ export function registerCommands(
       return true
     }, { enablement: ACCOUNT_OR_REGISTER }),
 
+    // For other plugins: a given account's register, whatever is selected; the account becomes the selection
+    context.commands.register(ACCOUNTS_COMMANDS.openRegister, async (args?: unknown) => {
+      const id = (args as ItemArgs | undefined)?.id
+      const account = typeof id === 'string' ? await service.get(id) : undefined
+      if (!account) return false
+      await selection.set({ kind: 'account', id: account.id }, { announce: true })
+      await register.show(account.id)
+      await reveal(ACCOUNTS_VIEWS.register)
+      return true
+    }, { enablement: LEDGER_CONTEXT_KEYS.isOpen }),
+
     context.commands.register(ACCOUNTS_COMMANDS.reconcileStatement, async (args?: unknown) => {
       const accountId = (args as ReconcileActionArgs | undefined)?.accountId ?? register.get()
       const account = accountId === undefined ? undefined : await service.get(accountId)

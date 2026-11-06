@@ -82,6 +82,8 @@ export const MINIMUM_BALANCE_TYPES: readonly AccountType[] = ACCOUNT_TYPES.filte
 export const TRANSACTION_NUMBER_MAX_LENGTH = 20
 export const PAYEE_NAME_MAX_LENGTH = 100
 export const MEMO_MAX_LENGTH = 500
+/** A bank's id for a line (OFX FITIDs are at most 255 characters), or an importer's fingerprint. */
+export const EXTERNAL_ID_MAX_LENGTH = 255
 export const CATEGORY_NAME_MAX_LENGTH = 60
 
 /** Separates a parent category from its child in labels and paths: "Food : Groceries". */

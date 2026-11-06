@@ -1,0 +1,16 @@
+{
+  "about": "Cheques clear weeks after they are written; the number ties them together, even when the bank names nobody",
+  "currency": "CAD",
+  "register": [
+    { "id": "rent", "date": "2026-09-28", "number": "101", "amount": "-1200.00", "payee": "Landlord" },
+    { "id": "daycare", "date": "2026-09-05", "number": "102", "amount": "-650.00", "payee": "Little Sprouts Daycare" },
+    { "id": "plumber", "date": "2026-10-01", "number": "103", "amount": "-240.00", "payee": "Joe's Plumbing" },
+    { "id": "uncashed", "date": "2026-10-20", "number": "104", "amount": "-75.00", "payee": "Soccer Club" }
+  ],
+  "statement": [
+    { "date": "2026-10-02", "number": "101", "amount": "-1200.00", "payee": "CHEQUE 101", "expect": "rent" },
+    { "date": "2026-10-21", "number": "102", "amount": "-650.00", "payee": "CHQ#000102", "expect": "daycare" },
+    { "date": "2026-10-15", "number": "0103", "amount": "-240.00", "expect": "plumber" },
+    { "date": "2026-10-24", "number": "105", "amount": "-310.00", "payee": "CHEQUE 105", "expect": null }
+  ]
+}
