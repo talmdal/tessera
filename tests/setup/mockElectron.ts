@@ -61,7 +61,12 @@ vi.mock('electron', () => {
       webContents: {
         openDevTools: vi.fn()
       }
-    } }), { getAllWindows: () => [], fromWebContents: () => ({ id: 1 }) }),
+    } }), {
+      getAllWindows: () => [],
+      fromWebContents: () => ({ id: 1 }),
+      getFocusedWindow: vi.fn(() => null),
+      fromId: vi.fn(() => null)
+    }),
 
     // -----------------------------
     // Menu / dialog mocks
@@ -79,8 +84,12 @@ vi.mock('electron', () => {
     nativeTheme: { themeSource: 'system', shouldUseDarkColors: false, on: vi.fn(), removeListener: vi.fn() },
 
     dialog: {
-      showMessageBox: vi.fn(async () => ({ response: 0 }))
+      showMessageBox: vi.fn(async () => ({ response: 0 })),
+      showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })),
+      showSaveDialog: vi.fn(async () => ({ canceled: true }))
     },
+
+    shell: { trashItem: vi.fn(async () => {}) },
 
     powerMonitor: { on: vi.fn() },
 

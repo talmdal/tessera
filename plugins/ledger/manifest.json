@@ -1,0 +1,19 @@
+{
+  "id": "ledger",
+  "name": "Ledger",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./StartView": "src/renderer/StartView.tsx",
+      "./LedgerTree": "src/renderer/LedgerTree.tsx",
+      "./NewLedgerDialog": "src/renderer/NewLedgerDialog.tsx",
+      "./RenameDialog": "src/renderer/RenameDialog.tsx"
+    }
+  },
+  "services": {
+    "requires": ["storage.engine", "app.state", "shell.files", "shell.prompts"],
+    "provides": ["ledger.session"]
+  }
+}

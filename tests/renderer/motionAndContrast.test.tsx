@@ -7,6 +7,7 @@ import { createShellTheme } from '../../shell/renderer/theme/createShellTheme'
 import { ShellThemeProvider } from '../../shell/renderer/theme/ShellThemeProvider'
 import { Splitter } from '../../shell/renderer/layout/Splitter'
 import { createFakeRemote } from '../helpers/fakeBridge'
+import { settle } from '../helpers/settle'
 
 const snapshot = () => ({
   state: { windowId: 1, global: { theme: DEFAULT_THEME.id, mode: 'system' as const }, theme: DEFAULT_THEME.id, mode: 'light' as const },
@@ -70,28 +71,30 @@ describe('ShellThemeProvider: reduced motion', () => {
     const theme = useTheme()
     return <span data-testid="t">{theme.transitions.create('opacity')}</span>
   }
-  const renderProvider = () => {
+  /** The provider, with its load of the current theme finished: these tests are about motion, not loading. */
+  const renderProvider = async () => {
     const { bridge } = createFakeRemote({ [THEME_GET]: () => snapshot() })
-    return render(<ShellThemeProvider bridge={bridge} initial={snapshot()}><Probe /></ShellThemeProvider>)
+    render(<ShellThemeProvider bridge={bridge} initial={snapshot()}><Probe /></ShellThemeProvider>)
+    await settle()
   }
 
-  it('is not reduced where the system says nothing, such as a browser without matchMedia', () => {
-    renderProvider()
+  it('is not reduced where the system says nothing, such as a browser without matchMedia', async () => {
+    await renderProvider()
 
     expect(screen.getByTestId('t').textContent).toMatch(/\d+ms/)
   })
 
-  it('has no transitions when the system asked for less motion', () => {
+  it('has no transitions when the system asked for less motion', async () => {
     fakeMatchMedia({ [REDUCE]: true })
 
-    renderProvider()
+    await renderProvider()
 
     expect(screen.getByTestId('t')).toHaveTextContent('none')
   })
 
-  it('follows the setting while the app runs, in both directions', () => {
+  it('follows the setting while the app runs, in both directions', async () => {
     const media = fakeMatchMedia({ [REDUCE]: false })
-    renderProvider()
+    await renderProvider()
     expect(screen.getByTestId('t').textContent).toMatch(/\d+ms/)
 
     media.set(REDUCE, true)

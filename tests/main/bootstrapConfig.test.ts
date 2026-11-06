@@ -3,7 +3,8 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  BOOTSTRAP_FILE, bootstrapConfigPath, loadBootstrapConfig, saveBootstrapConfig, toPluginSelection
+  BOOTSTRAP_FILE, DEFAULT_PREFERRED_PLUGINS, bootstrapConfigPath, defaultBootstrapConfig, loadBootstrapConfig,
+  saveBootstrapConfig, toPluginSelection
 } from '../../shell/main/bootstrap/bootstrapConfig'
 import { createLogger } from '../helpers/runtime'
 import { createTempModulesDir } from '../helpers/tempModules'
@@ -70,7 +71,10 @@ describe('bootstrap configuration (tier 0)', () => {
     expect(loadBootstrapConfig(dir, createLogger())).toEqual({ disabledPlugins: ['x'], preferredPlugins: ['storage-sqlite'] })
   })
 
-  it('hands the plugin manager its selection', () => {
-    expect(toPluginSelection({ disabledPlugins: ['x'], preferredPlugins: ['y'] })).toEqual({ disabled: ['x'], preferred: ['y'] })
+  it('hands the plugin manager its selection, with SQLite as the default storage engine after the user\'s choices', () => {
+    expect(toPluginSelection({ disabledPlugins: ['x'], preferredPlugins: ['y'] }))
+      .toEqual({ disabled: ['x'], preferred: ['y'], defaultPreferred: ['storage-sqlite'] })
+    expect(toPluginSelection(defaultBootstrapConfig()).defaultPreferred).toEqual(DEFAULT_PREFERRED_PLUGINS)
+    expect(DEFAULT_PREFERRED_PLUGINS).toEqual(['storage-sqlite'])
   })
 })

@@ -1,0 +1,17 @@
+{
+  "about": "Two coffees and three parking meters on one day: each line takes its own entry, in order",
+  "currency": "CAD",
+  "register": [
+    { "id": "coffee1", "date": "2026-10-29", "amount": "-4.75", "payee": "Tim Hortons" },
+    { "id": "coffee2", "date": "2026-10-29", "amount": "-4.75", "payee": "Tim Hortons" },
+    { "id": "park1", "date": "2026-10-30", "amount": "-3.00", "payee": "City Parking" },
+    { "id": "park2", "date": "2026-10-30", "amount": "-3.00", "payee": "City Parking" }
+  ],
+  "statement": [
+    { "date": "2026-10-29", "amount": "-4.75", "payee": "TIM HORTONS #4021", "expect": "coffee1" },
+    { "date": "2026-10-29", "amount": "-4.75", "payee": "TIM HORTONS #4021", "expect": "coffee2" },
+    { "date": "2026-10-30", "amount": "-3.00", "payee": "CITY OF OTTAWA PARKING", "expect": "park1" },
+    { "date": "2026-10-30", "amount": "-3.00", "payee": "CITY OF OTTAWA PARKING", "expect": "park2" },
+    { "date": "2026-10-30", "amount": "-3.00", "payee": "CITY OF OTTAWA PARKING", "expect": null }
+  ]
+}

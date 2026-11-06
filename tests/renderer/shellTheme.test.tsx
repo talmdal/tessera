@@ -8,6 +8,7 @@ import { FONT_STACK, createShellTheme } from '../../shell/renderer/theme/createS
 import { ShellThemeProvider, useWindowTheme } from '../../shell/renderer/theme/ShellThemeProvider'
 import { midnight, sunrise } from '../helpers/theme'
 import { createFakeRemote } from '../helpers/fakeBridge'
+import { settle } from '../helpers/settle'
 
 const snapshot = (over: Partial<ThemeSnapshot['state']> = {}, themes: ThemeDescriptor[] = [DEFAULT_THEME]): ThemeSnapshot => ({
   state: { windowId: 1, global: { theme: DEFAULT_THEME.id, mode: 'system' }, theme: DEFAULT_THEME.id, mode: 'light', ...over },
@@ -79,7 +80,7 @@ describe('createShellTheme', () => {
 })
 
 describe('ShellThemeProvider', () => {
-  it('themes its children on the very first render when it is given the initial theme', () => {
+  it('themes its children on the very first render when it is given the initial theme', async () => {
     const { bridge } = createFakeRemote({ [THEME_GET]: () => snapshot() })
 
     render(<ShellThemeProvider bridge={bridge} initial={snapshot({ mode: 'dark' })}><Probe /></ShellThemeProvider>)
@@ -87,6 +88,8 @@ describe('ShellThemeProvider', () => {
     // Synchronously: no waiting for a reply, so there is no frame in the wrong colours
     expect(screen.getByTestId('mode')).toHaveTextContent('dark')
     expect(screen.getByTestId('paper')).toHaveTextContent('#1e1e1e')
+    // The provider still fetches the current theme; let that finish here (these tests check the first render)
+    await settle()
   })
 
   it('draws nothing until the first answer when it has no initial theme, then themes its children', async () => {
@@ -100,13 +103,14 @@ describe('ShellThemeProvider', () => {
     expect(screen.getByTestId('mode')).toHaveTextContent('dark')
   })
 
-  it('exposes the window state to its children', () => {
+  it('exposes the window state to its children', async () => {
     const { bridge } = createFakeRemote({ [THEME_GET]: () => snapshot() })
 
     render(<ShellThemeProvider bridge={bridge} initial={snapshot({ windowId: 6, theme: 'p.sunrise', mode: 'dark' }, [DEFAULT_THEME, sunrise()])}><Probe /></ShellThemeProvider>)
 
     expect(screen.getByTestId('state')).toHaveTextContent('p.sunrise/dark/6')
     expect(screen.getByTestId('primary')).toHaveTextContent('#ffaa55')
+    await settle()
   })
 
   it('follows a change pushed by the main process, such as the OS switching to dark', async () => {
@@ -165,15 +169,16 @@ describe('ShellThemeProvider', () => {
     expect(new Set(seen).size).toBe(1)
   })
 
-  it('sets the page colours from the theme, as the baseline does', () => {
+  it('sets the page colours from the theme, as the baseline does', async () => {
     const { bridge } = createFakeRemote({ [THEME_GET]: () => snapshot() })
 
     render(<ShellThemeProvider bridge={bridge} initial={snapshot({ mode: 'dark' })}><Probe /></ShellThemeProvider>)
 
     expect(getComputedStyle(document.body).backgroundColor).toBe('rgb(18, 18, 18)')
+    await settle()
   })
 
-  it('gives plugins the theme and mode as data through @tessera/ui, and nothing that could change them', () => {
+  it('gives plugins the theme and mode as data through @tessera/ui, and nothing that could change them', async () => {
     const { bridge } = createFakeRemote({ [THEME_GET]: () => snapshot() })
     let seen: unknown
     const Plugin = () => { seen = usePublicThemeState(); return null }
@@ -181,6 +186,7 @@ describe('ShellThemeProvider', () => {
     render(<ShellThemeProvider bridge={bridge} initial={snapshot({ windowId: 6, theme: 'p.sunrise', mode: 'dark' }, [DEFAULT_THEME, sunrise()])}><Plugin /></ShellThemeProvider>)
 
     expect(seen).toEqual({ theme: 'p.sunrise', mode: 'dark' })
+    await settle()
   })
 
   it('keeps the same object for the plugin while the window shows the same theme and mode', async () => {

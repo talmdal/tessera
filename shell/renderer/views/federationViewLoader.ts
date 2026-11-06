@@ -6,7 +6,7 @@ import * as JsxRuntime from 'react/jsx-runtime'
 import type { ComponentType } from 'react'
 import * as TesseraUi from '@tessera/ui'
 import type { ViewDescriptor } from '../../../shared/views/types'
-import { ViewLoader } from './ports'
+import { RemoteModule, ViewLoader } from './ports'
 
 const singleton = (lib: object, version: string) => ({
   version,
@@ -40,7 +40,7 @@ export function createFederationViewLoader(federation: ModuleFederation = create
   const registered = new Map<string, string>()
 
   return {
-    async load(view: ViewDescriptor) {
+    async load(view: RemoteModule | ViewDescriptor) {
       const entry = registered.get(view.pluginId)
       if (entry !== view.remoteEntry) {
         federation.registerRemotes([{ name: view.pluginId, entry: view.remoteEntry, type: 'module' }], { force: entry !== undefined })
@@ -57,7 +57,7 @@ export function createFederationViewLoader(federation: ModuleFederation = create
   }
 }
 
-function isComponent(value: unknown): value is ComponentType {
+function isComponent(value: unknown): value is ComponentType<any> {
   // Function and class components, or memo/forwardRef/lazy wrappers.
   return typeof value === 'function' || (typeof value === 'object' && value !== null && '$$typeof' in value)
 }

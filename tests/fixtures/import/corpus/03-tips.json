@@ -1,0 +1,14 @@
+{
+  "about": "Restaurant bills entered before the tip: the amounts differ by 10 to 25%, and the payees agree",
+  "currency": "CAD",
+  "register": [
+    { "id": "keg", "date": "2026-10-03", "amount": "-50.00", "payee": "The Keg" },
+    { "id": "sushi", "date": "2026-10-10", "amount": "-64.00", "payee": "Sushi Shop" },
+    { "id": "pub", "date": "2026-10-17", "amount": "-38.50", "payee": "Royal Oak" }
+  ],
+  "statement": [
+    { "date": "2026-10-03", "amount": "-57.50", "payee": "THE KEG #12", "expect": "keg" },
+    { "date": "2026-10-11", "amount": "-75.52", "payee": "SUSHI SHOP 221", "expect": "sushi" },
+    { "date": "2026-10-18", "amount": "-44.28", "payee": "ROYAL OAK CENTREPOINTE", "expect": "pub" }
+  ]
+}

@@ -88,6 +88,21 @@ describe('architecture boundaries', () => {
     })).toEqual([])
   })
 
+  it('the plugin API packages are platform-free contracts: @tessera/types and each other only', () => {
+    const allowed: Record<string, string[]> = {
+      'ledger-api': ['@tessera/types'],
+      'accounts-api': ['@tessera/types', '@tessera/ledger-api'],
+      'import-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api']
+    }
+    const found = Object.entries(allowed).flatMap(([name, deps]) => violations(`packages/${name}`, spec => {
+      const normal = spec.split(path.sep).join('/')
+      if (PLATFORM.test(normal)) return true
+      if (REPO_DIRS.test(normal)) return !normal.startsWith(`packages/${name}/`)
+      return !deps.includes(normal)
+    }))
+    expect(found).toEqual([])
+  })
+
   it('renderer code takes its colours from the theme, never from literals that ignore dark mode', () => {
     const plugins = path.join(repo, 'plugins')
     const pluginRenderers = fs.readdirSync(plugins, { withFileTypes: true })

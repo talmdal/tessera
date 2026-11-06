@@ -9,6 +9,7 @@ import type { ViewDescriptor } from '../../shared/views/types'
 import App from '../../shell/renderer/App'
 import { ShellStateProvider } from '../../shell/renderer/state/ShellState'
 import { ViewsProvider } from '../../shell/renderer/views/ViewsProvider'
+import { settle } from './settle'
 
 export const view = (id: string, slot: string, extra: Partial<ViewDescriptor> = {}): ViewDescriptor =>
   ({ id, title: `Title ${id}`, slot, module: './V', pluginId: 'p', remoteEntry: 'x', ...extra })
@@ -42,7 +43,14 @@ export function fakeBridge(snapshot: LayoutState, items: BorderItemDescriptor[] 
       listeners.get(name)!.add(listener)
       return () => { listeners.get(name)!.delete(listener) }
     }),
-    emit: (name: string, data?: unknown) => act(() => { listeners.get(name)?.forEach(l => l(data)) })
+    /**
+     * Fires a push event, then waits inside act(...) for what it starts (a refetch of the bar items, say) to finish.
+     * The listeners run first, so an event still arrives before any reply already on its way.
+     */
+    emit: (name: string, data?: unknown) => act(async () => {
+      listeners.get(name)?.forEach(l => l(data))
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
   }
   return bridge
 }
@@ -69,7 +77,9 @@ export async function renderFrame(
   const bridge = fakeBridge(snapshot, extras.items, extras.keys)
   const load = vi.fn(async (v: ViewDescriptor) => components[v.id] ?? (() => <p>Content of {v.id}</p>))
   const utils = render(<Frame bridge={bridge} views={views} load={load} />)
-  await act(async () => {})
+  // The frame starts with a chain of requests (layout, views, their components, bar items, context keys): wait for all
+  // of it, not just the first round of replies
+  await settle()
   return { ...utils, bridge, load, loaded: () => load.mock.calls.map(([v]) => v.id) }
 }
 

@@ -1,0 +1,19 @@
+{
+  "id": "import",
+  "name": "Import",
+  "version": "0.2.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./FormatDialog": "src/renderer/FormatDialog.tsx",
+      "./AccountDialog": "src/renderer/AccountDialog.tsx",
+      "./SummaryDialog": "src/renderer/SummaryDialog.tsx",
+      "./MatchDialog": "src/renderer/MatchDialog.tsx"
+    }
+  },
+  "services": {
+    "requires": ["accounts.service", "ledger.session", "shell.files", "shell.prompts", "app.state"],
+    "provides": ["import.manager", "import.annotator", "import.migrator"]
+  }
+}

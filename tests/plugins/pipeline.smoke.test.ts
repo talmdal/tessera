@@ -5,6 +5,7 @@ import path from 'node:path'
 import { createPluginRuntime } from '../../core/plugins/PluginContext'
 import { PluginManager } from '../../core/plugins/PluginManager'
 import { buildPlugins } from '../../scripts/build-plugins.mts'
+import { defaultBootstrapConfig, toPluginSelection } from '../../shell/main/bootstrap/bootstrapConfig'
 import { FsPluginSource } from '../../shell/main/plugins/FsPluginSource'
 import { createLogger } from '../helpers/runtime'
 import { createTempModulesDir } from '../helpers/tempModules'
@@ -60,6 +61,22 @@ describe('storage plugins through the real build and plugin pipeline', () => {
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('"storage-sqlite"'))
     expect(fs.readdirSync(path.join(userData, 'storage'))).toEqual(['app.loki.json'])   // written on shutdown
     expect(fs.readFileSync(path.join(userData, 'storage', 'app.loki.json'), 'utf8')).toContain('"v":1')
+  })
+
+  it("uses SQLite by default: the shell's selection with no bootstrap file", async () => {
+    const { log, userData } = await run(toPluginSelection(defaultBootstrapConfig()), async ({ appState, provider }) => {
+      expect(provider).toBe('storage-sqlite')
+      await appState.set('k', { v: 3 })
+      expect(await appState.get('k')).toEqual({ v: 3 })
+    })
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('"storage-loki"'))
+    expect(fs.readdirSync(path.join(userData, 'storage'))).toContain('app.sqlite')
+  })
+
+  it('still uses LokiJS when the bootstrap file prefers it over the default', async () => {
+    const selection = toPluginSelection({ ...defaultBootstrapConfig(), preferredPlugins: ['storage-loki'] })
+    const { log } = await run(selection, async ({ provider }) => { expect(provider).toBe('storage-loki') })
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('"storage-sqlite"'))
   })
 
   it('uses SQLite when the bootstrap configuration prefers it', async () => {

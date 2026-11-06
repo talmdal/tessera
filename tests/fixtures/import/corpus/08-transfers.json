@@ -1,0 +1,14 @@
+{
+  "about": "Transfers the user entered between their own accounts: this side has no payee, and the amounts are exact",
+  "currency": "CAD",
+  "register": [
+    { "id": "tosavings", "date": "2026-10-22", "amount": "-500.00" },
+    { "id": "fromsavings", "date": "2026-10-05", "amount": "200.00" },
+    { "id": "visa", "date": "2026-10-25", "amount": "-464.77", "payee": "Northwind Visa" }
+  ],
+  "statement": [
+    { "date": "2026-10-22", "amount": "-500.00", "payee": "TRANSFER TO SAVINGS", "expect": "tosavings" },
+    { "date": "2026-10-06", "amount": "200.00", "payee": "ONLINE TRANSFER FROM 4411", "expect": "fromsavings" },
+    { "date": "2026-10-27", "amount": "-464.77", "payee": "BILL PAYMENT NORTHWIND CARD SERVICES", "expect": "visa" }
+  ]
+}

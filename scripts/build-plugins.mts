@@ -42,6 +42,14 @@ const sharedUiRange = () => {
   return `^${version}`
 }
 
+/**
+ * Plugins' published contracts (types and constants), which other plugins import. Each plugin bundles what it uses,
+ * in both halves, since they hold no state. Resolved against the working directory, like the other aliases.
+ */
+const API_PACKAGES = ['ledger-api', 'accounts-api', 'import-api']
+const API_PACKAGE_ALIASES = (): Record<string, string> => Object.fromEntries(
+  API_PACKAGES.map(name => [`@tessera/${name}`, path.resolve(process.cwd(), 'packages', name, 'index.ts')]))
+
 /** Libraries a plugin must reach through `@tessera/ui`, never directly: a second copy would ignore the shell's theme. */
 const PRIVATE_UI_LIBRARIES = /^@(mui|emotion)\//
 
@@ -132,7 +140,8 @@ async function buildPlugin(srcDir: string, outDir: string): Promise<string> {
       '@shell': path.resolve(process.cwd(), 'shell'),
       '@plugins': path.resolve(process.cwd(), 'plugins'),
       '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts'),
-      '@tessera/storage-kit': path.resolve(process.cwd(), 'packages/storage-kit/index.ts')
+      '@tessera/storage-kit': path.resolve(process.cwd(), 'packages/storage-kit/index.ts'),
+      ...API_PACKAGE_ALIASES()
     }
   })
 
@@ -182,7 +191,38 @@ function checkExposes(srcDir: string, expose: unknown) {
   }
 }
 
+/**
+ * The oldest `@module-federation/vite` that builds more than two federated plugins in one process. Earlier versions
+ * write their virtual modules to `<plugin>/node_modules/__mf__virtual` and lose track of them from the third build on
+ * ("Rollup failed to resolve import …__mf__virtual/…hostAutoInit…"). There is no lockfile yet, so an old install can
+ * survive a `package.json` bump until `npm install` is run; this says so, rather than failing obscurely.
+ */
+const MIN_FEDERATION_VITE = [1, 16, 0] as const
+
+/** Why the installed `@module-federation/vite` version can't be used, or undefined when it can (or can't be read). */
+export function federationVersionProblem(version: string): string | undefined {
+  const parts = version.split(/[.-]/).slice(0, 3).map(Number)
+  if (parts.length < 3 || parts.some(Number.isNaN)) return undefined
+  for (let i = 0; i < 3; i++) {
+    if (parts[i] > MIN_FEDERATION_VITE[i]) return undefined
+    if (parts[i] < MIN_FEDERATION_VITE[i]) {
+      return `@module-federation/vite ${version} is installed; ${MIN_FEDERATION_VITE.join('.')} or later is ` +
+        'needed to build several federated plugins together. Run "npm install" to update it.'
+    }
+  }
+  return undefined
+}
+
+function checkFederationVersion() {
+  const file = path.resolve(process.cwd(), 'node_modules', '@module-federation', 'vite', 'package.json')
+  if (!fs.existsSync(file)) return
+  const { version } = JSON.parse(fs.readFileSync(file, 'utf8')) as { version?: unknown }
+  const problem = typeof version === 'string' ? federationVersionProblem(version) : undefined
+  if (problem) throw new Error(problem)
+}
+
 async function buildRenderer(srcDir: string, id: string, entryOut: string, expose: Record<string, string>) {
+  checkFederationVersion()
   const { federation } = await import('@module-federation/vite')
 
   const stub = '\0tessera-stub-entry'
@@ -219,7 +259,8 @@ async function buildRenderer(srcDir: string, id: string, entryOut: string, expos
     // Views import values (not just types) from the shared types package, as the privileged build allows.
     // Deliberately no alias for `@tessera/ui`: an alias resolves it before the federation plugin sees the import, and it
     // would be bundled rather than shared. The shell's copy is used at run time; types come from tsconfig paths.
-    resolve: { alias: { '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts') } },
+    // The API packages are types and constants, so bundling a copy into each plugin is right.
+    resolve: { alias: { '@tessera/types': path.resolve(process.cwd(), 'tessera-types/index.ts'), ...API_PACKAGE_ALIASES() } },
     build: {
       target: 'esnext',
       outDir: path.dirname(entryOut),

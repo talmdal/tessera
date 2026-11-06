@@ -1,0 +1,15 @@
+{
+  "about": "Lines the bank gives no payee (or only a code): the amount and the date decide",
+  "currency": "CAD",
+  "register": [
+    { "id": "hydro", "date": "2026-10-08", "amount": "-120.00", "payee": "Hydro One" },
+    { "id": "atm", "date": "2026-10-09", "amount": "-100.00", "payee": "Cash" },
+    { "id": "pay", "date": "2026-10-15", "amount": "2450.00", "payee": "Employer" }
+  ],
+  "statement": [
+    { "date": "2026-10-09", "amount": "-120.00", "expect": "hydro" },
+    { "date": "2026-10-09", "amount": "-100.00", "payee": "ATM WITHDRAWAL", "expect": "atm" },
+    { "date": "2026-10-15", "amount": "2450.00", "payee": "DIRECT DEPOSIT", "expect": "pay" },
+    { "date": "2026-10-20", "amount": "-40.00", "expect": null }
+  ]
+}

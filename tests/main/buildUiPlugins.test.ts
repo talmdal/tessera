@@ -37,8 +37,12 @@ describe('building a plugin that uses @tessera/ui', () => {
 
     await buildPlugins({ pluginsDir: fixtures, outDir: out })
 
+    // The federation plugin writes the shared modules' ranges to one chunk, whose name it has changed between
+    // versions (`localSharedImportMap-…` in older ones, `_virtual_mf-localSharedImportMap…-…` in 1.23)
     const assets = path.join(out, 'themed/renderer/assets')
-    const map = fs.readFileSync(path.join(assets, fs.readdirSync(assets).find(f => f.startsWith('localSharedImportMap'))!), 'utf8')
+    const chunk = fs.readdirSync(assets).find(f => f.includes('localSharedImportMap'))
+    expect(chunk, `no localSharedImportMap chunk in ${fs.readdirSync(assets).join(', ')}`).toBeDefined()
+    const map = fs.readFileSync(path.join(assets, chunk!), 'utf8')
     const ranges = [...map.matchAll(/requiredVersion: "([^"]+)"/g)].map(m => m[1])
     expect(ranges.filter(r => r === react)).toHaveLength(3)        // react, react/jsx-runtime, react-dom
     expect(ranges).toContain(`^${ui}`)

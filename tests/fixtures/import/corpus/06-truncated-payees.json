@@ -1,0 +1,16 @@
+{
+  "about": "Banks cut names short and add processors' prefixes: AMZN MKTP is Amazon, SQ * is a Square merchant",
+  "currency": "CAD",
+  "register": [
+    { "id": "amazon", "date": "2026-10-25", "amount": "-23.99", "payee": "Amazon" },
+    { "id": "coffee", "date": "2026-10-26", "amount": "-5.25", "payee": "Bridgehead Coffee" },
+    { "id": "netflix", "date": "2026-10-28", "amount": "-18.99", "payee": "Netflix" },
+    { "id": "uber", "date": "2026-10-30", "amount": "-16.40", "payee": "Uber" }
+  ],
+  "statement": [
+    { "date": "2026-10-27", "amount": "-23.99", "payee": "AMZN MKTP CA*2K3L91", "expect": "amazon" },
+    { "date": "2026-10-26", "amount": "-5.25", "payee": "SQ *BRIDGEHEAD COFFEE", "expect": "coffee" },
+    { "date": "2026-10-28", "amount": "-18.99", "payee": "NETFLIX.COM", "expect": "netflix" },
+    { "date": "2026-10-31", "amount": "-16.87", "payee": "UBER *TRIP HELP.UBER.COM", "expect": "uber" }
+  ]
+}

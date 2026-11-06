@@ -1,0 +1,14 @@
+{
+  "about": "A refund is money in: it never matches the purchase it refunds, only a refund the user entered",
+  "currency": "CAD",
+  "register": [
+    { "id": "purchase", "date": "2026-10-10", "amount": "-89.99", "payee": "Best Buy" },
+    { "id": "refund", "date": "2026-10-20", "amount": "89.99", "payee": "Best Buy" },
+    { "id": "shoes", "date": "2026-10-12", "amount": "-120.00", "payee": "Running Room" }
+  ],
+  "statement": [
+    { "date": "2026-10-11", "amount": "-89.99", "payee": "BEST BUY #931", "expect": "purchase" },
+    { "date": "2026-10-21", "amount": "89.99", "payee": "BEST BUY #931 REFUND", "expect": "refund" },
+    { "date": "2026-10-22", "amount": "120.00", "payee": "RUNNING ROOM RETURN", "expect": null }
+  ]
+}

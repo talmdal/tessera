@@ -7,6 +7,7 @@ import { DEFAULT_THEME, THEME_CHOOSER_OPEN, THEME_COMMANDS, THEME_GET } from '..
 import { ShellThemeProvider } from '../../shell/renderer/theme/ShellThemeProvider'
 import { ThemeChooser } from '../../shell/renderer/theme/ThemeChooser'
 import { createFakeRemote } from '../helpers/fakeBridge'
+import { settle } from '../helpers/settle'
 import { midnight, sunrise } from '../helpers/theme'
 
 const murky: ThemeDescriptor = {
@@ -49,8 +50,9 @@ const dialog = () => screen.getByRole('dialog', { name: 'Choose a theme' })
 const radio = (name: string) => within(dialog()).getByRole('radio', { name: new RegExp(name) })
 
 describe('the theme chooser: opening', () => {
-  it('is not there until the main process asks for it', () => {
+  it('is not there until the main process asks for it', async () => {
     setup()
+    await settle()   // even once everything has loaded
 
     expect(screen.queryByRole('dialog')).toBeNull()
   })
@@ -105,7 +107,7 @@ describe('the theme chooser: choosing', () => {
     const { openIt } = setup()
     await openIt()
 
-    radio('Tessera').focus()
+    act(() => radio('Tessera').focus())   // focusing changes the radio's own state
     await user.keyboard('{ArrowDown}')
 
     expect(radio('Sunrise')).toBeChecked()

@@ -254,7 +254,6 @@ describe('layout controller frame', () => {
       render(<Frame bridge={bridge} views={leftViews} load={async () => () => null} />)
 
       await bridge.emit(LAYOUT_CHANGED, leftBar())
-      await act(async () => {})
 
       expect(screen.getByRole('complementary', { name: 'Left bar' })).toBeInTheDocument()
     })
