@@ -76,26 +76,53 @@ off, or delete them, as they land.
       `vault.store` can be told apart from compatible ones.
 - [ ] **Typed service tokens** for TypeScript plugins (`get<T>()` currently
       trusts the caller).
-- [ ] **Shell services.** First `shell.files`: dialogs, recent files, atomic
-      writes, backups and locks, as sketched in
-      [vault-design.md](vault-design.md). Later `shell.notifications`,
-      `shell.settings`, and a secure password prompt.
+- [x] **Shell services: asking the user.** `shell.prompts` (native confirm and
+      message boxes, a text prompt, `show` for contributed dialogs), the
+      `shell.dialogs` extension point with the renderer's dialog host, and
+      `shell.files` (open and save dialogs, `exists`, the OS trash). See
+      [Asking the user](plugin-creation.md#asking-the-user-dialogs-prompts-and-files).
+- [ ] **More shell services:** recent files, atomic writes, backups and file
+      locks for `shell.files`; later `shell.notifications`, `shell.settings`,
+      and a secure password prompt.
 
-## Vault and storage (proposed designs)
+## Finance: ledgers and accounts
 
-Designs: [vault-design.md](vault-design.md) and
-[storage-api-design.md](storage-api-design.md). Nothing here is built yet.
+Design: [account-manager-design.md](account-manager-design.md); plan, phase by
+phase: [account-manager-implementation.md](account-manager-implementation.md).
+The storage engine it builds on is done ([storage-engine-redesign.md](storage-engine-redesign.md)).
 
-- [ ] **Storage contract:** `Store` types, `StoreError`, an in-memory store
-      and the shared backend conformance suite.
-- [ ] **Vault plugin:** `vault.session`, the `vault.backends` and
-      `vault.schema` points, commands, menus and context keys.
-- [ ] **Backends:** encrypted-file first (no native module), then SQLite
-      (settle the native-module and packaging question).
-- [ ] **Accounts plugin:** schema and migrator, `accounts.service`, register
-      views, then `accounts.importers` with OFX, QIF and CSV parsers.
-- [ ] **Settle the open questions** in both notes: aggregation for reports,
-      passwords and keys, one vault versus several, `.mny` import.
+- [x] **Phase 0, framework prerequisites:** the `@tessera/ledger-api` and
+      `@tessera/accounts-api` contracts, `shell.prompts`, `shell.files`,
+      `shell.dialogs`, `@tessera/ui` 1.1, and SQLite as the default engine.
+- [x] **Phase 1:** the `ledger` plugin (files, sub-ledgers, start view, Ledger
+      panel). Results in
+      [account-manager-implementation.md](account-manager-implementation.md#phase-1-results).
+- [x] **Accounts:** phase 2's accounts half (the service, rules, money
+      helpers) and phase 3's navigator, Accounts menu and dialogs. Results in
+      [account-manager-implementation.md](account-manager-implementation.md#accounts-results-phase-2-accounts-half-and-most-of-phase-3).
+- [x] **Phase 2, transactions half, and phase 4, the register:**
+      transactions, transfers, payees, seeded categories, balances from
+      transactions, minimum balances, and the register. Results in
+      [account-manager-implementation.md](account-manager-implementation.md#transactions-and-register-results-phase-2-transactions-half-and-phase-4).
+- [ ] **Phase 3, rest:** the accounts home view.
+- [ ] **Register, later:** the two-line layout, windowed rendering for very
+      long registers, sorting and filtering, splits, and an `externalId` on
+      drafts for import.
+- [x] **Phase 5, reconciliation:** Reconcile with Statement (statement date,
+      starting and ending balance), the register's reconcile mode (ticks,
+      correcting amounts, voiding), the Reconcile panel (Complete with an
+      optional balance adjustment, Pause, Cancel restoring the marks), and
+      `accounts.reconcile.actions` for other plugins. Also from review: one
+      click opens a register, and the register has a toolbar for the selected
+      row. Results in
+      [account-manager-implementation.md](account-manager-implementation.md#reconciliation-results-phase-5).
+- [x] **Reconciliation: service charge and interest** on the statement
+      dialog, added as marked transactions (deleted again on Cancel).
+- [ ] **Reconciliation, later:** undo last reconciliation, and a history of
+      past statements.
+- [ ] **Later:** statement import (`accounts.importers`, from
+      [vault-design.md](vault-design.md)), per-file storage formats, splits,
+      `.mny` migration.
 
 ## State and settings (proposed design)
 
@@ -212,6 +239,17 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
       or window a request came from.
 
 ## Build and packaging
+
+- [ ] **`npm install` fails from a clean checkout.** There is no lockfile, and
+      `package.json` asks for versions that aren't published:
+      `@rollup/plugin-alias@^6.0.1` (latest 6.0.0),
+      `@rollup/plugin-typescript@^12.3.1` (12.3.0) and `rollup@^4.65.0`
+      (4.64.12). `rollup-plugin-typescript2` also needs `--legacy-peer-deps`.
+      Fix the ranges and commit a lockfile.
+- [ ] **`@types/react` is not a dependency**, so every `.tsx` file reports
+      "Could not find a declaration file for module 'react'" under
+      `tsc --noEmit`, which hides real type errors in the renderer. Add
+      `@types/react` and `@types/react-dom` (18.x) to `devDependencies`.
 
 - [ ] **Production loading.** The window always loads
       `http://localhost:5173`; add a production `loadFile` path, a renderer

@@ -10,10 +10,46 @@ plugins through extension points and services, in the spirit of the Eclipse
 platform.
 
 > **Status: early.** The shell, plugin framework and window layout work end
-> to end. There are no Finance features yet; those will arrive as plugins. See
+> to end. The first Finance feature is arriving as plugins: **ledgers,
+> sub-ledgers, accounts, transactions, the register and reconciliation**
+> work today; the accounts home view comes next
+> ([plan](docs/account-manager-implementation.md)). See
 > [docs/todo.md](docs/todo.md) for what's still open.
 
 ## What works today
+
+- **Ledgers** (the `ledger` plugin): File › New, Open, Close and Delete
+  Ledger. A ledger is one SQLite file (`.tessera`) holding everything, with
+  **sub-ledgers** nested inside it, created with the same *New Ledger…* by
+  choosing a parent. Deleting sends the file to the OS trash. The last ledger
+  reopens at start-up; a start view lists recent ledgers; a *Ledger* panel in
+  the left bar manages sub-ledgers. Other plugins store their data in the open
+  ledger through the `ledger.session` service and the `ledger.schema`
+  extension point ([@tessera/ledger-api](packages/ledger-api/),
+  [design](docs/account-manager-design.md#the-ledger)).
+- **Accounts** (the `accounts` plugin): chequing, savings, credit card,
+  mortgage, investment and other accounts, in the ledger or any sub-ledger.
+  An *Accounts* menu and an *Accounts* navigator in the left bar (which
+  replaces the Ledger panel) create, edit, move, close, reopen and delete
+  them. Balances are shown the Microsoft Money way (what you owe is negative,
+  in red), with totals per currency. Reports and importers use the
+  `accounts.service` service ([@tessera/accounts-api](packages/accounts-api/),
+  [how](docs/plugin-creation.md#using-accounts-from-another-plugin)).
+  An account can keep a **minimum balance** and show the balance above it.
+- **Transactions and the register**: each account's **register** (in the
+  main area; click an account) shows one line per transaction with a
+  running balance. Enter edits a row in place, and a new-entry row at the
+  bottom adds one, with payee autocomplete, categories and transfers
+  between accounts (kept consistent on both sides). A toolbar edits, clears,
+  voids and deletes the selected row (also Space, Ctrl+Shift+V and Delete);
+  voiding keeps the amount but drops it from balances.
+- **Reconciliation**: *Reconcile…* asks for a statement's date, starting
+  and ending balances, and any service charge and interest (added as
+  transactions), then the register lists what the statement can include. Tick what it shows, correct an amount or void a transaction on the
+  way, and a panel beside the accounts shows the difference, with Complete
+  (adding a balance adjustment if you agree), Pause and Cancel. Other plugins
+  add ways to reconcile through `accounts.reconcile.actions`
+  ([how](docs/plugin-creation.md#adding-a-way-to-reconcile)).
 
 - **Plugin runtime:** discovers plugins on disk, validates their manifests,
   orders activation by service dependencies, isolates failures (a broken
@@ -25,7 +61,7 @@ platform.
   menus, then `Tools`, then `Help`.
 - **Commands with live enablement:** menu items follow their command's
   `enablement` expression over **context keys**, such as
-  `vault.isOpen && vault.isDirty`, and update while the app runs.
+  `ledger.isOpen && !ledger.isReadOnly`, and update while the app runs.
 - **Views extension point** (`shell.views`): plugin UI is written as
   `.tsx` and loaded at runtime as a **Module Federation** remote. Views
   share the shell's React, and each is isolated by its own error boundary.
@@ -44,12 +80,19 @@ platform.
 - **Built-in plugins:** source in `plugins/<id>/`, built (TypeScript and
   TSX) into `modules/<id>/` with `npm run build:plugins`, and loaded before
   user-installed plugins.
-- **Services:** plugins provide and require services, such as `vault.store`,
-  declared in their manifest. Two exist today: `storage.engine` (provided by
-  the `storage-loki` plugin) and `app.state` (provided by `app-state`, which
-  requires `storage.engine`).
+- **Services:** plugins provide and require services, such as `ledger.session`,
+  declared in their manifest. The shell provides `shell.prompts` and
+  `shell.files`; plugins provide `storage.engine` (the `storage-sqlite` plugin
+  by default, or `storage-loki`) and `app.state` (provided by `app-state`,
+  which requires `storage.engine`).
+- **Dialogs, prompts and files:** plugins ask the user through the shell:
+  native confirmation and message boxes, a text prompt, open and save file
+  dialogs, the OS trash, and modal dialogs of their own (`shell.dialogs`),
+  drawn in the shell's frame. See
+  [Asking the user](docs/plugin-creation.md#asking-the-user-dialogs-prompts-and-files).
 - **Storage and application state:** a `StorageEngine` interface
-  (collections, queries, transactions) with a LokiJS implementation, and an
+  (collections, queries, transactions) with SQLite (the default) and LokiJS
+  implementations, and an
   `app-state` plugin that keeps window, theme and per-window layout state on
   top of it, exposed to views over IPC (`app.state:get`, `:set`, `:update`,
   `:remove`).
@@ -109,10 +152,10 @@ How a plugin connects:
 | Mechanism | Use it to… | Example |
 |---|---|---|
 | Extension point | add something the shell, or another plugin, shows or collects | a menu item, a view |
-| Command | let the user trigger an action | `vault.save` |
-| Context key | publish state that enablement depends on | `vault.isDirty` |
-| Service | let other plugins call into your code | `vault.store` |
-| IPC | connect your view to your own privileged code | `window.api.invoke('vault:edit')` |
+| Command | let the user trigger an action | `ledger.open` |
+| Context key | publish state that enablement depends on | `ledger.isOpen` |
+| Service | let other plugins call into your code | `ledger.session` |
+| IPC | connect your view to your own privileged code | `window.api.invoke('ledger:tree')` |
 | Lifecycle | run code once everything has started, or before quitting | `context.lifecycle.onShuttingDown` |
 
 The full guide to writing a plugin is
@@ -193,10 +236,16 @@ scripts/build-plugins.mts  Builds bundled plugins from plugins/ into modules/
 tests/                Vitest suites, mirroring the source folders, plus
                       architecture boundary tests and fixtures
 docs/                 Plugin guide, design notes and open-work list
+packages/             Libraries plugins bundle: storage-kit (the shared half
+                      of every storage backend), and the Finance plugins'
+                      published contracts, ledger-api and accounts-api
 plugins/              Source of bundled (built-in) plugins, one folder each:
-                      app-state (application state), storage-loki (LokiJS
-                      storage engine) and test-layout (exercises every
-                      layout slot)
+                      accounts (accounts and the navigator), app-state
+                      (application state), ledger (ledger files
+                      and sub-ledgers), storage-sqlite (the default
+                      storage engine), storage-loki (LokiJS storage
+                      engine) and test-layout (exercises every layout
+                      slot)
 modules/              Build output of plugins/ (gitignored); loaded at startup
 ```
 
@@ -206,8 +255,13 @@ modules/              Build output of plugins/ (gitignored); loaded at startup
   and connect it to the framework
 - [docs/layout-controller-design.md](docs/layout-controller-design.md): the
   layout controller: slots, bars, `shell.bar.items`, commands and persistence
-- [docs/vault-design.md](docs/vault-design.md): proposed design for the
-  vault, pluggable storage, importers and file handling
+- [docs/account-manager-design.md](docs/account-manager-design.md): design
+  of the first Finance feature: ledgers and sub-ledgers, accounts,
+  transactions, the register and reconciliation; with its
+  [implementation outline](docs/account-manager-implementation.md)
+- [docs/vault-design.md](docs/vault-design.md): the earlier proposal for
+  pluggable storage, importers and file handling; its session half is
+  superseded by the account manager design
 - [docs/storage-api-design.md](docs/storage-api-design.md): proposed
   `Store` API that storage backends implement and domain plugins use (the
   lower-level `StorageEngine` it would build on already exists)

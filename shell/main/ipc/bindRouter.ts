@@ -1,7 +1,7 @@
 // shell/main/ipc/bindRouter.ts
 import { BrowserWindow, ipcMain } from 'electron'
 import { INVOKE_CHANNEL } from '../../../shared/ipc'
-import { IpcRouter } from '../../../core/ipc/IpcRouter'
+import { IpcRouter } from '@tessera/types'
 
 /**
  * Binds the single invoke channel to the router. The router resolves handlers

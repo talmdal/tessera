@@ -343,8 +343,25 @@ missing file is defaults; an unreadable or malformed one is logged and
 ignored, so it can never stop startup. `preferredPlugins` moves those
 plugins to the front of the activation order, and since the first provider
 of a contested service wins, that is how the active storage backend is
-chosen (`["storage-sqlite"]`); `disabledPlugins` leaves plugins out
-entirely. A settings page may *edit* tier 0 later, but the edit takes
+chosen (`["storage-loki"]` to use LokiJS); `disabledPlugins` leaves plugins out
+entirely.
+
+**SQLite is the default engine.** When the bootstrap file says nothing, the
+shell's own default preference applies: `DEFAULT_PREFERRED_PLUGINS`
+(`["storage-sqlite"]`, in
+[bootstrapConfig.ts](../shell/main/bootstrap/bootstrapConfig.ts)) is passed
+to the plugin manager as `defaultPreferred`, ranked *after* the user's
+`preferredPlugins`, so the user's choice always wins, and a disabled plugin
+stays disabled. Unlike the user's list, a default that isn't installed draws
+no warning. SQLite was made the default for financial data: it is
+write-through, so nothing written can be lost in a crash, where Loki saves
+500 ms after the last change (see
+[account-manager-design.md](account-manager-design.md#storage-format-and-durability)).
+Switching moved the application's own database from `app.loki.json` to
+`app.sqlite`, so window positions, theme and layout started fresh once; the
+old file is left in place and ignored.
+
+A settings page may *edit* tier 0 later, but the edit takes
 effect at the next start, as with Eclipse's `config.ini` or VS Code's
 `argv.json`. The rule, in one line: **bootstrap configuration never lives
 behind what it configures.**
@@ -361,13 +378,13 @@ The framework allows one provider per service id and orders activation by
 `requires`. Two cases:
 
 1. **The application's default store** (`app` database: state, settings,
-   caches). Exactly one plugin provides `storage.engine`. Today that is
-   `storage-loki`; a `storage-sqlite` plugin would provide the **same id**,
-   and which one is bundled decides. Two installed at once: the first
-   discovered wins and the other is skipped with a warning, which is the
-   framework's existing rule. `app-state` keeps `requires: ["storage.engine"]`
-   and is untouched by the swap. With both bundled, `preferredPlugins` in
-   the tier-0 bootstrap file chooses (see *Configuration tiers*). This is
+   caches). Exactly one plugin provides `storage.engine`. Both
+   `storage-sqlite` and `storage-loki` are bundled and provide the **same
+   id**. Two installed at once: the preferred one wins (SQLite by default,
+   see *Configuration tiers*), otherwise the first discovered, and the other
+   is skipped with a warning, which is the framework's existing rule.
+   `app-state` keeps `requires: ["storage.engine"]` and is untouched by the
+   swap. `preferredPlugins` in the tier-0 bootstrap file chooses. This is
    "pluggable" in the Eclipse sense: the id names the interface, the plugin
    supplies the implementation.
 

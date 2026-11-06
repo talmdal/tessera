@@ -1,0 +1,5 @@
+{
+  "name": "@tessera/accounts-api",
+  "version": "1.0.0",
+  "types": "index.ts"
+}
