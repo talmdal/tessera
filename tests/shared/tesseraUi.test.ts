@@ -14,7 +14,7 @@ describe('@tessera/ui', () => {
       'IconButton', 'InputAdornment', 'List', 'ListItemButton', 'ListItemIcon', 'ListItemText', 'Menu', 'MenuItem',
       'Paper', 'Radio', 'RadioGroup', 'Stack', 'TESSERA_UI_VERSION', 'Tab', 'Table', 'TableBody', 'TableCell',
       'TableContainer', 'TableHead', 'TableRow', 'Tabs', 'TextField', 'ToggleButton', 'ToggleButtonGroup', 'Toolbar',
-      'Tooltip', 'Typography', 'createSvgIcon', 'useTheme', 'useThemeState'
+      'Tooltip', 'Typography', 'createSvgIcon', 'useFontRoles', 'useTheme', 'useThemeState'
     ])
   })
 

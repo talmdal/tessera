@@ -2,7 +2,11 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RegisteredIcon } from '@tessera/types'
-import { Icon } from '@tessera/ui'
+import { ThemeProvider } from '@mui/material'
+import { Button, Icon } from '@tessera/ui'
+import { DEFAULT_FONT_SETTINGS, resolveFonts } from '../../shared/fonts/resolveFonts'
+import { DEFAULT_THEME } from '../../shared/theme/types'
+import { createShellTheme } from '../../shell/renderer/theme/createShellTheme'
 import { MAX_ICON_BYTES, loadIconSource, resetIconSources } from '../../tessera-ui/iconSource'
 import { IconRegistryProvider } from '../../tessera-ui/internal'
 
@@ -173,6 +177,61 @@ describe('Icon: registered icons', () => {
     expect(plain.getAttribute('aria-hidden')).toBe('true')
     expect(titled.getAttribute('role')).toBe('img')
     expect(titled.getAttribute('aria-label')).toBe('Bank')
+  })
+})
+
+describe('Icon: sizes', () => {
+  // A registered icon is sized as MUI sizes its own: its font size, from the theme's pxToRem, and a 1em box. So the two
+  // kinds match at every interface size, and obey a container that sets the icon size (a button's start icon).
+  const sizeOf = (name: string) => {
+    const style = getComputedStyle(drawn(name)!)
+    return { fontSize: style.fontSize, width: style.width, height: style.height }
+  }
+  const themed = (size: number, children: ReactNode) => (
+    <ThemeProvider theme={createShellTheme(DEFAULT_THEME, 'light', { fonts: resolveFonts({ ...DEFAULT_FONT_SETTINGS, roles: { ...DEFAULT_FONT_SETTINGS.roles, ui: { family: null, size, weight: null } } }) })}>
+      {children}
+    </ThemeProvider>
+  )
+
+  it.each([13, 20])('gives a registered icon the size of a standard one, at every size, with the interface size at %i px', size => {
+    for (const fontSize of ['small', 'medium', 'large'] as const) {
+      const { unmount } = render(themed(size, <><Icon name="p.unknown" fallback="x" fontSize={fontSize} /><Icon name="Home" fontSize={fontSize} /></>))
+      expect({ size: fontSize, ...sizeOf('p.unknown') }).toEqual({ size: fontSize, ...sizeOf('Home') })
+      expect(sizeOf('p.unknown').width).toBe('1em')
+      unmount()
+    }
+  })
+
+  it('grows a registered icon with the interface size, as standard icons grow', () => {
+    const { unmount } = render(themed(13, <Icon name="p.unknown" fallback="x" fontSize="small" />))
+    const at13 = parseFloat(sizeOf('p.unknown').fontSize)
+    unmount()
+    render(themed(20, <Icon name="p.unknown" fallback="x" fontSize="small" />))
+    expect(parseFloat(sizeOf('p.unknown').fontSize) / at13).toBeCloseTo(20 / 13)
+  })
+
+  it("sizes a registered icon in a button like a standard one, by the button's icon size", () => {
+    // MUI sizes a button's icon with a rule on the first child of its icon slot, through font-size. jsdom doesn't weigh
+    // CSS rules as a browser does (which rule wins depends on the order earlier tests added them), so this checks what
+    // decides the size in a browser: the icon is that first child, and measures itself in em, as the standard icon does.
+    // (In Chromium both are 18 px: docs/font-roles-design.md#phase-2-results.)
+    render(themed(13, <>
+      <Button startIcon={<Icon name="p.unknown" fallback="x" />}>Registered</Button>
+      <Button startIcon={<Icon name="Save" />}>Standard</Button>
+    </>))
+
+    for (const name of ['p.unknown', 'Save']) {
+      const icon = drawn(name)!
+      expect(icon.parentElement).toHaveClass('MuiButton-startIcon')
+      expect(icon.parentElement!.firstElementChild).toBe(icon)
+      expect({ name, width: getComputedStyle(icon).width, height: getComputedStyle(icon).height }).toEqual({ name, width: '1em', height: '1em' })
+    }
+  })
+
+  it('follows its container with fontSize="inherit"', () => {
+    render(<span style={{ fontSize: '30px' }}><Icon name="p.unknown" fallback="x" fontSize="inherit" /></span>)
+
+    expect(sizeOf('p.unknown')).toMatchObject({ fontSize: 'inherit', width: '1em' })
   })
 })
 

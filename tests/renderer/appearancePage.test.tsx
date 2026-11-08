@@ -11,6 +11,7 @@ import { ShellThemeProvider } from '../../shell/renderer/theme/ShellThemeProvide
 import { ThemeGallery } from '../../shell/renderer/theme/ThemeGallery'
 import { createFakeRemote } from '../helpers/fakeBridge'
 import { midnight, sunrise } from '../helpers/theme'
+import { DEFAULT_FONT_SETTINGS } from '../../shared/fonts/resolveFonts'
 
 const murky: ThemeDescriptor = {
   id: 'p.murky', label: 'Murky',
@@ -29,7 +30,8 @@ const SYSTEM: ThemeSelection = { theme: DEFAULT_THEME.id, mode: 'system' }
 const snapshot = (over: Partial<ThemeSnapshot['state']> = {}, themes = THEMES): ThemeSnapshot => ({
   state: { windowId: 1, global: SYSTEM, theme: DEFAULT_THEME.id, mode: 'light', ...over },
   themes,
-  systemPrefersDark: false
+  systemPrefersDark: false,
+  fonts: DEFAULT_FONT_SETTINGS
 })
 
 const appearance = { id: THEME_SETTINGS_PAGE, title: 'Appearance', pluginId: 'shell', settings: THEME_SETTINGS_ID, module: THEME_SETTINGS_MODULE, keywords: ['theme'] }
@@ -117,6 +119,43 @@ describe('the Appearance page', () => {
 
     expect(within(page()).getByRole('img', { name: 'Preview of the Murky theme in light mode' })).toBeInTheDocument()
     expect(within(page()).getByText(/may be hard to read in light mode/)).toBeInTheDocument()
+  })
+
+  it("previews a theme in its own fonts, under the user's, and says when the user turned themes' fonts off", async () => {
+    const serif = sunrise({ id: 'p.serif', label: 'Ledger Book', light: { primary: '#7c2d12' }, fonts: { heading: { family: ['Georgia', 'serif'] }, ui: { size: 14 } } })
+    const user = { ...DEFAULT_FONT_SETTINGS, roles: { ...DEFAULT_FONT_SETTINGS.roles, ui: { family: null, size: 16, weight: null } } }
+    const { open } = setup({ theme: { ...snapshot({}, [...THEMES, serif]), fonts: user } })
+    await open()
+    await userEvent.click(card('Ledger Book'))
+
+    const preview = within(page()).getByRole('img', { name: /Preview of the Ledger Book theme/ })
+    // The theme's headings, and the user's size over the theme's 14
+    expect(getComputedStyle(within(preview).getByText('Account summary')).fontFamily.startsWith('"Georgia", serif')).toBe(true)
+    expect(getComputedStyle(within(preview).getByText('Balance after the latest transactions.')).fontSize).toBe('1rem')
+    expect(within(page()).queryByText(/themes' fonts are turned off/)).toBeNull()
+  })
+
+  it("says a theme's fonts aren't used while themes' fonts are off", async () => {
+    const serif = sunrise({ id: 'p.serif', label: 'Ledger Book', fonts: { heading: { family: ['Georgia', 'serif'] } } })
+    const { open } = setup({ theme: { ...snapshot({}, [...THEMES, serif]), fonts: { ...DEFAULT_FONT_SETTINGS, useThemeFonts: false } } })
+    await open()
+    await userEvent.click(card('Ledger Book'))
+
+    expect(within(page()).getByText(/Ledger Book sets fonts of its own \(Headings \(Georgia\)\), but themes' fonts are turned off/)).toBeInTheDocument()
+    const preview = within(page()).getByRole('img', { name: /Preview of the Ledger Book theme/ })
+    expect(getComputedStyle(within(preview).getByText('Account summary')).fontFamily.startsWith('"Georgia"')).toBe(false)
+  })
+
+  it("previews a theme in the user's fonts, as choosing it would show it", async () => {
+    const fonts = { ...DEFAULT_FONT_SETTINGS, roles: { ...DEFAULT_FONT_SETTINGS.roles, ui: { family: ['Inter'], size: 16, weight: null } } }
+    const { open } = setup({ theme: { ...snapshot(), fonts } })
+    await open()
+
+    const preview = within(page()).getByRole('img', { name: 'Preview of the Tessera theme in light mode' })
+    const text = within(preview).getByText('Balance after the latest transactions.')
+    // body2 at an interface size of 16 px
+    expect(getComputedStyle(text).fontSize).toBe('1rem')
+    expect(getComputedStyle(text).fontFamily.startsWith('"Inter"')).toBe(true)
   })
 
   it('says what "System" follows now', async () => {
@@ -217,5 +256,19 @@ describe('the theme gallery', () => {
     await userEvent.clear(filter)
     await userEvent.type(filter, 'zebra')
     expect(many.getByText('No theme matches “zebra”.')).toBeInTheDocument()
+  })
+
+  it('says what fonts a theme sets, draws its name in its own font, and finds it by them', async () => {
+    const serif = sunrise({ id: 'p.serif', label: 'Ledger Book', fonts: { heading: { family: ['Georgia', 'serif'], weight: 600 }, numeric: { family: ['Cascadia Mono'] } } })
+    const many = renderGallery([...THEMES, serif, ...['Ash', 'Birch'].map(label => sunrise({ id: `woods.${label.toLowerCase()}`, label }))])
+
+    const ledgerBook = many.getByRole('radio', { name: 'Ledger Book' })
+    expect(ledgerBook).toHaveAccessibleDescription('Sets fonts: Headings (Georgia, Semibold), Amounts and figures (Cascadia Mono) · From p')
+    expect(getComputedStyle(within(ledgerBook).getByText('Ledger Book')).fontFamily.startsWith('"Georgia", serif')).toBe(true)
+    // A theme that sets no fonts keeps the page's
+    expect(getComputedStyle(within(many.getByRole('radio', { name: 'Midnight' })).getByText('Midnight')).fontFamily.startsWith('"Georgia"')).toBe(false)
+
+    await userEvent.type(many.getByRole('textbox', { name: 'Filter themes' }), 'cascadia')
+    expect(many.getAllByRole('radio').map(r => r.getAttribute('data-theme-id'))).toEqual(['p.serif'])
   })
 })

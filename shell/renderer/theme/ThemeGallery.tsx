@@ -2,6 +2,8 @@
 import { KeyboardEvent, useId, useMemo, useRef, useState } from 'react'
 import type { ThemeDescriptor, ThemeMode } from '@tessera/types'
 import { Box, Icon, TextField, Typography } from '@tessera/ui'
+import { DEFAULT_FONT_SETTINGS, resolveFonts } from '../../../shared/fonts/resolveFonts'
+import { describeThemeFonts } from '../../../shared/fonts/roles'
 import { followsSystem, modesOf } from '../../../shared/theme/selection'
 import { tokensFor } from '../../../shared/theme/tokens'
 import { DEFAULT_THEME_ID } from '../../../shared/theme/types'
@@ -19,8 +21,24 @@ export function themeSource(theme: ThemeDescriptor): string | undefined {
   return theme.id === DEFAULT_THEME_ID ? undefined : theme.id.slice(0, theme.id.indexOf('.'))
 }
 
+/** What a theme's fonts set, in words ("Sets fonts: Headings (Georgia)"), or undefined when it sets none. */
+export function themeFonts(theme: ThemeDescriptor): string | undefined {
+  const set = describeThemeFonts(theme.fonts)
+  return set.length > 0 ? `Sets fonts: ${set.join(', ')}` : undefined
+}
+
+/**
+ * The family a theme's name is drawn in on its card, so a theme that sets fonts presents itself: its heading font, else
+ * its interface font. Undefined when it sets neither. Resolved, so the name is checked and quoted as everywhere else.
+ */
+function labelFamily(theme: ThemeDescriptor): string | undefined {
+  if (!theme.fonts) return undefined
+  const { heading, ui } = resolveFonts(DEFAULT_FONT_SETTINGS, theme.fonts)
+  return heading.sources.family === 'theme' ? heading.fontFamily : ui.sources.family === 'theme' ? ui.fontFamily : undefined
+}
+
 const matches = (theme: ThemeDescriptor, query: string) => {
-  const text = [theme.label, theme.description ?? '', themeSource(theme) ?? ''].join('\n').toLocaleLowerCase()
+  const text = [theme.label, theme.description ?? '', themeSource(theme) ?? '', themeFonts(theme) ?? ''].join('\n').toLocaleLowerCase()
   return query.toLocaleLowerCase().split(/\s+/).filter(Boolean).every(word => text.includes(word))
 }
 
@@ -94,7 +112,7 @@ function ThemeCard({ theme, mode, checked, disabled, tabIndex, cardRef, onSelect
   onKeyDown(event: KeyboardEvent): void
 }) {
   const id = useId()
-  const details = [theme.description, themeLimits(theme), themeSource(theme) && `From ${themeSource(theme)}`].filter(Boolean).join(' · ')
+  const details = [theme.description, themeLimits(theme), themeFonts(theme), themeSource(theme) && `From ${themeSource(theme)}`].filter(Boolean).join(' · ')
   return (
     <Box ref={cardRef} role="radio" aria-checked={checked} aria-disabled={disabled || undefined} aria-labelledby={`${id}-label`}
       aria-describedby={details ? `${id}-details` : undefined} tabIndex={tabIndex} data-theme-id={theme.id}
@@ -107,7 +125,7 @@ function ThemeCard({ theme, mode, checked, disabled, tabIndex, cardRef, onSelect
       }}>
       <ThemeMiniature theme={theme} mode={mode} />
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
-        <Typography id={`${id}-label`} variant="body2" sx={{ fontWeight: 600, flexGrow: 1, minWidth: 0 }} noWrap>{theme.label}</Typography>
+        <Typography id={`${id}-label`} variant="body2" sx={{ fontWeight: 600, flexGrow: 1, minWidth: 0, fontFamily: labelFamily(theme) }} noWrap>{theme.label}</Typography>
         {checked && <Icon name="Check" fontSize="small" color="primary" />}
       </Box>
       {details && <Typography id={`${id}-details`} variant="caption" color="text.secondary" sx={{ display: 'block' }}>{details}</Typography>}

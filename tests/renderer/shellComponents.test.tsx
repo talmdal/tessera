@@ -8,6 +8,7 @@ import { DEFAULT_THEME, THEME_GET } from '../../shared/theme/types'
 import { ShellThemeProvider } from '../../shell/renderer/theme/ShellThemeProvider'
 import { createFakeRemote } from '../helpers/fakeBridge'
 import { Frame, fakeBridge, layoutOf, view } from '../helpers/layoutFrame'
+import { DEFAULT_FONT_SETTINGS } from '../../shared/fonts/resolveFonts'
 
 const leftViews = [view('accounts', 'shell.left', { icon: 'Home' }), view('categories', 'shell.left', { icon: 'List' })]
 const barOf = (side: 'top' | 'bottom' | 'left' | 'right', extra: object = {}) =>
@@ -19,7 +20,7 @@ const button = (id: string, extra: Partial<BorderItemDescriptor> = {}): BorderIt
 /** The frame inside the shell's theme, as the app renders it. */
 function renderThemed(snapshot = barOf('left'), views = leftViews, mode: 'light' | 'dark' = 'dark', items: BorderItemDescriptor[] = []) {
   const bridge = fakeBridge(snapshot, items)
-  const theme = { state: { windowId: 1, global: { theme: DEFAULT_THEME.id, mode }, theme: DEFAULT_THEME.id, mode }, themes: [DEFAULT_THEME] }
+  const theme = { state: { windowId: 1, global: { theme: DEFAULT_THEME.id, mode }, theme: DEFAULT_THEME.id, mode }, themes: [DEFAULT_THEME], fonts: DEFAULT_FONT_SETTINGS }
   const { bridge: themeBridge } = createFakeRemote({ [THEME_GET]: () => theme })
   return {
     bridge,
@@ -49,6 +50,37 @@ describe('the bar tab strip', () => {
     const tab = screen.getByRole('tab', { name: 'Title accounts' })
     expect(tab.querySelector('svg[data-icon="Home"]')).toBeInTheDocument()
     expect(tab.querySelector('svg[data-icon="Home"]')).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('narrows its tabs, rather than sliding one out of view, when they do not fit (a narrow bar, large text)', async () => {
+    renderThemed()
+    await act(async () => {})
+
+    for (const tab of screen.getAllByRole('tab')) {
+      expect(getComputedStyle(tab).minWidth).toMatch(/^0(px)?$/)
+      expect(getComputedStyle(tab).flexShrink).toBe('1')
+      const label = tab.querySelector('span:not(.MuiTab-iconWrapper):not(.MuiTouchRipple-root)') as HTMLElement
+      expect(getComputedStyle(label).textOverflow).toBe('ellipsis')
+    }
+    // No scroll buttons: they appear on an overflow of a pixel, and then take the room that keeps the tabs fitting
+    expect(document.querySelector('[data-bar="left"] .MuiTabScrollButton-root')).toBeNull()
+  })
+
+  it("shows a tab's label as its tooltip only while the label is cut short", async () => {
+    renderThemed()
+    await act(async () => {})
+    const label = screen.getByRole('tab', { name: 'Title accounts' }).querySelector('span:not(.MuiTab-iconWrapper):not(.MuiTouchRipple-root)') as HTMLElement
+
+    // jsdom doesn't lay out, so say how wide the label is and how wide its text would be
+    Object.defineProperty(label, 'clientWidth', { configurable: true, value: 40 })
+    Object.defineProperty(label, 'scrollWidth', { configurable: true, value: 90 })
+    await userEvent.hover(label)
+    expect(label).toHaveAttribute('title', 'Title accounts')
+
+    Object.defineProperty(label, 'scrollWidth', { configurable: true, value: 40 })
+    await userEvent.unhover(label)
+    await userEvent.hover(label)
+    expect(label).toHaveAttribute('title', '')
   })
 
   it('links each tab to its panel', async () => {

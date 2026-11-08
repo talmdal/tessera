@@ -1,6 +1,6 @@
 import { Box } from '@mui/material'
 import type { SvgIconProps } from '@mui/material'
-import type { SxProps, Theme } from '@mui/material/styles'
+import { useTheme, type SxProps, type Theme } from '@mui/material/styles'
 import { useContext } from 'react'
 import { isIconName } from '@tessera/types'
 import { IconRegistryContext } from './iconRegistry'
@@ -17,8 +17,11 @@ export interface IconProps extends Omit<SvgIconProps, 'children' | 'component' |
   fallback?: string
 }
 
-/** The sizes MUI's SvgIcon uses for `fontSize`. */
-const SIZE = { small: '1.25rem', medium: '1.5rem', large: '2.1875rem', inherit: '1.5em' } as const
+/**
+ * The sizes MUI's SvgIcon uses for `fontSize`, in px for its design scale. MUI passes them through the theme's `pxToRem`,
+ * so they follow the interface size; a registered icon does the same, so the two kinds always match.
+ */
+const SIZE_PX = { small: 20, medium: 24, large: 35 } as const
 
 /** The palette path for an SvgIcon `color`, for the icons that are painted rather than drawn. */
 const COLOR: Record<string, string> = { action: 'action.active', disabled: 'action.disabled' }
@@ -34,6 +37,7 @@ const paletteColor = (color: string | undefined) => color === undefined || color
  */
 export function Icon({ name, fallback, fontSize = 'medium', color, sx, titleAccess, ...rest }: IconProps) {
   const registry = useContext(IconRegistryContext)
+  const theme = useTheme()
   const url = isIconName(name) ? undefined : name.includes('://') ? name : registry.get(name)
   const source = useIconSource(url)
 
@@ -42,22 +46,27 @@ export function Icon({ name, fallback, fontSize = 'medium', color, sx, titleAcce
     return <Standard data-icon={name} fontSize={fontSize} color={color} sx={sx} titleAccess={titleAccess} {...rest} />
   }
 
-  const size = SIZE[fontSize]
+  // As MUI sizes an SvgIcon: the size is the font size and the box is 1em square, so a container that sets the icon's
+  // font size (a button's start icon, `fontSize="inherit"`) sizes this icon as it sizes a standard one.
   const base: SxProps<Theme> = {
-    display: 'inline-block',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     flex: 'none',
-    width: size,
-    height: size,
+    fontSize: fontSize === 'inherit' ? 'inherit' : theme.typography.pxToRem(SIZE_PX[fontSize]),
+    width: '1em',
+    height: '1em',
     userSelect: 'none',
     ...(source
       ? { bgcolor: paletteColor(color), mask: `url("${source}") center / contain no-repeat`, WebkitMask: `url("${source}") center / contain no-repeat` }
-      : { textAlign: 'center', fontWeight: 600, lineHeight: size, color: paletteColor(color) })
+      : { fontWeight: 600, lineHeight: 1, color: paletteColor(color) })
   }
   const label = titleAccess ? { role: 'img', 'aria-label': titleAccess } : { 'aria-hidden': true }
 
   return (
     <Box component="span" data-icon={name} {...label} sx={[base, ...(Array.isArray(sx) ? sx : [sx])]} {...(rest as object)}>
-      {source ? null : fallback?.charAt(0).toUpperCase()}
+      {/* The placeholder letter at about the size of the text beside it, centred in the icon's box */}
+      {source ? null : fallback && <Box component="span" sx={{ fontSize: '0.7em' }}>{fallback.charAt(0).toUpperCase()}</Box>}
     </Box>
   )
 }

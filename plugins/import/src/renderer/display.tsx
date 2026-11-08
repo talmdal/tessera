@@ -6,7 +6,7 @@ import { Box } from '@tessera/ui'
 /** A signed amount, red when negative, as balances are shown everywhere in Tessera. */
 export function Amount({ minor, currency }: { minor: number, currency: string }) {
   return (
-    <Box component="span" sx={{ fontVariantNumeric: 'tabular-nums', ...(minor < 0 && { color: 'error.main' }) }}>
+    <Box component="span" sx={{ typography: 'numeric', ...(minor < 0 && { color: 'error.main' }) }}>
       {formatAmount(minor, currency, { currency: false })}
     </Box>
   )

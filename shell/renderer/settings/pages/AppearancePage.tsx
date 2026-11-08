@@ -1,12 +1,13 @@
 // shell/renderer/settings/pages/AppearancePage.tsx — the Options dialog's Appearance page: the application's theme.
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import type { SettingsPageProps, ThemeDescriptor, ThemeModePreference, ThemeSelection } from '@tessera/types'
 import { Alert, Box, FormControl, FormLabel, Stack, ToggleButton, ToggleButtonGroup, Typography } from '@tessera/ui'
+import { resolveFonts } from '../../../../shared/fonts/resolveFonts'
 import { contrastFindings } from '../../../../shared/theme/contrast'
 import { followsSystem, modesOf, resolveSelection, selectionFor } from '../../../../shared/theme/selection'
 import { DEFAULT_THEME_ID } from '../../../../shared/theme/types'
 import { useThemeCatalogue, useWindowTheme } from '../../theme/ShellThemeProvider'
-import { ThemeGallery } from '../../theme/ThemeGallery'
+import { ThemeGallery, themeFonts } from '../../theme/ThemeGallery'
 import { ThemePreview } from '../../theme/ThemePreview'
 
 const MODES: { mode: ThemeModePreference, label: string }[] = [
@@ -27,7 +28,7 @@ const offers = (theme: ThemeDescriptor | undefined, mode: ThemeModePreference) =
 export function AppearancePage({ value, onChange, disabled }: SettingsPageProps<ThemeSelection>) {
   const headingId = useId()
   const modeId = useId()
-  const { themes, systemPrefersDark } = useThemeCatalogue()
+  const { themes, systemPrefersDark, fonts: userFonts } = useThemeCatalogue()
   const windowTheme = useWindowTheme()
   const systemDark = systemPrefersDark ?? (typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches)
 
@@ -44,6 +45,9 @@ export function AppearancePage({ value, onChange, disabled }: SettingsPageProps<
   }, [themes, value.theme, value.mode, wish])
 
   const shown = theme ?? themes.find(t => t.id === DEFAULT_THEME_ID)!
+  // The preview shows the theme with its fonts under the user's, as choosing it would
+  const fonts = useMemo(() => resolveFonts(userFonts, shown.fonts), [userFonts, shown.fonts])
+  const shownFonts = themeFonts(shown)
   const previewMode = resolveSelection(value, themes, systemDark).mode
   const modeOf = (candidate: ThemeDescriptor) => resolveSelection(selectionFor(candidate, wish), themes, systemDark).mode
   const findings = contrastFindings(shown).filter(f => f.mode === previewMode)
@@ -92,7 +96,13 @@ export function AppearancePage({ value, onChange, disabled }: SettingsPageProps<
         <Typography variant="subtitle2" component="h3">
           Preview <Typography component="span" variant="caption" color="text.secondary">· {shown.label}, {previewMode} mode</Typography>
         </Typography>
-        <ThemePreview theme={shown} mode={previewMode} />
+        <ThemePreview theme={shown} mode={previewMode} fonts={fonts} />
+        {shownFonts && !userFonts.useThemeFonts && (
+          <Alert severity="info">
+            {shown.label} sets fonts of its own ({shownFonts.replace(/^Sets fonts: /, '')}), but themes' fonts are turned off,
+            so they aren't used. Turn them on under Fonts.
+          </Alert>
+        )}
         {findings.length > 0 && (
           <Alert severity="warning">
             This theme may be hard to read in {previewMode} mode: {findings.map(f => `${f.pair} is ${f.ratio.toFixed(1)}:1 (needs ${f.minimum}:1)`).join('; ')}.

@@ -1,9 +1,21 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
+import fs from 'node:fs'
 import path from 'node:path'
 
 const pathName = import.meta.dirname
 
+/** The page the shell lists installed fonts from (shell/main/fonts/electronFontProbe.ts), built next to app.js. */
+function fontProbePage(): Plugin {
+  return {
+    name: 'tessera-font-probe',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'font-probe.html', source: fs.readFileSync(path.resolve(pathName, 'fonts/fontProbe.html'), 'utf8') })
+    }
+  }
+}
+
 export default defineConfig({
+  plugins: [fontProbePage()],
   resolve: {
     alias: {
       '@shared': path.resolve(pathName, '../../shared'),

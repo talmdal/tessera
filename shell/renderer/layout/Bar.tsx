@@ -75,8 +75,9 @@ export function Bar({ side, size, onDrag, onResize }: {
           <Tabs value={bar.activeView ?? false} onChange={(_event, activeView: string) => setSlot({ slot, activeView })}
             variant="scrollable" scrollButtons={false} aria-label={`${label(side)} views`} sx={{ flex: 1, minWidth: 0 }}>
             {views.map(({ id, view }) => (
-              <Tab key={id} value={id} id={`tab-${id}`} aria-controls={`panel-${id}`}
-                icon={view ? <BarIcon icon={view.icon} title={view.title} /> : undefined} iconPosition="start" label={view?.title ?? id} />
+              <Tab key={id} value={id} id={`tab-${id}`} aria-controls={`panel-${id}`} sx={SHRINKING_TAB}
+                icon={view ? <BarIcon icon={view.icon} title={view.title} /> : undefined} iconPosition="start"
+                label={<TabLabel text={view?.title ?? id} />} />
             ))}
           </Tabs>
           <IconButton aria-label={`Collapse ${label(side).toLowerCase()}`} title={`Collapse ${label(side).toLowerCase()}`}
@@ -100,6 +101,27 @@ export function Bar({ side, size, onDrag, onResize }: {
       {expanded && views.length > 0 && (
         <Splitter side={side} size={size} onDrag={dragged => onDrag(side, dragged)} onCommit={committed => onResize(side, committed)} />
       )}
+    </Box>
+  )
+}
+
+/**
+ * Tabs that narrow when the strip is too short for them (a narrow bar, or large text), rather than sliding out of view
+ * where nothing shows they are there: every tab stays visible, and its label is cut short with an ellipsis. Scroll
+ * buttons were tried instead; MUI shows them on an overflow of a pixel, and the hidden start button's width then makes
+ * the overflow real, so a strip that fitted kept its arrows (docs/font-roles-design.md, Phase 2 results).
+ */
+const SHRINKING_TAB = { minWidth: 0, flexShrink: 1 } as const
+
+/** A tab's label, cut short with an ellipsis when the tab has narrowed, and then shown in full as its tooltip. */
+function TabLabel({ text }: { text: string }) {
+  return (
+    <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+      onMouseEnter={event => {
+        const span = event.currentTarget
+        span.title = span.scrollWidth > span.clientWidth ? text : ''
+      }}>
+      {text}
     </Box>
   )
 }

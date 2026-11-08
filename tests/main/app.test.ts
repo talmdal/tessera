@@ -2,6 +2,7 @@ import { describe, it, expect, vi, onTestFinished } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { DEFAULT_FONT_SETTINGS } from '../../shared/fonts/resolveFonts'
 
 // -----------------------------
 // 1. HOISTED MOCK — must be FIRST
@@ -113,6 +114,9 @@ vi.mock('electron', () => {
       handle: vi.fn()
     },
 
+    // The font probe's session (shell/main/fonts/electronFontProbe.ts); the probe itself can't run under this mock
+    session: { fromPartition: vi.fn(() => ({ setPermissionCheckHandler: vi.fn(), setPermissionRequestHandler: vi.fn() })) },
+
     BrowserWindow: Object.assign(vi.fn(function () { return {
       id: 7,
       loadURL: vi.fn(),
@@ -221,6 +225,8 @@ describe('main process (dynamic plugin system)', { shuffle: false }, () => {
       ok: true,
       data: { state: { windowId: 7, theme: 'tessera.default', mode: 'light', global: { mode: 'system' } }, themes: [{ id: 'tessera.default' }] }
     })
+    // With the user's fonts, at their defaults: every role Automatic, so the window looks as it always has
+    expect(response.data.fonts).toEqual(DEFAULT_FONT_SETTINGS)
   })
 
   it('runs a theme command from the renderer, switches the native theme and publishes the new theme', async () => {
@@ -267,6 +273,58 @@ describe('main process (dynamic plugin system)', { shuffle: false }, () => {
     const snapshot = (electron.ipcMain as any).__sendSync('shell:theme.initial')
 
     expect(snapshot).toMatchObject({ state: { windowId: 7, theme: 'tessera.default', mode: expect.stringMatching(/^(light|dark)$/) }, themes: [{ id: 'tessera.default' }] })
+    // The user's fonts too, so the first frame is drawn in them
+    expect(snapshot.fonts).toEqual(DEFAULT_FONT_SETTINGS)
+  })
+
+  it("re-fonts the window when fonts are applied in the Options dialog, keeping only what differs as a setting", async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const invoke = (channel: string, data?: unknown) => (electron.ipcMain as any).__invoke('tessera:invoke', { channel, data })
+    const applyFonts = (value: unknown) => invoke('shell:settings.commit', { changes: [{ id: 'shell.fonts', value }] })
+    onTestFinished(() => applyFonts(DEFAULT_FONT_SETTINGS))
+    const [window] = electron.BrowserWindow.getAllWindows() as any[]
+    const before = window.webContents.send.mock.calls.length
+    const file = path.join(electron.app.getPath('userData'), 'settings', 'shell.fonts.json')
+
+    // The Options dialog knows the namespace, at its defaults, with no file
+    const catalogue = await invoke('shell:settings.get')
+    expect(catalogue.data.namespaces).toContainEqual(expect.objectContaining({ id: 'shell.fonts', owner: 'shell', value: DEFAULT_FONT_SETTINGS }))
+    expect(fs.existsSync(file)).toBe(false)
+
+    const larger = { ...DEFAULT_FONT_SETTINGS, roles: { ...DEFAULT_FONT_SETTINGS.roles, ui: { family: ['Inter'], size: 16, weight: null } } }
+    expect(await applyFonts(larger)).toMatchObject({ ok: true, data: { ok: true } })
+
+    const published = window.webContents.send.mock.calls.slice(before).map((call: any[]) => call[1])
+    expect(published).toContainEqual(expect.objectContaining({ name: 'shell:theme.changed', data: expect.objectContaining({ fonts: larger }) }))
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, values: { roles: { ui: { family: ['Inter'], size: 16 } } } })
+    await expect(invoke('shell:theme.get')).resolves.toMatchObject({ data: { fonts: larger } })
+
+    // Something the user couldn't have chosen is refused, with the reason, and nothing changes
+    const refused = await applyFonts({ ...larger, roles: { ...larger.roles, ui: { family: null, size: 99, weight: null } } })
+    expect(refused).toMatchObject({ ok: true, data: { ok: false, errors: { 'shell.fonts': ['Interface text: choose a size from 11 to 24 px.'] } } })
+    await expect(invoke('shell:theme.get')).resolves.toMatchObject({ data: { fonts: larger } })
+
+    // Back to the defaults: the file goes
+    await applyFonts(DEFAULT_FONT_SETTINGS)
+    await vi.waitFor(() => expect(fs.existsSync(file)).toBe(false))
+  })
+
+  it('has a Fonts page under Appearance, which its command opens, and answers with the installed fonts', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const invoke = (channel: string, data?: unknown) => (electron.ipcMain as any).__invoke('tessera:invoke', { channel, data })
+    const [window] = electron.BrowserWindow.getAllWindows() as any[]
+
+    const catalogue = await invoke('shell:settings.get')
+    expect(catalogue.data.pages).toContainEqual(expect.objectContaining({ id: 'shell.appearance.fonts', title: 'Fonts', parent: 'shell.appearance', settings: 'shell.fonts', module: './Fonts' }))
+
+    const before = window.webContents.send.mock.calls.length
+    await invoke('shell:commands.execute', { id: 'shell.fonts.choose' })
+    expect(window.webContents.send.mock.calls.slice(before).map((call: any[]) => call[1]))
+      .toContainEqual({ name: 'shell:settings.open', data: { windowId: 7, page: 'shell.appearance.fonts' } })
+
+    // The probe can't list fonts under this mock, so the answer is "not available": the page then offers typing a name
+    await expect(invoke('shell:fonts.families')).resolves.toEqual({ ok: true, data: { families: [], complete: false } })
+    expect(electron.session.fromPartition).toHaveBeenCalledWith('tessera-font-probe')
   })
 
   it('creates the window hidden, painted in its theme colour, and shows it once page and renderer are ready', async () => {
@@ -341,7 +399,9 @@ describe('main process (dynamic plugin system)', { shuffle: false }, () => {
     const catalogue = await invoke('shell:settings.get')
     expect(catalogue.ok).toBe(true)
     // The shell's own Appearance page comes first; the plugin's follows
-    expect(catalogue.data.pages.map((p: any) => [p.id, p.settings])).toEqual([['shell.appearance', 'shell.theme'], ['test-plugin.settings', 'test-plugin']])
+    expect(catalogue.data.pages.map((p: any) => [p.id, p.settings])).toEqual([
+      ['shell.appearance', 'shell.theme'], ['shell.appearance.fonts', 'shell.fonts'], ['test-plugin.settings', 'test-plugin']
+    ])
     expect(catalogue.data.namespaces).toContainEqual(expect.objectContaining({ id: 'test-plugin', value: { greeting: 'Hello' } }))
 
     expect(await invoke('shell:settings.commit', { changes: [{ id: 'test-plugin', value: { greeting: ' ' } }] }))

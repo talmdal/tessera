@@ -8,10 +8,12 @@ import { ShellThemeProvider } from '../../../../shell/renderer/theme/ShellThemeP
 import AccountDialog, { toInput } from '../../../../plugins/accounts/src/renderer/AccountDialog'
 import Navigator from '../../../../plugins/accounts/src/renderer/Navigator'
 import { createFakeRemote } from '../../../helpers/fakeBridge'
+import { DEFAULT_FONT_SETTINGS } from '../../../../shared/fonts/resolveFonts'
 
 const theme: ThemeSnapshot = {
   state: { windowId: 1, global: { theme: DEFAULT_THEME.id, mode: 'light' }, theme: DEFAULT_THEME.id, mode: 'light' },
-  themes: [DEFAULT_THEME]
+  themes: [DEFAULT_THEME],
+  fonts: DEFAULT_FONT_SETTINGS
 }
 const base = { subLedgers: [], ledgerName: 'Home', defaultCurrency: 'CAD' }
 

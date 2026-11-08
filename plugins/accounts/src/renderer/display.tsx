@@ -9,6 +9,15 @@ export const showDate = (iso: string) => {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d)))
 }
 
+/**
+ * A width designed for 13 px text, in em of the table's text. Tables are drawn in the Tables and registers font role,
+ * whose size the user and themes can change; in em, a column grows with its text, so an amount is never cut short
+ * because the text got bigger. (The shell gives a table the same size as its cells, which is what em is measured by.)
+ * Rounded up, so at 13 px the width is never a fraction of a pixel short of `px`: layout would round that down, and every
+ * column after it would move.
+ */
+export const em = (px: number) => `${Math.ceil(px / 13 * 1e4) / 1e4}em`
+
 /** An icon per type, from the shell's standard set. */
 export const TYPE_ICONS: Readonly<Record<AccountType, string>> = {
   chequing: 'AccountBalance',
@@ -34,7 +43,7 @@ export function Balance({ minor, currency, muted = false }: { minor: number, cur
       component="span"
       data-negative={minor < 0 || undefined}
       sx={{
-        fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+        typography: 'numeric', whiteSpace: 'nowrap',
         color: minor < 0 ? 'error.main' : muted ? 'text.secondary' : 'text.primary'
       }}
     >

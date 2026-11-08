@@ -5,6 +5,8 @@ import { createPluginContext, createPluginRuntime } from '../../core/plugins/Plu
 import { ThemeService } from '../../core/theme/ThemeService'
 import { MENUS_EXTENSION_POINT } from '../../shared/menus/types'
 import { SHELL_CONTRIBUTOR_ID } from '../../shared/plugins/manifest'
+import { DEFAULT_FONT_SETTINGS } from '../../shared/fonts/resolveFonts'
+import { FONT_SETTINGS } from '../../shared/fonts/settings'
 import { THEME_SETTINGS, THEME_SETTINGS_ID, THEME_SETTINGS_MODULE, THEME_SETTINGS_PAGE } from '../../shared/theme/settings'
 import { THEMES_EXTENSION_POINT, THEME_CHANGED, THEME_COMMANDS, THEME_GET, DEFAULT_THEME_ID, themeKey } from '../../shared/theme/types'
 import { createThemePersistence } from '../../shell/main/theme/appStatePersistence'
@@ -21,9 +23,10 @@ function setup(saved: { global?: unknown, overrides?: Record<string, unknown> } 
   const platform = fakeThemePort(systemDark)
   const { store, persistence } = memoryThemePersistence(saved)
   const theme = new ThemeService(runtime.extensions, platform.port, { persistence, log })
-  // The application's theme is the shell.theme setting, as in the app
+  // The application's theme is the shell.theme setting, and the user's fonts the shell.fonts setting, as in the app
   const settings = runtime.settings.register(SHELL_CONTRIBUTOR_ID, THEME_SETTINGS)
-  const host = registerTheme(shell, runtime, theme, log, settings)
+  const fonts = runtime.settings.register(SHELL_CONTRIBUTOR_ID, FONT_SETTINGS)
+  const host = registerTheme(shell, runtime, theme, log, settings, fonts)
 
   const events: { name: string, data?: any }[] = []
   runtime.events.subscribe(event => events.push(event))
@@ -37,7 +40,7 @@ function setup(saved: { global?: unknown, overrides?: Record<string, unknown> } 
   const run = (command: string, ...args: unknown[]) => runtime.commands.execute(command, ...args)
   const changes = () => events.filter(e => e.name === THEME_CHANGED).map(e => e.data as ThemeSnapshot)
 
-  return { runtime, shell, settings, theme, host, platform, log, store, persistence, events, changes, contribute, ask, run }
+  return { runtime, shell, settings, fonts, theme, host, platform, log, store, persistence, events, changes, contribute, ask, run }
 }
 
 describe('registerTheme: requests', () => {
@@ -126,6 +129,85 @@ describe('registerTheme: events', () => {
     contribute(sunrise())
 
     expect(changes().map(s => s.themes.map(t => t.id))).toEqual([[SHELL, 'p.sunrise']])
+  })
+})
+
+describe("registerTheme: the user's fonts", () => {
+  const larger = { ...DEFAULT_FONT_SETTINGS.roles.ui, size: 16 }
+
+  it("sends every window the user's fonts with its theme, the defaults until the user changes them", async () => {
+    const { host, ask } = setup()
+    await host.attachWindow(1, 'main')
+
+    const answer = await ask(THEME_GET, undefined, 1)
+
+    expect(answer).toMatchObject({ ok: true, data: { fonts: DEFAULT_FONT_SETTINGS } })
+    // And in the snapshot the preload reads synchronously, so the first frame already has them
+    expect(host.snapshotFor(1)?.fonts).toEqual(DEFAULT_FONT_SETTINGS)
+  })
+
+  it('publishes a change of fonts to every window once, each with its own state', async () => {
+    const { host, theme, fonts, changes, contribute } = setup()
+    contribute(midnight())
+    await host.attachWindow(1, 'main')
+    await host.attachWindow(2, 'window-2')
+    theme.setOverride(2, { theme: 'p.midnight', mode: 'dark' })
+    const before = changes().length
+
+    await fonts.update({ roles: { ...fonts.get().roles, ui: larger } })
+
+    const published = changes().slice(before)
+    expect(published.map(s => [s.state.windowId, s.state.theme, s.fonts.roles.ui.size])).toEqual([[1, SHELL, 16], [2, 'p.midnight', 16]])
+    // Later snapshots carry them too
+    expect(host.snapshotFor(2)?.fonts.roles.ui.size).toBe(16)
+  })
+
+  it("changes no window's theme, and publishes nothing when the fonts don't change", async () => {
+    const { host, theme, fonts, changes, runtime } = setup()
+    const unrelated = runtime.settings.register('p', { defaults: { reopen: true } })
+    await host.attachWindow(1, 'main')
+    const state = theme.getState(1)
+    await fonts.update({ roles: { ...fonts.get().roles, ui: larger } })
+    expect(theme.getState(1)).toEqual(state)
+    const before = changes().length
+
+    // The same value again, and a change to a plugin's setting
+    await fonts.update({ roles: { ...fonts.get().roles } })
+    await unrelated.update({ reopen: false })
+
+    expect(changes().slice(before)).toEqual([])
+  })
+
+  it("sends the fonts a contributed theme sets with it, and refuses a theme whose fonts can't be used", async () => {
+    const { host, ask, contribute, log } = setup()
+    await host.attachWindow(1, 'main')
+
+    contribute(sunrise({ fonts: { heading: { family: ['Georgia', 'serif'] } } }))
+    contribute(midnight({ fonts: { ui: { size: 30 } } }))
+
+    const answer = await ask(THEME_GET, undefined, 1) as any
+    expect(answer.data.themes.map((t: any) => [t.id, t.fonts])).toEqual([[SHELL, undefined], ['p.sunrise', { heading: { family: ['Georgia', 'serif'] } }]])
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Theme "p.midnight" has a font that can\'t be used (Interface text: choose a size from 12 to 16 px.)'))
+  })
+
+  it('publishes nothing while there is no window', async () => {
+    const { fonts, changes } = setup()
+
+    await fonts.update({ useThemeFonts: false })
+
+    expect(changes()).toEqual([])
+  })
+
+  it('refuses fonts the user could not have chosen, and keeps what was in effect', async () => {
+    const { host, fonts, changes } = setup()
+    await host.attachWindow(1, 'main')
+    const before = changes().length
+
+    await expect(fonts.update({ roles: { ...fonts.get().roles, ui: { ...larger, size: 40 } } })).rejects.toMatchObject({
+      problems: ['Interface text: choose a size from 11 to 24 px.']
+    })
+    expect(fonts.get()).toEqual(DEFAULT_FONT_SETTINGS)
+    expect(changes().slice(before)).toEqual([])
   })
 })
 
@@ -499,7 +581,7 @@ describe('registerTheme: windows and persistence', () => {
     } as unknown as AppState
     const settings = runtime.settings.register(SHELL_CONTRIBUTOR_ID, THEME_SETTINGS)
     const theme = new ThemeService(runtime.extensions, fakeThemePort().port, { persistence: createThemePersistence(() => appState, settings, log), log })
-    const host = registerTheme(shell, runtime, theme, log, settings)
+    const host = registerTheme(shell, runtime, theme, log, settings, runtime.settings.register(SHELL_CONTRIBUTOR_ID, FONT_SETTINGS))
 
     await host.load()
     await host.attachWindow(1, 'main')

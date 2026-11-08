@@ -4,10 +4,12 @@ import type { ThemeSnapshot } from '@tessera/types'
 import { THEME_INITIAL } from '../../shared/theme/types'
 import { registerInitialTheme } from '../../shell/main/theme/initialTheme'
 import { createLogger } from '../helpers/runtime'
+import { DEFAULT_FONT_SETTINGS } from '../../shared/fonts/resolveFonts'
 
 const snapshot: ThemeSnapshot = {
   state: { windowId: 1, global: { theme: 'tessera.default', mode: 'system' }, theme: 'tessera.default', mode: 'dark' },
-  themes: []
+  themes: [],
+  fonts: DEFAULT_FONT_SETTINGS
 }
 
 /** Registers the handler and returns a function that sends a synchronous request, as the preload does. */

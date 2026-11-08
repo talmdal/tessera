@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import type { ShellBridge } from '../../shared/ipc'
 import App from './App'
 import { DialogHost } from './dialogs/DialogHost'
+import { createIpcFontSource, InstalledFontsProvider } from './fonts/InstalledFonts'
 import { IconsProvider } from './icons/IconsProvider'
 import { SettingsDialog } from './settings/SettingsDialog'
 import { BarItemsProvider, createIpcBarItemSource } from './layout/BarItemsProvider'
@@ -17,6 +18,7 @@ const bridge = window.api as ShellBridge
 const source = createIpcViewSource(window.api)
 const barItems = createIpcBarItemSource(window.api)
 const loader = createFederationViewLoader()
+const installedFonts = createIpcFontSource(window.api)
 
 const root = createRoot(document.getElementById('root')!)
 // Nothing is drawn until the window's theme is known; the main process keeps the window hidden until then.
@@ -28,7 +30,9 @@ root.render(
           <BarItemsProvider source={barItems}>
             <App />
             <WindowReady bridge={window.api} />
-            <SettingsDialog bridge={window.api} loader={loader} />
+            <InstalledFontsProvider source={installedFonts}>
+              <SettingsDialog bridge={window.api} loader={loader} />
+            </InstalledFontsProvider>
             <DialogHost bridge={window.api} loader={loader} />
           </BarItemsProvider>
         </ViewsProvider>

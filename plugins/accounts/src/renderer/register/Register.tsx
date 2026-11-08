@@ -18,7 +18,7 @@ import {
   ListItemText, Menu, MenuItem, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Toolbar, Tooltip, Typography
 } from '@tessera/ui'
 import { runCommand } from '../bridge'
-import { Balance, showDate } from '../display'
+import { Balance, em, showDate } from '../display'
 import { ReconcileList } from '../reconcile/ReconcileList'
 import { useReconcileState } from '../reconcile/useReconcile'
 import {
@@ -29,6 +29,12 @@ import { AnnotationLine, annotationId, reviewBar } from './AnnotationLine'
 import { ReviewBar } from './ReviewBar'
 import { TransactionEditor } from './TransactionEditor'
 import { useRegisterData } from './useRegister'
+
+/**
+ * The status column is narrow (one letter). MUI's cell padding would leave it 4 px of its 36, and cut "C" to "C…";
+ * a little padding leaves room for the letter at every size.
+ */
+const STATUS_CELL = { px: 0.5 } as const
 
 const NEW = 'new'
 const NO_ANNOTATIONS: RegisterView['annotations'] = { rows: [], summaries: [] }
@@ -361,15 +367,16 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
         ? <ReconcileList state={reconciling} withConfirmation={withConfirmation} onProblem={setNotice} entry={entryRow} />
         : <TableContainer ref={tableRef} tabIndex={0} onKeyDown={onKeyDown} aria-label={`Transactions in ${account.name}`}
         sx={{ flex: 1, minHeight: 0, overflow: 'auto', '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 } }}>
-        <Table size="small" stickyHeader aria-label={`Register of ${account.name}`} sx={{ tableLayout: 'fixed', minWidth: 820 }}>
+        {/* Widths in em, so they grow with the Tables and registers font and never cut an amount short (see `em`) */}
+        <Table size="small" stickyHeader aria-label={`Register of ${account.name}`} sx={{ tableLayout: 'fixed', minWidth: em(820) }}>
           <colgroup>
-            <col style={{ width: 36 }} /><col style={{ width: 80 }} /><col style={{ width: 150 }} /><col /><col />
-            <col style={{ width: 115 }} /><col style={{ width: 115 }} /><col style={{ width: 130 }} />
-            {reviewColumn && <col style={{ width: 210 }} />}
+            <col style={{ width: em(36) }} /><col style={{ width: em(80) }} /><col style={{ width: em(150) }} /><col /><col />
+            <col style={{ width: em(115) }} /><col style={{ width: em(115) }} /><col style={{ width: em(130) }} />
+            {reviewColumn && <col style={{ width: em(210) }} />}
           </colgroup>
           <TableHead>
             <TableRow>
-              <TableCell><Tooltip title="Status: C cleared, E electronically cleared, R reconciled, V void"><span>St</span></Tooltip></TableCell>
+              <TableCell align="center" sx={STATUS_CELL}><Tooltip title="Status: C cleared, E electronically cleared, R reconciled, V void"><span>St</span></Tooltip></TableCell>
               <TableCell>Num</TableCell>
               <TableCell>Date</TableCell>
               <TableCell>Payee</TableCell>
@@ -530,7 +537,7 @@ function TransactionLine({ row, account, selected, mark, described, reviewColumn
         ...(mark?.review && reviewBar(mark.tone))
       }}
     >
-      <TableCell align="center" onClick={event => { if (selected) { event.stopPropagation(); onToggle() } }}
+      <TableCell align="center" sx={STATUS_CELL} onClick={event => { if (selected) { event.stopPropagation(); onToggle() } }}
         title={t.voided ? 'Void' : t.status === 'uncleared' ? 'Uncleared' : `${t.status[0].toUpperCase()}${t.status.slice(1)}`}>
         {letter}
       </TableCell>
@@ -538,8 +545,8 @@ function TransactionLine({ row, account, selected, mark, described, reviewColumn
       <TableCell>{showDate(t.date)}</TableCell>
       <TableCell title={t.memo}>{row.payeeName}</TableCell>
       <TableCell sx={{ color: row.categoryLabel ? undefined : 'text.secondary' }}>{row.categoryLabel ?? ''}</TableCell>
-      <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', ...struck }}>{t.amount < 0 ? amount : ''}</TableCell>
-      <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', ...struck }}>{t.amount > 0 ? amount : ''}</TableCell>
+      <TableCell align="right" sx={{ typography: 'numeric', ...struck }}>{t.amount < 0 ? amount : ''}</TableCell>
+      <TableCell align="right" sx={{ typography: 'numeric', ...struck }}>{t.amount > 0 ? amount : ''}</TableCell>
       <TableCell align="right"><Balance minor={shownRunningBalance(account, row)} currency={account.currency} /></TableCell>
       {reviewColumn && (
         <TableCell sx={{ py: 0.25 }}>

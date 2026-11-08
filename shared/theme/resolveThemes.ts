@@ -1,5 +1,6 @@
 // shared/theme/resolveThemes.ts
-import type { ThemeDescriptor, ThemeTokens } from '@tessera/types'
+import type { ThemeDescriptor, ThemeFonts, ThemeTokens } from '@tessera/types'
+import { fontSpecProblems, isFontRoleId } from '../fonts/roles'
 import { DEFAULT_THEME, DEFAULT_THEME_ID } from './types'
 
 export interface ContributedTheme {
@@ -39,6 +40,20 @@ function tokenProblem(tokens: unknown): string | undefined {
   return undefined
 }
 
+/**
+ * A problem with a theme's fonts, or undefined when they are fine: by role, each held to what the role allows and to
+ * the theme's size range (fontSpecProblems), with the first message.
+ */
+function fontsProblem(fonts: unknown): string | undefined {
+  if (typeof fonts !== 'object' || fonts === null || Array.isArray(fonts)) return 'has fonts that are not an object'
+  for (const [role, spec] of Object.entries(fonts)) {
+    if (!isFontRoleId(role)) return `has fonts for an unknown role "${role}"`
+    const [problem] = fontSpecProblems(role, spec, 'theme')
+    if (problem) return `has a font that can't be used (${problem})`
+  }
+  return undefined
+}
+
 function validate(raw: unknown, contributor: string): string | undefined {
   if (typeof raw !== 'object' || raw === null) return 'Theme contribution is not an object'
 
@@ -58,8 +73,13 @@ function validate(raw: unknown, contributor: string): string | undefined {
     if (problem) return `Theme "${id}" ${variant} variant ${problem}`
   }
 
+  if (t.fonts !== undefined) {
+    const problem = fontsProblem(t.fonts)
+    if (problem) return `Theme "${id}" ${problem}`
+  }
+
   for (const key of Object.keys(t)) {
-    if (!['id', 'label', 'description', 'light', 'dark'].includes(key)) return `Theme "${id}" has an unknown field "${key}"`
+    if (!['id', 'label', 'description', 'light', 'dark', 'fonts'].includes(key)) return `Theme "${id}" has an unknown field "${key}"`
   }
   return undefined
 }
@@ -94,7 +114,8 @@ export function resolveThemes(contributions: readonly ContributedTheme[]): { the
       label: theme.label,
       ...(theme.description !== undefined && { description: theme.description }),
       ...(theme.light && { light: cloneTokens(theme.light) }),
-      ...(theme.dark && { dark: cloneTokens(theme.dark) })
+      ...(theme.dark && { dark: cloneTokens(theme.dark) }),
+      ...(theme.fonts && { fonts: cloneFonts(theme.fonts) })
     })
   }
 
@@ -102,3 +123,4 @@ export function resolveThemes(contributions: readonly ContributedTheme[]): { the
 }
 
 const cloneTokens = (tokens: ThemeTokens): ThemeTokens => JSON.parse(JSON.stringify(tokens))
+const cloneFonts = (fonts: ThemeFonts): ThemeFonts => JSON.parse(JSON.stringify(fonts))

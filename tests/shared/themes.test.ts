@@ -52,6 +52,36 @@ describe('resolveThemes', () => {
     expect(themes[1].light!.primary).toBe('#ff8800')
   })
 
+  it('keeps the fonts a theme sets, copied, so later changes by the plugin do not reach the registry', () => {
+    const fonts = { heading: { family: ['Georgia', 'serif'], weight: 600 as const }, ui: { size: 14 }, numeric: { family: ['Cascadia Mono'] } }
+    const source = sunrise({ fonts })
+    const { themes, diagnostics } = resolve(source)
+    fonts.heading.family.push('Times')
+    fonts.ui.size = 16
+
+    expect(diagnostics).toEqual([])
+    expect(themes[1].fonts).toEqual({ heading: { family: ['Georgia', 'serif'], weight: 600 }, ui: { size: 14 }, numeric: { family: ['Cascadia Mono'] } })
+    expect(resolve(sunrise()).themes[1]).not.toHaveProperty('fonts')
+  })
+
+  it.each<[string, unknown, string]>([
+    ['fonts that are not an object', ['Georgia'], 'has fonts that are not an object'],
+    ['a role that does not exist', { register: { size: 14 } }, 'has fonts for an unknown role "register"'],
+    ['a facet the role does not have', { heading: { size: 20 } }, "Headings: its size can't be set."],
+    ['a size the user could choose but a theme may not', { ui: { size: 20 } }, 'Interface text: choose a size from 12 to 16 px.'],
+    ['a weight not offered', { ui: { weight: 450 } }, 'Interface text: choose Regular, Medium, Semibold or Bold.'],
+    ['a family that is not a list', { ui: { family: 'Georgia' } }, 'Interface text: the font must be a list of font names.'],
+    ['a family that would break out of CSS', { table: { family: ['Arial; } body { display: none'] } }, 'isn\'t a font name'],
+    ['something that is not a facet', { ui: { colour: '#ff0000' } }, '"colour" isn\'t something a font has']
+  ])('skips a theme with %s', (_name, fonts, message) => {
+    const { themes, diagnostics } = resolve(sunrise({ fonts } as never))
+
+    expect(themes).toEqual([DEFAULT_THEME])
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0]).toContain('Theme "p.sunrise" has')
+    expect(diagnostics[0]).toContain(message)
+  })
+
   it.each<[string, unknown, string]>([
     ['not an object', 'nope', 'not an object'],
     ['no id', { label: 'x', dark: {} }, 'missing an id'],

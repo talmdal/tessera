@@ -10,7 +10,7 @@ import {
 import {
   Box, Checkbox, Icon, IconButton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography
 } from '@tessera/ui'
-import { showDate } from '../display'
+import { em, showDate } from '../display'
 import { columnsFor, correctedAmount } from '../register/model'
 import { reconcile } from './useReconcile'
 
@@ -135,7 +135,7 @@ export function ReconcileList({ state, withConfirmation, onProblem, entry }: Pro
         )
       }
       return (
-        <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums', cursor: 'text' }} title="Click to correct the amount"
+        <TableCell align="right" sx={{ typography: 'numeric', cursor: 'text' }} title="Click to correct the amount"
           onClick={event => { event.stopPropagation(); startEdit(t) }}>
           {amount}
         </TableCell>
@@ -199,10 +199,11 @@ export function ReconcileList({ state, withConfirmation, onProblem, entry }: Pro
     <TableContainer ref={tableRef} tabIndex={0} onKeyDown={onKeyDown} aria-label={`Transactions to reconcile in ${account.name}`}
       sx={{ flex: 1, minHeight: 0, overflow: 'auto', '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 } }}
       data-reconciling={account.id}>
-      <Table size="small" stickyHeader aria-label={`Reconcile ${account.name}`} sx={{ tableLayout: 'fixed', minWidth: 820 }}>
+      {/* Widths in em, so they grow with the Tables and registers font and never cut an amount short (see `em`) */}
+      <Table size="small" stickyHeader aria-label={`Reconcile ${account.name}`} sx={{ tableLayout: 'fixed', minWidth: em(820) }}>
         <colgroup>
-          <col style={{ width: 48 }} /><col style={{ width: 80 }} /><col style={{ width: 150 }} /><col /><col />
-          <col style={{ width: 125 }} /><col style={{ width: 125 }} /><col style={{ width: 88 }} />
+          <col style={{ width: em(48) }} /><col style={{ width: em(80) }} /><col style={{ width: em(150) }} /><col /><col />
+          <col style={{ width: em(125) }} /><col style={{ width: em(125) }} /><col style={{ width: em(88) }} />
         </colgroup>
         <TableHead>
           <TableRow>

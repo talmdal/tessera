@@ -10,10 +10,12 @@ import { ShellThemeProvider } from '../../shell/renderer/theme/ShellThemeProvide
 import { createFederationViewLoader } from '../../shell/renderer/views/federationViewLoader'
 import type { ViewLoader } from '../../shell/renderer/views/ports'
 import { createFakeRemote } from '../helpers/fakeBridge'
+import { DEFAULT_FONT_SETTINGS } from '../../shared/fonts/resolveFonts'
 
 const theme: ThemeSnapshot = {
   state: { windowId: 1, global: { theme: DEFAULT_THEME.id, mode: 'light' }, theme: DEFAULT_THEME.id, mode: 'light' },
-  themes: [DEFAULT_THEME]
+  themes: [DEFAULT_THEME],
+  fonts: DEFAULT_FONT_SETTINGS
 }
 
 /** A plugin dialog the fake loader hands out. */
@@ -66,6 +68,14 @@ describe('the dialog host', () => {
 
     expect(closes()).toEqual([{ requestId: request.requestId, result: { name: 'Business!' } }])
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it("titles a plugin's dialog as the Options dialog is titled: half MUI's vertical padding", async () => {
+    const { open } = setup()
+    await open()
+
+    const title = within(await dialog()).getByRole('heading', { name: 'Rename Sub-Ledger' })
+    expect([getComputedStyle(title).paddingTop, getComputedStyle(title).paddingBottom]).toEqual(['8px', '8px'])
   })
 
   it('shows only the dialogs sent to its own window', async () => {

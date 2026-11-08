@@ -14,10 +14,12 @@ import { createFederationViewLoader } from '../../shell/renderer/views/federatio
 import type { ViewLoader } from '../../shell/renderer/views/ports'
 import { createFakeRemote } from '../helpers/fakeBridge'
 import { settle } from '../helpers/settle'
+import { DEFAULT_FONT_SETTINGS } from '../../shared/fonts/resolveFonts'
 
 const theme: ThemeSnapshot = {
   state: { windowId: 1, global: { theme: DEFAULT_THEME.id, mode: 'light' }, theme: DEFAULT_THEME.id, mode: 'light' },
-  themes: [DEFAULT_THEME]
+  themes: [DEFAULT_THEME],
+  fonts: DEFAULT_FONT_SETTINGS
 }
 
 const LEDGER = { reopenLast: true, recentLimit: 10, sort: 'name' }
@@ -103,6 +105,14 @@ describe('the Options dialog: opening', () => {
 
     await open()
     expect(dialog()).toBeInTheDocument()
+  })
+
+  it("keeps its title row short: the theme's dialog title, half the vertical padding MUI gives one", async () => {
+    const { open } = setup()
+    await open()
+
+    const title = within(dialog()).getByRole('heading', { name: 'Options' })
+    expect([getComputedStyle(title).paddingTop, getComputedStyle(title).paddingBottom]).toEqual(['8px', '8px'])
   })
 
   it('lists the pages as a tree and shows the first one', async () => {

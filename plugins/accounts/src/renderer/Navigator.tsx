@@ -14,6 +14,14 @@ import {
 import { runCommand, useFollowed } from './bridge'
 import { Balance, Totals, TYPE_ICONS } from './display'
 
+/**
+ * A name takes the room its balance leaves, and is cut short with an ellipsis when that is too little, but never below
+ * 5 em (five or six letters). The zero width keeps the full name out of the row's smallest width, so only that
+ * minimum makes the tree scroll sideways. 5 em is 65 px at the shell's own size, less than a name had before this
+ * rule with a balance in the hundreds of thousands, so the tree scrolls only once the text is larger.
+ */
+const NAME_MIN = { flex: '1 1 0', width: 0, minWidth: '5em' } as const
+
 export interface Row {
   /** `ledger`, or the sub-ledger's or account's id. */
   key: string
@@ -194,7 +202,8 @@ export default function Navigator() {
 
   return (
     <Stack sx={{ height: '100%' }} data-accounts-page="navigator">
-      <Toolbar variant="dense" disableGutters sx={{ px: 1, gap: 0.5, minHeight: 36, justifyContent: 'flex-end' }}>
+      {/* Wraps rather than pushing its first buttons out of the bar when they don't fit (large text, a narrow bar) */}
+      <Toolbar variant="dense" disableGutters sx={{ px: 1, gap: 0.5, minHeight: 36, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <Tooltip title="New account (Insert)">
           <IconButton size="small" aria-label="New account" onClick={() => run(C.newAccount)}><Icon name="Add" /></IconButton>
         </Tooltip>
@@ -214,6 +223,12 @@ export default function Navigator() {
       {error && <Typography role="alert" color="error" variant="body2" sx={{ px: 1 }}>{error}</Typography>}
 
       <Box role="tree" aria-label={`Accounts in ${chart.ledger.name}`} onKeyDown={onKeyDown} sx={{ flex: 1, overflow: 'auto', py: 0.5 }}>
+        {/*
+          * Names keep a readable width (NAME_MIN): when the bar is too narrow for a name, its balance and its depth, the
+          * tree scrolls sideways rather than squeezing the name to a letter, as happens with large text. The rows share
+          * this box, at least as wide as the widest row needs, so every row (and its highlight) is the same width.
+          */}
+        <Box role="none" sx={{ minWidth: 'min-content' }}>
         {rows.map(r => {
           const isSelected = r.key === row.key
           const open = !collapsed.has(r.key)
@@ -247,7 +262,7 @@ export default function Navigator() {
                 <Icon name={open ? 'ExpandMore' : 'ChevronRight'} fontSize="small" />
               </Box>
               <Icon name={r.icon} fontSize="small" />
-              <Typography variant="body2" noWrap sx={{ flex: 1, fontWeight: r.kind === 'ledger' ? 600 : undefined }}>{r.name}</Typography>
+              <Typography variant="body2" noWrap sx={{ ...NAME_MIN, fontWeight: r.kind === 'ledger' ? 600 : undefined }}>{r.name}</Typography>
               <Typography variant="body2" component="span">
                 {r.balance
                   ? <>
@@ -259,6 +274,7 @@ export default function Navigator() {
             </Box>
           )
         })}
+        </Box>
       </Box>
 
       <Menu
