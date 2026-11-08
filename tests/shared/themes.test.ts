@@ -36,6 +36,14 @@ describe('resolveThemes', () => {
     expect(themes[2]).toEqual(midnight())
   })
 
+  it('keeps a description, for where themes are chosen', () => {
+    const { themes, diagnostics } = resolve(sunrise({ description: 'Warm oranges for early starts.' }))
+
+    expect(diagnostics).toEqual([])
+    expect(themes[1].description).toBe('Warm oranges for early starts.')
+    expect(resolve(sunrise()).themes[1]).not.toHaveProperty('description')
+  })
+
   it('copies a theme, so later changes by the plugin do not reach the registry', () => {
     const source = sunrise()
     const { themes } = resolve(source)
@@ -56,7 +64,9 @@ describe('resolveThemes', () => {
     ['an unknown nested token', { id: 'p.x', label: 'x', dark: { text: { hint: '#fff' } } }, 'unknown token "text.hint"'],
     ['a colour that is not valid', { id: 'p.x', label: 'x', dark: { primary: 'red' } }, 'invalid colour for "primary"'],
     ['a nested colour that is not valid', { id: 'p.x', label: 'x', light: { background: { paper: 5 } } }, 'invalid colour for "background.paper"'],
-    ['an unknown field', { id: 'p.x', label: 'x', dark: {}, extends: 'p.y' }, 'unknown field "extends"']
+    ['an unknown field', { id: 'p.x', label: 'x', dark: {}, extends: 'p.y' }, 'unknown field "extends"'],
+    ['a description that is not text', { id: 'p.x', label: 'x', dark: {}, description: 7 }, 'invalid description'],
+    ['an empty description', { id: 'p.x', label: 'x', dark: {}, description: ' ' }, 'invalid description']
   ])('skips a theme with %s', (_name, impl, message) => {
     const { themes, diagnostics } = resolve(impl)
 

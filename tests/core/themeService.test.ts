@@ -526,3 +526,70 @@ describe('ThemeService: themes that are hard to read', () => {
     expect(vi.mocked(log.warn).mock.calls.filter((c: unknown[]) => String(c[0]).includes('hard to read'))).toEqual([])
   })
 })
+
+describe('ThemeService: a selection kept elsewhere', () => {
+  it('adopts it without saving it back, and tells the windows', async () => {
+    const { persistence } = memoryThemePersistence()
+    const { theme, changes } = setupTheme({ persistence })
+    await theme.attach(1)
+
+    expect(theme.adoptGlobal({ theme: SHELL, mode: 'dark' })).toBe(true)
+
+    expect(theme.getGlobal()).toEqual({ theme: SHELL, mode: 'dark' })
+    expect(changes.map(c => c.mode)).toEqual(['dark'])
+    expect(persistence.saveGlobal).not.toHaveBeenCalled()
+  })
+
+  it('adopts a theme that is not registered yet, showing the shell\'s own until it is', () => {
+    const { theme, contribute } = setupTheme()
+
+    expect(theme.adoptGlobal({ theme: 'p.midnight', mode: 'dark' })).toBe(true)
+    expect(theme.resolveGlobal().theme).toBe(SHELL)
+
+    contribute(midnight())
+    expect(theme.resolveGlobal()).toEqual({ theme: 'p.midnight', mode: 'dark' })
+  })
+
+  it('changes nothing for the same selection, or one it cannot read', () => {
+    const log = createLogger()
+    const { theme, changes } = setupTheme({ log })
+
+    expect(theme.adoptGlobal({ theme: SHELL, mode: 'system' })).toBe(false)
+    expect(theme.adoptGlobal({ theme: SHELL, mode: 'sepia' })).toBe(false)
+    expect(theme.getGlobal()).toEqual({ theme: SHELL, mode: 'system' })
+    expect(changes).toEqual([])
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Ignored an unreadable saved theme'))
+  })
+})
+
+describe('ThemeService: clearing window overrides', () => {
+  it('returns every window with a theme of its own to the application theme, and forgets the overrides', async () => {
+    const { persistence, store } = memoryThemePersistence()
+    const { theme, changes, contribute } = setupTheme({ persistence })
+    contribute(midnight())
+    await theme.attach(1, 'main')
+    await theme.attach(2, 'window-2')
+    theme.setOverride(1, { theme: 'p.midnight', mode: 'dark' })
+    await theme.flush()
+    changes.length = 0
+
+    theme.clearOverrides()
+    await theme.flush()
+
+    expect(theme.getState(1).override).toBeUndefined()
+    expect(theme.getState(1).theme).toBe(SHELL)
+    expect(store.overrides.has('main')).toBe(false)
+    expect(changes.map(c => c.windowId)).toEqual([1])
+  })
+
+  it('does nothing when no window has one', async () => {
+    const { persistence } = memoryThemePersistence()
+    const { theme, changes } = setupTheme({ persistence })
+    await theme.attach(1, 'main')
+
+    theme.clearOverrides()
+
+    expect(changes).toEqual([])
+    expect(persistence.saveOverride).not.toHaveBeenCalled()
+  })
+})

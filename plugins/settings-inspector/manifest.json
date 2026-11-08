@@ -1,0 +1,15 @@
+{
+  "id": "settings-inspector",
+  "name": "Settings Inspector",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./InspectorDialog": "src/renderer/InspectorDialog.tsx"
+    }
+  },
+  "services": {
+    "requires": ["shell.prompts"]
+  }
+}

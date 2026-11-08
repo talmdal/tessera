@@ -30,6 +30,8 @@ export interface ThemeDescriptor {
   /** Unique, prefixed by the contributing plugin's id (`tessera.default` for the shell's own). */
   id: string
   label: string
+  /** A short line about the theme, shown with it where themes are chosen, and found by searching there. */
+  description?: string
   light?: ThemeTokens
   dark?: ThemeTokens
 }

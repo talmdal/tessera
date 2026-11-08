@@ -61,7 +61,9 @@ platform.
     and payee, and proposed for review. The register shows the bank's version
     under each row, with **Accept** and **Change…**; the Change Match dialog moves
     a line to another transaction, unmatches it or leaves it out. The rest is
-    added as new, and acknowledged the same way;
+    added as new, and acknowledged the same way. How closely a line must match
+    is a setting (Tools › Options… › Import): Strict, Balanced or Lenient, each a
+    consistent set of tolerances;
   - how the bank writes a payee is learnt from the user's choices, for matching
     and for new lines.
 
@@ -109,20 +111,35 @@ platform.
   dialogs, the OS trash, and modal dialogs of their own (`shell.dialogs`),
   drawn in the shell's frame. See
   [Asking the user](docs/plugin-creation.md#asking-the-user-dialogs-prompts-and-files).
+- **Settings (preferences):** a plugin registers its settings and their
+  defaults (`context.settings`), reads them from the first line of `activate`,
+  and hears which of them changed. Other plugins may read them, never change
+  them: changes go through the settings manager. It contributes pages to the **Options** dialog
+  (Tools › Options…, `Ctrl+,`) through `shell.settings.pages`: a list of fields
+  the shell draws, or a component of its own. The dialog has a page tree with
+  search, and OK, Apply, Cancel and Restore Defaults. Every change is checked in
+  the main process, and only what differs from the defaults is saved, as one
+  plain JSON file per plugin under `settings/` in the user-data folder. The
+  ledger's start-up and recent-ledger settings are the first. See
+  [Settings](docs/plugin-creation.md#settings). To check them, **Tools ›
+  Settings Inspector…** shows, for every plugin's settings, what is in effect,
+  the defaults and the file on disk, and whether they agree.
 - **Storage and application state:** a `StorageEngine` interface
   (collections, queries, transactions) with SQLite (the default) and LokiJS
   implementations, and an
   `app-state` plugin that keeps window, theme and per-window layout state on
-  top of it, exposed to views over IPC (`app.state:get`, `:set`, `:update`,
-  `:remove`).
+  top of it. Plugins keep what they remember between runs there through
+  `context.state`, under their own keys; a view reaches its plugin's state
+  only through its own plugin's IPC.
 - **Theming and Material UI:** the shell's components and icons are
   [Material UI](https://mui.com/), and plugins reach them only through
   `@tessera/ui` (never `@mui/*`), which the shell shares with plugin views. A theme
-  manager follows the operating system's light or dark setting (View ▸ Theme to
-  choose a theme, with a preview, or override it, for the application or one window), plugins can
-  contribute themes (`shell.themes`, checked for contrast) and icons
-  (`shell.icons`, fetched when first drawn), a window can use a theme of its own,
-  the choice is saved, and a window stays hidden until its theme is applied. See [docs/theming-design.md](docs/theming-design.md) and
+  manager follows the operating system's light or dark setting. The theme is chosen
+  on the Options dialog's **Appearance** page (a gallery of every theme, drawn from
+  its colours, with a preview), and is kept as a setting; OK or Apply re-themes every
+  window. Plugins can contribute themes (`shell.themes`, checked for contrast) and
+  icons (`shell.icons`, fetched when first drawn), and a window stays hidden until
+  its theme is applied. See [docs/theming-design.md](docs/theming-design.md) and
   [Styling and theming](docs/plugin-creation.md#styling-and-theming).
 - **IPC:** a single dispatcher channel. Handlers are registered on channels
   named `<pluginId>:<event>` by convention, and replies are a structured
@@ -138,21 +155,23 @@ and Electron and the file system sit behind adapters.
 tessera-types/
           The common interfaces (@tessera/types): PluginContext, the registry
           interfaces (IPC, commands, extensions, context keys, services,
-          lifecycle, events), StorageEngine and AppState. The core implements
-          them, the shell composes them, and plugins are written against them.
+          lifecycle, events, settings), StorageEngine and AppState. The core
+          implements them, the shell composes them, and plugins are written
+          against them.
 shared/   Contracts any process may import: IPC envelope guards, manifest
           schema, menu, view and layout contracts, enablement expressions. No
           platform code.
 core/     Main-process application core: plugin manager, plugin context,
           and the registry implementations (IPC, extensions, commands,
           context keys, services, lifecycle, events), the layout controller
-          (LayoutService) and the storage engine registry and transaction
-          manager. Depends only on tessera-types/,
-          shared/ and its own ports.
+          (LayoutService), the settings service (SettingsService) and the
+          storage engine registry and transaction manager. Depends only on
+          tessera-types/, shared/ and its own ports.
 shell/
   main/       Composition root and adapters: Electron menu, IPC binding,
               layout wiring (commands, keys, menus, persistence),
-              file-system plugin source, tessera-plugin:// protocol.
+              settings files, file-system plugin source,
+              tessera-plugin:// protocol.
   preload/    The typed bridge exposed to the renderer as window.api.
   renderer/   React host: <LayoutController> (bars, main area, splitters)
               and the federation view loader.
@@ -265,8 +284,9 @@ plugins/              Source of bundled (built-in) plugins, one folder each:
                       and sub-ledgers), import (File › Import…) and
                       import-ofx (OFX and QFX statements), storage-sqlite (the default
                       storage engine), storage-loki (LokiJS storage
-                      engine) and test-layout (exercises every layout
-                      slot)
+                      engine), test-layout (exercises every layout
+                      slot) and settings-inspector (Tools › Settings
+                      Inspector…, a developer's view of the settings)
 modules/              Build output of plugins/ (gitignored); loaded at startup
 samples/statements/   Sample bank statements to import by hand, with walkthroughs (importing, matching)
 ```
@@ -292,8 +312,9 @@ samples/statements/   Sample bank statements to import by hand, with walkthrough
 - [docs/storage-api-design.md](docs/storage-api-design.md): proposed
   `Store` API that storage backends implement and domain plugins use (the
   lower-level `StorageEngine` it would build on already exists)
-- [docs/settings-design.md](docs/settings-design.md): proposed settings
-  framework where plugins own their settings shape and pages
+- [docs/settings-design.md](docs/settings-design.md): the settings
+  framework: plugins own their settings' shape and pages, the shell owns
+  storage, the Options dialog and the edit lifecycle
 - [docs/theming-design.md](docs/theming-design.md): proposed move to
   Material UI components and icons (`@tessera/ui`), and a theme manager that
   follows the system light or dark setting, with plugin themes and per-window

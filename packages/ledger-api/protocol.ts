@@ -109,6 +109,9 @@ export const LEDGER_VIEWS = {
   tree: 'ledger.tree'
 } as const
 
+/** The ledger's page in the Options dialog: run `shell.settings.open` with it to show the ledger's settings. */
+export const LEDGER_SETTINGS_PAGE = 'ledger.settings'
+
 /** `shell.dialogs` contributions, shown with `shell.prompts.show`. */
 export const LEDGER_DIALOGS = {
   /** Input `NewLedgerDialogInput`, result `NewLedgerDialogResult`. */

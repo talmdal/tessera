@@ -1,7 +1,7 @@
 // shell/renderer/theme/ShellThemeProvider.tsx
 import { CssBaseline, ThemeProvider, useMediaQuery } from '@mui/material'
-import { ReactNode, useContext, useMemo, useState, useSyncExternalStore } from 'react'
-import type { TesseraBridge, ThemeSnapshot, ThemeState } from '@tessera/types'
+import { ReactNode, createContext, useContext, useMemo, useState, useSyncExternalStore } from 'react'
+import type { TesseraBridge, ThemeDescriptor, ThemeSnapshot, ThemeState } from '@tessera/types'
 import { themeOf } from '../../../shared/theme/tokens'
 import { THEME_CHANGED, THEME_GET } from '../../../shared/theme/types'
 import { ThemeStateContext } from '../../../tessera-ui/internal'
@@ -16,6 +16,22 @@ export function useWindowTheme(): ThemeState {
   const state = useContext(ThemeStateContext)
   if (!state) throw new Error('This hook must be used inside <ShellThemeProvider>')
   return state
+}
+
+/** Every registered theme, and whether the system wants dark colours: what is needed to choose a theme. */
+export interface ThemeCatalogue {
+  themes: ThemeDescriptor[]
+  /** Undefined when the main process could not say; the renderer's own media query is then the best guess. */
+  systemPrefersDark?: boolean
+}
+
+const ThemeCatalogueContext = createContext<ThemeCatalogue | null>(null)
+
+/** The registered themes, kept current as plugins contribute them (the Appearance page lists them). */
+export function useThemeCatalogue(): ThemeCatalogue {
+  const catalogue = useContext(ThemeCatalogueContext)
+  if (!catalogue) throw new Error('This hook must be used inside <ShellThemeProvider>')
+  return catalogue
 }
 
 /**
@@ -52,14 +68,20 @@ export function ShellThemeProvider({ bridge, initial, children }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [key])
 
-  if (!snapshot || !muiTheme) return null
+  const themes = snapshot?.themes
+  const systemPrefersDark = snapshot?.systemPrefersDark
+  const catalogue = useMemo(() => themes && { themes, systemPrefersDark }, [themes, systemPrefersDark])
+
+  if (!snapshot || !muiTheme || !catalogue) return null
 
   return (
     <ThemeStateContext.Provider value={snapshot.state}>
-      <ThemeProvider theme={muiTheme}>
-        <CssBaseline enableColorScheme />
-        {children}
-      </ThemeProvider>
+      <ThemeCatalogueContext.Provider value={catalogue}>
+        <ThemeProvider theme={muiTheme}>
+          <CssBaseline enableColorScheme />
+          {children}
+        </ThemeProvider>
+      </ThemeCatalogueContext.Provider>
     </ThemeStateContext.Provider>
   )
 }

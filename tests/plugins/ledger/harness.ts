@@ -11,10 +11,14 @@ import type { FileKind, LedgerDisk } from '../../../plugins/ledger/src/privilege
 import { LedgerSessionImpl } from '../../../plugins/ledger/src/privileged/LedgerSessionImpl'
 import { RecentLedgers } from '../../../plugins/ledger/src/privileged/RecentLedgers'
 import { SchemaRegistry } from '../../../plugins/ledger/src/privileged/SchemaRegistry'
+import { createPluginState } from '../../../core/state/PluginState'
 
 /** A folder that is absolute on every platform. */
 export const DIR = path.resolve('/ledgers')
 export const file = (name: string) => path.join(DIR, name)
+
+/** A plugin's `context.state` over a store, as the plugin context gives it: its own keys, `<pluginId>.<key>`. */
+export const pluginState = (pluginId: string, store: AppState) => createPluginState(pluginId, () => store)
 
 export function memoryAppState(): AppState & { values: Map<string, unknown> } {
   const values = new Map<string, unknown>()
@@ -101,7 +105,8 @@ export function setupSession(options: { now?: () => Date } = {}) {
   const extensions = new ExtensionRegistryImpl()
   const services = new ServiceRegistryImpl()
   const log = logger()
-  const recent = new RecentLedgers(state, options.now)
+  // As context.state gives it: the ledger's own keys in app.state
+  const recent = new RecentLedgers(pluginState('ledger', state), options.now)
   const schema = new SchemaRegistry(extensions, services, log)
   const session = new LedgerSessionImpl({ engine, files, prompts, recent, schema, disk: disk.disk, log, trashName: 'Trash', ...(options.now && { now: options.now }) })
 

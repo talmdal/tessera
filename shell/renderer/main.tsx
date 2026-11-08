@@ -4,10 +4,10 @@ import type { ShellBridge } from '../../shared/ipc'
 import App from './App'
 import { DialogHost } from './dialogs/DialogHost'
 import { IconsProvider } from './icons/IconsProvider'
+import { SettingsDialog } from './settings/SettingsDialog'
 import { BarItemsProvider, createIpcBarItemSource } from './layout/BarItemsProvider'
 import { ShellStateProvider } from './state/ShellState'
 import { ShellThemeProvider } from './theme/ShellThemeProvider'
-import { ThemeChooser } from './theme/ThemeChooser'
 import { createFederationViewLoader } from './views/federationViewLoader'
 import { createIpcViewSource } from './views/ipcViewSource'
 import { ViewsProvider } from './views/ViewsProvider'
@@ -28,7 +28,7 @@ root.render(
           <BarItemsProvider source={barItems}>
             <App />
             <WindowReady bridge={window.api} />
-            <ThemeChooser bridge={window.api} />
+            <SettingsDialog bridge={window.api} loader={loader} />
             <DialogHost bridge={window.api} loader={loader} />
           </BarItemsProvider>
         </ViewsProvider>

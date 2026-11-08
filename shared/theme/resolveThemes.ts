@@ -49,6 +49,7 @@ function validate(raw: unknown, contributor: string): string | undefined {
   if (!id.startsWith(`${contributor}.`) || id.length === contributor.length + 1) return `Theme "${id}" must have an id prefixed by "${contributor}."`
   if (id === DEFAULT_THEME_ID) return `Theme "${id}" is reserved for the shell`
   if (typeof t.label !== 'string' || t.label.length === 0) return `Theme "${id}" is missing a label`
+  if (t.description !== undefined && (typeof t.description !== 'string' || t.description.trim() === '')) return `Theme "${id}" has an invalid description`
   if (t.light === undefined && t.dark === undefined) return `Theme "${id}" needs a light or a dark variant`
 
   for (const variant of ['light', 'dark'] as const) {
@@ -58,7 +59,7 @@ function validate(raw: unknown, contributor: string): string | undefined {
   }
 
   for (const key of Object.keys(t)) {
-    if (!['id', 'label', 'light', 'dark'].includes(key)) return `Theme "${id}" has an unknown field "${key}"`
+    if (!['id', 'label', 'description', 'light', 'dark'].includes(key)) return `Theme "${id}" has an unknown field "${key}"`
   }
   return undefined
 }
@@ -91,6 +92,7 @@ export function resolveThemes(contributions: readonly ContributedTheme[]): { the
     themes.push({
       id: theme.id,
       label: theme.label,
+      ...(theme.description !== undefined && { description: theme.description }),
       ...(theme.light && { light: cloneTokens(theme.light) }),
       ...(theme.dark && { dark: cloneTokens(theme.dark) })
     })

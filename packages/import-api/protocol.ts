@@ -38,10 +38,13 @@ export const IMPORT_COLLECTIONS = {
   memory: 'import.memory'
 } as const
 
-/** Keys the import plugin keeps in `app.state` (not ledger data). */
+/**
+ * Keys in the import plugin's `context.state` (application state, not ledger data). The store prefixes them with the
+ * plugin id, so `lastFolder` is kept as `import.lastFolder` in `app.state`.
+ */
 export const IMPORT_STATE_KEYS = {
   /** The folder the file dialog showed last. */
-  lastFolder: 'import.lastFolder'
+  lastFolder: 'lastFolder'
 } as const
 
 export const IMPORT_LIMITS = {
@@ -104,6 +107,9 @@ export const IMPORT_VIEWS = {
   /** Every import, with Undo Import (phase 4). */
   history: 'import.history'
 } as const
+
+/** The import's page in the Options dialog (how closely lines must match): `shell.settings.open` with it shows it. */
+export const IMPORT_SETTINGS_PAGE = 'import.settings'
 
 export const IMPORT_DIALOGS = {
   /** Which format reads this file, when more than one could. Input `FormatDialogInput`, result `FormatDialogResult`. */

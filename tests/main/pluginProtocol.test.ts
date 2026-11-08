@@ -47,7 +47,9 @@ describe('plugin protocol', () => {
   it('never serves files outside the renderer root', async () => {
     const serve = setup()
 
-    // URL parsing collapses ../ and %2e%2e; an encoded backslash survives it and is caught by the root check
+    // URL parsing collapses ../ and %2e%2e; an encoded backslash survives it. On Windows the backslash separates folders,
+    // so the path leaves the root and the root check refuses it (403); elsewhere it is part of a file name inside the
+    // root, which doesn't exist (404). Either way the file outside is never served.
     for (const url of [
       'tessera-plugin://alpha/../secret.txt',
       'tessera-plugin://alpha/%2e%2e/secret.txt',
@@ -55,6 +57,6 @@ describe('plugin protocol', () => {
     ]) {
       expect((await serve(url)).status, url).not.toBe(200)
     }
-    expect((await serve('tessera-plugin://alpha/..%5csecret.txt')).status).toBe(403)
+    expect([403, 404]).toContain((await serve('tessera-plugin://alpha/..%5csecret.txt')).status)
   })
 })

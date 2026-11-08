@@ -7,12 +7,17 @@ import {
   CommandRegistry,
   ContextKeyService,
   Logger,
-  ServiceRegistry
+  ServiceRegistry,
+  SettingsApi,
+  SettingsRegistry,
+  PluginState
 } from '.'
 
 export interface PluginContextOptions {
   /** Services the plugin may provide, from its manifest. Omit for the shell, which is unrestricted. */
   provides?: readonly string[]
+  /** Services the plugin requires, from its manifest. `context.state` needs `app.state` among them. */
+  requires?: readonly string[]
 }
 
 /**
@@ -50,6 +55,17 @@ export interface PluginContext {
     emit(event: string, data?: unknown): void
   }
   readonly lifecycle: AppLifecycle
+  /**
+   * The plugin's settings (user preferences): `register` a namespace with its defaults, then read it and hear of
+   * changes. Pages for the Options dialog are contributed to `shell.settings.pages`. Registrations are disposed on
+   * deactivation; what the user chose is kept.
+   */
+  readonly settings: SettingsApi
+  /**
+   * What the plugin remembers between runs (not what the user chooses: that is `settings`): its own keys in the
+   * `app.state` store. Requires `app.state` in the manifest's `services.requires`.
+   */
+  readonly state: PluginState
   /** Disposed, last first, on deactivation. Plugins may push their own disposables. */
   readonly subscriptions: Disposable[],
   /** Application datapath */
@@ -73,6 +89,7 @@ export interface PluginRuntime {
   services: ServiceRegistry
   lifecycle: AppLifecycle
   events: EventHub
+  settings: SettingsRegistry
   paths: string
   logger: Logger
 }

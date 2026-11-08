@@ -3,7 +3,7 @@
 // already entered, and add the rest. One import runs at a time. A file that fails is reported and the others still import; Cancel stops the file and those after it.
 // See docs/import-manager-design.md, "The import flow".
 import path from 'node:path'
-import type { AppState, ContextKeyService, Database, Logger, ShellFiles, ShellPrompts } from '@tessera/types'
+import type { ContextKeyService, Database, Logger, PluginState, ShellFiles, ShellPrompts } from '@tessera/types'
 import type { LedgerSession } from '@tessera/ledger-api'
 import { isAccountsError, isLiability, type Account, type AccountsService, type PayeeSuggestion } from '@tessera/accounts-api'
 import {
@@ -20,7 +20,7 @@ import { nodeReader, readImportFile, type FileReader } from './files'
 import type { Formats } from './formats'
 import type { Links } from './links'
 import { assign, isCandidate, windowOf, type Proposal } from './matching/assign'
-import { MATCHED_AT } from './matching/tuning'
+import { BALANCED, type MatchTuning } from './matching/tuning'
 import { formatMemory } from './memory'
 import { settleInterrupted } from './review'
 import { collectionsOf } from './store'
@@ -30,7 +30,8 @@ export interface ImporterDeps {
   accounts: AccountsService
   files: ShellFiles
   prompts: ShellPrompts
-  appState: AppState
+  /** What the import remembers between runs: `context.state`. */
+  state: PluginState
   formats: Formats
   links: Links
   aliases: PayeeAliases
@@ -38,6 +39,8 @@ export interface ImporterDeps {
   changed: (accounts: string[]) => void
   contextKeys: Pick<ContextKeyService, 'set'>
   log: Logger
+  /** The matching preset the user chose (the `import` setting), read at each statement. Balanced when not given. */
+  tuning?: () => MatchTuning
   reader?: FileReader
   now?: () => Date
   parseTimeoutMs?: number
@@ -174,14 +177,14 @@ export class Importer {
   }
 
   private async chooseFiles(windowId?: number): Promise<string[]> {
-    const { files, appState } = this.deps
-    const last = await appState.get<string>(IMPORT_STATE_KEYS.lastFolder).catch(() => undefined)
+    const { files, state } = this.deps
+    const last = await state.get<string>(IMPORT_STATE_KEYS.lastFolder).catch(() => undefined)
     const folder = last && await files.exists(last) ? last : files.downloadsPath()
     const chosen = await files.showOpenFilesDialog({
       title: 'Import Statements', buttonLabel: 'Import', defaultPath: folder, filters: this.deps.formats.filters(),
       ...(windowId !== undefined && { windowId })
     })
-    if (chosen.length > 0) await appState.set(IMPORT_STATE_KEYS.lastFolder, path.dirname(chosen[0])).catch(() => undefined)
+    if (chosen.length > 0) await state.set(IMPORT_STATE_KEYS.lastFolder, path.dirname(chosen[0])).catch(() => undefined)
     return chosen
   }
 
@@ -299,13 +302,15 @@ export class Importer {
     const [payees, categories, aliases] = await Promise.all([
       accounts.payees.search('', 100_000), accounts.categories.list(), this.deps.aliases.map()
     ])
-    // The lines that are transactions the user already entered are proposed as matches; the rest are added
-    const proposals = await this.propose(account, fresh, payees, aliases)
+    // The lines that are transactions the user already entered are proposed as matches; the rest are added. One preset
+    // for the whole statement, even if the user changes it meanwhile
+    const tuning = this.deps.tuning?.() ?? BALANCED
+    const proposals = await this.propose(account, fresh, payees, aliases, tuning)
     const proposedLines = new Set(proposals.map(p => p.line))
     const added = fresh.filter((_, i) => !proposedLines.has(i))
     const matched = proposals.map(p => ({ line: fresh[p.line], proposedId: p.transactionId, score: p.score }))
     counts.added = added.length
-    counts.matched = matched.filter(m => m.score >= MATCHED_AT).length
+    counts.matched = matched.filter(m => m.score >= tuning.matchedAt).length
     counts.possible = matched.length - counts.matched
 
     const drafts = new Drafts({ payees, categories, liability: isLiability(account.type), aliases })
@@ -327,8 +332,8 @@ export class Importer {
    * The statement's lines that look like transactions already in the account, each paired with one transaction.
    * The candidates are read once, over the whole statement's window.
    */
-  private async propose(account: Account, lines: ConvertedLine[], payees: PayeeSuggestion[], aliases: ReadonlyMap<string, string>): Promise<Proposal[]> {
-    const range = windowOf(lines.map(line => line.bank))
+  private async propose(account: Account, lines: ConvertedLine[], payees: PayeeSuggestion[], aliases: ReadonlyMap<string, string>, tuning: MatchTuning): Promise<Proposal[]> {
+    const range = windowOf(lines.map(line => line.bank), tuning)
     if (!range) return []
     const listed = await this.deps.accounts.transactions(account.id).list(range)
     // A transaction already proposed for a line of an earlier import waits for that line's review
@@ -340,7 +345,7 @@ export class Importer {
       ...(t.payeeId !== undefined && names.has(t.payeeId) && { payeeName: names.get(t.payeeId)! }),
       ...(t.number !== undefined && { number: t.number })
     }))
-    return assign(lines.map(line => line.bank), targets, account.currency, aliases)
+    return assign(lines.map(line => line.bank), targets, account.currency, aliases, tuning)
   }
 
   /** The import ids among `ids` already in the account, or recorded as imported (so one the user deleted stays gone). */

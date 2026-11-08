@@ -7,6 +7,13 @@ off, or delete them, as they land.
 ## Plugin runtime
 
 - [ ] **Configurable shutdown time limit.** It is fixed at 10 seconds.
+- [ ] **Order plugins that use `context.state` automatically.** Today the order is
+      explicit: a plugin lists `app.state` in `services.requires`, so the
+      `app-state` plugin activates first, and `context.state` refuses to work
+      without that line. The framework could add the dependency itself, from a
+      manifest flag or from the plugin using `context.state`, so authors need not
+      know that the store is a plugin. It must keep the all-or-nothing rule (no
+      store, no activation) or define what `context.state` does without one.
 - [ ] **Build tooling for user-installed plugins.** Built-in plugins get
       TSX compilation and the federation remote from `scripts/build-plugins.mts`.
       Third-party authors have no equivalent; package it as a small CLI or
@@ -26,6 +33,11 @@ off, or delete them, as they land.
 - [ ] **Built-in plugins: policy.** Decide whether users can disable (or
       deliberately override) a built-in plugin. Today the bundled copy always
       wins on a duplicate id.
+- [ ] **Developer plugins in a packaged app.** `test-layout` and
+      `settings-inspector` (Tools › Settings Inspector…) are bundled like every
+      built-in plugin. Decide whether a release ships them, or leaves them out
+      (they can already be turned off with `disabledPlugins` in
+      `tessera-bootstrap.json`).
 - [ ] **Built-in plugin dependencies.** The build bundles a plugin's npm
       dependencies into its file. Decide how shared libraries are handled so
       plugins don't each carry a copy.
@@ -53,8 +65,8 @@ off, or delete them, as they land.
       `events` are scoped, so a plugin can register another plugin's IPC
       channel, contribution id, context key or service id, and its
       registrations are not removed on deactivation unless it pushes the
-      returned `Disposable` onto `context.subscriptions`. `storage-loki` and
-      `app-state` don't yet. Decide whether to enforce this in the core or
+      returned `Disposable` onto `context.subscriptions`. `storage-loki` doesn't
+      yet (`app-state` does now). Decide whether to enforce this in the core or
       keep it as convention, and update the plugin guide to match.
 - [ ] **`services.provides` is not enforced.** `createPluginContext` still
       accepts a `provides` option, but nothing checks it; only the
@@ -82,8 +94,8 @@ off, or delete them, as they land.
       `shell.files` (open and save dialogs, `exists`, the OS trash). See
       [Asking the user](plugin-creation.md#asking-the-user-dialogs-prompts-and-files).
 - [ ] **More shell services:** recent files, atomic writes, backups and file
-      locks for `shell.files`; later `shell.notifications`, `shell.settings`,
-      and a secure password prompt.
+      locks for `shell.files`; later `shell.notifications` and a secure
+      password prompt. (Settings are done, as `context.settings`.)
 
 ## Finance: ledgers and accounts
 
@@ -135,19 +147,65 @@ The storage engine it builds on is done ([storage-engine-redesign.md](storage-en
       review bar, and the Change Match dialog, have only been tested, not seen.
 - [ ] **Later:** per-file storage formats, splits, `.mny` migration.
 
-## State and settings (proposed design)
+## State and settings
 
-Design: [settings-design.md](settings-design.md). Nothing here is built yet.
+Design: [settings-design.md](settings-design.md); guide:
+[plugin-creation.md › Settings](plugin-creation.md#settings).
 
-- [ ] **State store** (`context.state`): per-plugin opaque key/value for
-      recent files, window bounds and similar.
-- [ ] **Settings core** (`context.settings`): defaults, versioned
-      migration, validation, change events, failure handling.
-- [ ] **Settings dialog and `shell.settings.pages`:** navigation tree, draft
-      with OK/Apply/Cancel, Restore Defaults, search, `Ctrl+,`. Needs view
-      props and main → renderer events (both listed below).
-- [ ] **Optional declarative settings form** for simple plugins; **vault
-      scope** for per-vault settings.
+- [x] **Settings core** (`context.settings`): defaults, several namespaces per
+      plugin, versioned migration, validation (shape, fields, `validate`),
+      change events, read-only values from a newer version, and failure
+      handling, in `core/settings/SettingsService.ts`; one JSON file per
+      namespace under `<userData>/settings/`, written atomically.
+- [x] **Options dialog and `shell.settings.pages`:** page tree, search, drafts
+      with OK/Apply/Cancel, Restore Defaults, the unsaved-changes question,
+      `Ctrl+,` (Tools › Options…, `shell.settings.open`).
+- [x] **Declarative settings form:** pages of `fields` (boolean, number, text,
+      choice) that the shell draws. The `ledger` plugin's page is one.
+- [x] **State store** (`context.state`): a plugin's own keys in `app.state`
+      (stored as `<pluginId>.<key>`, as before, so nothing saved was lost), for
+      what it remembers between runs. Needs `app.state` in `services.requires`,
+      and says so when it is missing. The ledger and import plugins use it.
+      See [plugin-creation.md](plugin-creation.md#remembering-application-state).
+- [x] **Views can no longer reach any `app.state` key.** The `app-state`
+      plugin's IPC (`app.state:get`, `:set`, `:update`, `:remove`) took any key
+      from any view. No view used it (its renderer helper was never built), so
+      it is gone; a view asks its own plugin, which answers from `context.state`
+      ([plugin-creation.md](plugin-creation.md#giving-your-views-state)).
+- [ ] **Per-ledger settings: scopes** (proposed, for review:
+      [settings-design.md › Proposal: scopes](settings-design.md#proposal-scopes-per-ledger-settings)).
+      Layers of overrides, defaults ← application ← ledger, each kept where its
+      context lives; plugins provide the layers, and namespaces opt in. Settle
+      the proposal's open questions first (per namespace or per key, trust,
+      resource scopes, the owner's default layer), then:
+  - [ ] **Core:** `context.settings.provideScope`, `scopes` on `register`, the
+        resolution chain, change events as scopes open and close, checking and
+        migrating a scope's documents, `update(…, { scope })`, `inspect()`.
+  - [ ] **The ledger provides the `ledger` scope:** a `ledger.settings`
+        collection in the ledger, read-only ledgers, opening and closing with
+        the session.
+  - [ ] **Options dialog:** the scope switcher, override marks and "Use the
+        application value", drafts per layer, the wire contract, and the
+        `scope` and `inherited` props for a plugin's own page.
+  - [ ] **First user:** the import's matching preset per ledger.
+  - [ ] **Later, if needed:** resource scopes (per sub-ledger or account),
+        per-key opt-in, a settings field kind for lists.
+- [x] **The theme on a settings page:** the Appearance page (the shell's first
+      built-in page), over the `shell.theme` setting.
+- [x] **A settings page for the import matcher's tolerances:** three presets
+      (Strict, Balanced, Lenient), each a consistent set, on the Options
+      dialog's Import page
+      ([import-manager-design.md](import-manager-design.md#matching-tolerances)).
+- [ ] **More field kinds** when plugins need them: a folder with Browse…, a
+      list of strings.
+- [x] **Reading other plugins' settings, read-only** (`context.settings.read`),
+      and change events that name the settings that changed (`changed`).
+      Every change goes through the settings manager (decided in review).
+- [ ] **Enforce that in the renderer.** `shell:settings.commit` is meant for
+      the Options dialog only, but any code in a window can reach it; the
+      owner's checks still apply. Needs "Validate IPC senders" below.
+- [ ] **Live apply** (deferred): settings that take effect as the user edits,
+      with Cancel reverting.
 
 ## Theming and Material UI (proposed design)
 
@@ -162,15 +220,19 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
       persistence in `app-state` (migrating the old `light`/`dark` value).
       The unused `useThemeState` hook is gone. Results in
       [theming-design.md](theming-design.md#phase-1-results).
-- [x] **Choosing a theme and giving a window its own:** View ▸ Theme lists every
-      registered theme, with a "This Window" submenu (see
-      [theming-design.md](theming-design.md#phase-6-results)), and **Choose Theme…**
-      opens a dialog with a preview ([theming-design.md](theming-design.md#the-theme-chooser)).
-- [ ] **Tick the current theme and mode in View ▸ Theme** (needs radio or
-      checkbox menu items, below).
-- [ ] **List themes that appear after startup in View ▸ Theme.** The menu is built
-      once after activation (see "Menu structure changes at runtime"); until then such a
-      theme works as a command only.
+- [x] **Choosing a theme and giving a window its own:** View ▸ Theme listed every
+      registered theme, with a "This Window" submenu, and **Choose Theme…** opened a
+      dialog with a preview ([theming-design.md](theming-design.md#the-theme-chooser)).
+      Both replaced by the next item.
+- [x] **The theme in the Options dialog:** the Appearance page, with a gallery of
+      every theme drawn from its colours, the mode and a preview; the application's
+      theme is the `shell.theme` setting, followed by the theme manager; the chooser
+      and View ▸ Theme are removed
+      ([theming-design.md](theming-design.md#the-appearance-page)).
+- [ ] **A way to give one window its own theme** again, if it is wanted: the commands
+      remain (`shell.theme.setForWindow`, `clearWindowOverride`), but nothing in the UI
+      runs them since View ▸ Theme went, and changing the application's theme clears
+      windows' own.
 - [ ] **Look at reduced motion and forced colours in the real app** (Windows "show
       animations" off, and a high-contrast theme). Tested only through the theme and CSS.
 - [x] **MUI foundation and no flash:** `ShellThemeProvider`, `CssBaseline`,
@@ -193,12 +255,18 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
       Results in [theming-design.md](theming-design.md#phase-5-results).
 - [ ] **Re-evaluate density.** The shell is compact throughout; revisit once
       there are real finance screens.
-- [ ] **Later:** splash screen, themed title bar and window controls, and a
-      settings page for the theme (needs the settings framework). Contrast checks for
+- [ ] **Later:** splash screen, themed title bar and window controls. (The
+      settings page for the theme is done: the Appearance page.) Contrast checks for
       contributed themes are done (they warn).
 - [ ] **Settle the open questions** in the note (curated vs complete
       `@tessera/ui`, token breadth, who may change the theme, per-window
       native chrome).
+
+## Localisation
+
+- [ ] **Localise the application**: menus, views, dialogs, messages, and the
+      titles, field labels and messages of settings pages, from one
+      application-wide mechanism rather than per feature.
 
 ## Menus, commands and context keys
 
@@ -213,7 +281,8 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
 - [ ] **Context keys in the renderer**, so views can enable buttons from the
       same state as menus.
 - [ ] **macOS application menu.** No app-name menu is added as the first
-      menu on macOS.
+      menu on macOS. It would hold "Preferences…" (`shell.settings.open`),
+      which is Tools › Options… elsewhere.
 
 ## Views and the renderer
 
@@ -222,7 +291,8 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
       (see phase 5 of
       [layout-controller-design.md](layout-controller-design.md)).
 - [ ] **View props and context.** Views receive nothing from the shell;
-      they use `window.api` directly.
+      they use `window.api` directly. (Dialogs and settings pages do receive
+      props: `DialogProps`, `SettingsPageProps`.)
 - [ ] **Refresh views at runtime.** The renderer fetches the view list once.
 - [ ] **Renderer takes part in shutdown.** `shuttingDown` reaches views as an
       event only. Views can't delay or veto a quit (say, to flush an editor);
@@ -232,8 +302,9 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
       `window.api.on`) to plugin views through the SDK.
 - [ ] **Events to one window.** Pushed events go to every open window; add
       targeting if multiple windows are supported.
-- [ ] **Push more shell state.** Candidates: plugin list changes, settings
-      changes, a "settings dialog open" request.
+- [ ] **Push more shell state.** Candidates: plugin list changes. (Settings
+      changes and the request to open the Options dialog are pushed:
+      `shell:settings.changed`, `shell:settings.open`.)
 - [ ] **Example plugin with a real federation build**, e.g.
       `@module-federation/vite`, checked into the repo. Then the plugin
       guide can show tested build config instead of requirements only.

@@ -14,7 +14,7 @@ import { RecentLedgers } from '../../../plugins/ledger/src/privileged/RecentLedg
 import { SchemaRegistry } from '../../../plugins/ledger/src/privileged/SchemaRegistry'
 import { sqliteDriver } from '../../../plugins/storage.sqlite/src/privileged/SqliteDriver'
 import { createTempModulesDir } from '../../helpers/tempModules'
-import { fakePrompts, logger, memoryAppState } from './harness'
+import { fakePrompts, logger, memoryAppState, pluginState } from './harness'
 
 function setup() {
   const dir = createTempModulesDir()
@@ -33,7 +33,7 @@ function setup() {
     downloadsPath: () => dir
   }
   const session = new LedgerSessionImpl({
-    engine, files, prompts: fakePrompts().prompts, recent: new RecentLedgers(memoryAppState(), () => new Date('2026-11-04T10:11:12Z')),
+    engine, files, prompts: fakePrompts().prompts, recent: new RecentLedgers(pluginState('ledger', memoryAppState()), () => new Date('2026-11-04T10:11:12Z')),
     schema: new SchemaRegistry(extensions, services, log), disk: nodeDisk(), log, trashName: 'Trash',
     now: () => new Date('2026-11-04T10:11:12Z')
   })

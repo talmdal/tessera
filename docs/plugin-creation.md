@@ -20,6 +20,8 @@ extension points.
 - [Providing and using services](#providing-and-using-services)
 - [Contributing views](#contributing-views)
 - [Asking the user: dialogs, prompts and files](#asking-the-user-dialogs-prompts-and-files)
+- [Settings](#settings)
+- [Remembering application state](#remembering-application-state)
 - [Storing data in the ledger](#storing-data-in-the-ledger)
 - [Using accounts from another plugin](#using-accounts-from-another-plugin)
 - [Styling and theming](#styling-and-theming)
@@ -400,6 +402,11 @@ interface PluginContext {
     emit(event: string, data?: unknown): void   // → window.api.on('<pluginId>:<event>', …) in views
   }
   readonly lifecycle: AppLifecycle        // shared
+  readonly settings: {                    // scoped to your plugin; see Settings
+    register<T>(definition: SettingsDefinition<T>): SettingsHandle<T>
+    read<T>(id: string): SettingsReader<T>   // any plugin's, read-only
+  }
+  readonly state: PluginState             // your own keys in app.state; requires "app.state"
   readonly subscriptions: Disposable[]    // disposed, last first, on deactivation
   readonly paths: string                  // the application data path
   readonly logger: Logger
@@ -409,7 +416,8 @@ interface PluginContext {
 Most of the context is the application's own registries
 ([core/plugins/PluginContext.ts](../core/plugins/PluginContext.ts) builds it
 from the runtime). Only `commands` and `events` are wrapped, to enforce
-naming and to bind events to your plugin id. The calls you will use:
+naming and to bind events to your plugin id, and `settings`, which only registers namespaces you own. The calls
+you will use:
 
 | Member | Call | Notes |
 |---|---|---|
@@ -418,6 +426,8 @@ naming and to bind events to your plugin id. The calls you will use:
 | `services` | `provide(provider, id, impl): Disposable`<br>`get<T>(id)`, `has(id)`, `providerOf(id)` | Pass your plugin id as `provider`. |
 | `contextKeys` | `set(key, value)`, `get(key)`, `snapshot()`, `onDidChange`, `deleteNamespace(ns)` | `undefined` removes a key. |
 | `lifecycle` | `phase`, `onStarted(listener)`, `onShuttingDown(listener): Disposable`, `onDidChangePhase(listener)` | The shell-only members (`markStarted`, `requestShutdown`, `onShutDown`, `markShutDown`) are on the same object; don't call them. |
+| `settings` | `register(definition): SettingsHandle`<br>`read(id): SettingsReader` | Tracked: unregistered, and readers' listeners removed, on deactivation. See [Settings](#settings). |
+| `state` | `get(key, default?)`, `set(key, value)`, `update(key, patch)`, `remove(key)` | Your own keys in `app.state`; needs `app.state` in `services.requires`. See [Remembering application state](#remembering-application-state). |
 
 ---
 
@@ -430,12 +440,14 @@ and relies on convention elsewhere:
 |---|---|---|
 | Command ids | **Enforced:** `budget` or `budget.<anything>` | `budget.newCategory` |
 | Events you emit | **Enforced:** any name without `:`; `emit` adds your prefix | `saved` → `budget:saved` |
+| Settings namespaces | **Enforced:** `budget` or `budget.<name>`, lower-case dotted words | `budget`, `budget.reports` |
+| Settings pages | **Enforced** (a page is skipped otherwise): `budget.<anything>`, editing only your own namespaces | `budget.settings` |
 | IPC channels | Convention: `<pluginId>:<event>`. Nothing stops you registering another plugin's channel, so don't | `budget:summary` |
 | Contribution ids (menus, items, groups, views) | Convention: `budget` or `budget.<anything>` | `budget.menu`, `budget.summary` |
 | Context keys you set | Convention: `budget` or `budget.<anything>` | `budget.hasCategories` |
 | Services you provide | Any dotted id. Each id has one provider, and registering a second throws | `budget.forecast`, or a shared port like `storage.engine` |
 
-Breaking a *command* or *event* rule throws; inside `activate`, that rolls your
+Breaking a *command*, *event* or *settings namespace* rule throws; inside `activate`, that rolls your
 plugin back. You can always **refer** to ids you don't own: placing an item
 under the shell's `shell.tools` menu, executing another plugin's command,
 reading another plugin's context keys, or using another plugin's service.
@@ -982,10 +994,230 @@ export default function CategoryDialog({ input, close, setBusy }: DialogProps<{ 
   and `show` resolves undefined once the user closes it. The error is in the DevTools console.
 - `show` rejects only for an id nobody contributed, or when there is no window at all.
 
+## Settings
+
+Settings are the user's preferences for your plugin: "reopen the last ledger at start-up", "list 10 recent
+ledgers". You say what they are and what they default to; the shell keeps them, shows them in the **Options
+dialog** (Tools ▸ Options…, `Ctrl+,`) with every other plugin's, and tells you when they change. (Application
+state the user never sees, such as a recent-files list, belongs in `context.state` instead:
+[Remembering application state](#remembering-application-state).) The design is in
+[settings-design.md](settings-design.md).
+
+**1. Register your settings** in `activate`, with their defaults. The types are in `@tessera/types`.
+
+```ts
+import type { SettingsDefinition } from '@tessera/types'
+
+type BudgetSettings = { warnAt: number, rollOver: boolean, period: 'month' | 'year' }
+
+const settings = context.settings.register<BudgetSettings>({
+  defaults: { warnAt: 90, rollOver: true, period: 'month' },
+  // The authority: run on every change and on what is loaded. Return messages for the user.
+  validate: v => v.warnAt >= 50 && v.warnAt <= 100 ? [] : ['Warn at 50% to 100% of a budget.']
+})
+
+settings.get().warnAt                          // what the user chose, merged over the defaults; never partial
+context.subscriptions.push(
+  // After every OK or Apply (and update or reset) that changed something. `changed` names the settings that
+  // changed: top-level keys, or dotted paths for keys in nested objects.
+  settings.onDidChange(({ value, changed }) => { if (changed.includes('period')) recalculate(value.period) })
+)
+```
+
+- `get()` is right from the first line of `activate`: the shell reads what was saved before any plugin starts.
+  The value is frozen; don't change it, call `update`.
+- The namespace is your plugin id. For settings that are edited and applied separately, register more, each
+  with an `id` of `<pluginId>.<name>` (lower-case words). Registering an id you don't own, or twice, throws.
+- Values are JSON, and the top level is an object. The defaults give the shape: a value whose `warnAt` isn't a
+  number is refused, whatever `validate` says.
+- `validate` must accept the defaults (`register` throws otherwise), and should hold every rule that matters.
+  A saved value that fails it is ignored for the session, with a warning, and the defaults are used.
+- Only what differs from the defaults is saved (in `<userData>/settings/budget.json`), so if you change a default
+  in a later version, users who never changed that setting get the new one.
+
+**2. Contribute a page** to the `shell.settings.pages` extension point. For most settings, list **fields** and
+the shell draws the form:
+
+```ts
+import { SETTINGS_PAGES_EXTENSION_POINT } from '@tessera/types'
+
+context.subscriptions.push(context.extensions.contribute('budget', SETTINGS_PAGES_EXTENSION_POINT, 'budget.settings', {
+  id: 'budget.settings',                       // must start with your plugin id
+  title: 'Budgets',
+  description: 'When to warn, and what happens at the end of a period.',
+  keywords: ['alert', 'overspend'],            // the search box also finds titles, descriptions and field labels
+  fields: [
+    { kind: 'number', key: 'warnAt', label: 'Warn when spending reaches', min: 50, max: 100, integer: true, unit: '%' },
+    { kind: 'boolean', key: 'rollOver', label: 'Carry what is left into the next period' },
+    { kind: 'choice', key: 'period', label: 'Budget period', options: [{ value: 'month', label: 'Monthly' }, { value: 'year', label: 'Yearly' }] }
+  ]
+}))
+```
+
+| Field `kind` | Extra properties | The default at `key` must be |
+|---|---|---|
+| `boolean` (a checkbox) | | `true` or `false` |
+| `number` | `min`, `max`, `integer`, `unit` | a number |
+| `text` | `placeholder`, `maxLength`, `required` | a string |
+| `choice` (radio buttons) | `options: { value, label, description? }[]`, string or number values; `description` is shown under the option | one of the values |
+
+Every field has a `key` (a top-level key, or a dotted path such as `alerts.warnAt`), a `label`, and an optional
+`description` shown under it. The dialog checks the field's rules as the user types, and the main process checks
+them again when saving. A page can also take a `parent` (another page's id, to nest it), `settings` (which of your
+namespaces it edits; default your plugin id) and `order`. A page with neither fields nor a module is a category
+that lists the pages under it.
+
+**3. Or write the page yourself**, for settings a form can't express (a category editor, a "Test connection"
+button). Expose a component from your renderer remote and name it with `module` instead of `fields`:
+
+```ts
+context.extensions.contribute('budget', SETTINGS_PAGES_EXTENSION_POINT, 'budget.categories', {
+  id: 'budget.categories', title: 'Categories', parent: 'budget.settings', module: './CategorySettingsPage'
+})
+```
+
+```tsx
+// src/renderer/CategorySettingsPage.tsx, listed in renderer.expose as "./CategorySettingsPage"
+import type { SettingsPageProps } from '@tessera/types'
+import { FormControlLabel, Checkbox } from '@tessera/ui'
+
+export default function CategorySettingsPage({ value, onChange, disabled }: SettingsPageProps<BudgetSettings>) {
+  return (
+    <FormControlLabel label="Carry what is left into the next period" disabled={disabled}
+      control={<Checkbox checked={value.rollOver} onChange={e => onChange({ ...value, rollOver: e.target.checked })} />} />
+  )
+}
+```
+
+- The page edits a **draft**. `onChange(next)` replaces it with a new object; nothing is saved until the user
+  presses OK or Apply, and Cancel throws it away. Never call the settings IPC yourself.
+- Call `onValidityChange(false)` while the page holds something that can't be saved (a half-typed value); OK and
+  Apply are disabled until you call it with `true`. Your `validate` still decides.
+- `disabled` is true while the dialog applies, or when the settings can't be changed; `errors` holds what the
+  main process refused the last time. The dialog also shows them above your page.
+- Your page stays mounted once shown, so its own state survives the user visiting other pages. If it throws, only
+  your page shows "This page could not be displayed."
+
+**4. Change your own settings from code**, when the user answers something outside the dialog ("Don't ask
+again"). Only the owner can: the handle `register` returned is the only way to write, and it goes through the
+same settings manager and checks as the dialog, and sends the same change event:
+
+```ts
+try {
+  await settings.update({ rollOver: false })   // top-level keys; the same checks as the dialog
+} catch (err) {
+  context.logger.warn(`[budget] ${(err as Error & { problems?: string[] }).problems?.join(' ')}`)
+}
+await settings.reset()                          // every default back
+```
+
+**5. Open your page** from a button or a command: `shell.settings.open` takes a page id.
+
+```ts
+await context.commands.execute('shell.settings.open', 'budget.settings')                             // privileged
+window.api.invoke('shell:commands.execute', { id: 'shell.settings.open', args: ['budget.settings'] }) // a view
+```
+
+Things to know:
+
+- **Upgrading the shape.** Give the definition a `version` (a whole number from 1), raise it when a stored value
+  needs converting, and add `migrate(stored, fromVersion)`. It receives the saved overrides (not the merged
+  value) and returns what to merge over the defaults. Adding a key needs no migration: its default fills in.
+- **Downgrades.** Settings saved by a newer version of your plugin are used but can't be changed (the dialog says
+  so, and `update` rejects), so the newer version's data isn't lost.
+- **Reading another plugin's settings:** `context.settings.read(id)` gives any namespace to read, with no way to
+  change it. `get()` is undefined until the owner has registered it, so read it once every plugin has activated
+  (`context.lifecycle.onStarted`), or require a service the owner provides so it activates first:
+
+  ```ts
+  const ledger = context.settings.read<{ recentLimit: number }>('ledger')
+  context.lifecycle.onStarted(() => showRecent(ledger.get()?.recentLimit ?? 10))
+  ledger.onDidChange(({ value, changed }) => { if (changed.includes('recentLimit')) showRecent(value.recentLimit) })
+  ```
+
+  Only the user (in the Options dialog) and the owner change settings, always through the settings manager and
+  the owner's checks.
+- **No secrets.** Settings are plain files, and changes are pushed to every window.
+- **Checking your settings:** **Tools › Settings Inspector…** (the bundled `settings-inspector` plugin) lists every
+  namespace with what is in effect, its defaults and its file in `<userData>/settings`, and says whether they agree.
+  A namespace at its defaults has no file; that is expected. `context.settings.snapshots()` gives the same values to
+  any plugin, read-only.
+- **Numbers that only make sense together** (a window, the scores within it, the threshold they add up to) should
+  not be a field each: offer presets, a `choice` whose options name whole, consistent sets, each with a `description`.
+  The import plugin's *Matching* setting (Strict, Balanced, Lenient) is one; see
+  [import-manager-design.md › Matching tolerances](import-manager-design.md#matching-tolerances).
+
+## Remembering application state
+
+What your plugin remembers between runs, that the user never sets (a recent-files list, the folder a dialog showed
+last, the last item selected), is **application state**. Keep it in `context.state`: your plugin's own keys in the
+application's key/value store (`app.state`, kept by the `app-state` plugin in the application's database, apart from
+any ledger). What the user *chooses* is a setting instead ([Settings](#settings)); a user's financial data belongs in
+the ledger ([Storing data in the ledger](#storing-data-in-the-ledger)).
+
+**1. Require the store** in your manifest, so the `app-state` plugin activates before yours:
+
+```json
+"services": { "requires": ["app.state"] }
+```
+
+This is checked: without it, every `context.state` call rejects with `used context.state without requiring
+"app.state": add it to services.requires`, even when the store happens to be there already, so a missing line shows
+the first time, not when the activation order changes.
+
+**2. Read and write your keys:**
+
+```ts
+const folder = await context.state.get<string>('lastFolder', () => files.documentsPath())   // never writes the default
+await context.state.set('lastFolder', chosenFolder)
+await context.state.update('window', { width: 800 })        // merges into the object stored under the key
+await context.state.remove('lastFolder')
+```
+
+- **Keys are yours alone.** `context.state` stores `lastFolder` as `budget.lastFolder`, so you can't read or overwrite
+  another plugin's keys, and they can't reach yours. A key is any non-empty string.
+- **Values are JSON.** Read them defensively: what was stored may come from an older version of your plugin, or be
+  damaged; use a default rather than fail (the ledger's recent list drops any entry it can't read).
+- **Calls are asynchronous**, and a failed one rejects. State is a convenience: if remembering fails, carry on with
+  what the user would see the first time, and log it.
+- **Nothing is removed when your plugin deactivates**, so the next run finds it. Remove keys you no longer use.
+
+The ledger's recent ledgers (`recent`, `last`) and the import's last folder (`lastFolder`) are kept this way.
+
+### Giving your views state
+
+There is no channel from a view into the store: a view asks **its own plugin**, whose privileged code answers from
+`context.state`, through the plugin's IPC ([IPC between your view and your privileged code](#ipc-between-your-view-and-your-privileged-code)).
+Register a handler for what the view needs, not a general key/value door:
+
+```ts
+// privileged: the view's column widths, and nothing else of the plugin's state
+context.subscriptions.push(
+  context.ipc.register('budget:columns.get', () => context.state.get('columns', () => ({ name: 200, amount: 120 }))),
+  context.ipc.register('budget:columns.set', async (msg: IpcMessage<Record<string, number>>) => {
+    const widths = msg.data
+    if (typeof widths !== 'object' || widths === null || !Object.values(widths).every(w => Number.isInteger(w) && w > 0)) {
+      throw new Error('Column widths must be whole numbers of pixels')
+    }
+    await context.state.set('columns', widths)
+  })
+)
+```
+
+```tsx
+// renderer
+const widths = await window.api.invoke<Record<string, number>>('budget:columns.get')
+await window.api.invoke('budget:columns.set', { ...widths, name: 240 })
+```
+
+The handler decides what a view may read and write, checks what it is given, and can only ever touch your plugin's
+keys. (Any code in a window can call any channel until IPC senders are validated, so still never keep anything in
+state that a view shouldn't see.)
+
 ## Storing data in the ledger
 
 A user's financial data lives in the **open ledger**: one file, provided by the bundled `ledger` plugin as the
-`ledger.session` service. (Application state, such as window positions, belongs in `app.state` instead, which is
+`ledger.session` service. (Application state, such as a recent-files list, belongs in `context.state` instead, which is
 there whether or not a ledger is open.) The contract, with every id as a constant, is `@tessera/ledger-api`;
 the design is in [account-manager-design.md](account-manager-design.md#the-ledger).
 
@@ -1405,9 +1637,11 @@ Set only the tokens you want to change (`primary`, `secondary`, `error`, `warnin
 `success`, `background.default`, `background.paper`, `text.primary`, `text.secondary`,
 `divider`); the rest come from the shell's theme. Colours are hex or `rgb()`/`hsl()`:
 colour names are rejected so every colour can be parsed and adjusted. A theme with a
-mistake is skipped with a `[theme]` warning. The theme then appears in **View ▸ Theme**
-(and **This Window**), and in the **Choose Theme…** dialog, which shows the user a preview of it
-in each mode before they choose; plugins can't change the theme themselves.
+mistake is skipped with a `[theme]` warning. The theme then appears on the Options dialog's
+**Appearance** page (Tools ▸ Options…), as a card drawn from its colours, with a preview of
+it in each mode before the user chooses; plugins can't change the theme themselves. Give it
+an optional `description` (a short line) and the card shows it, and the page's filter finds
+it by it.
 The sample [test-layout](../plugins/test-layout/src/privileged/index.ts) contributes two.
 
 A theme that is hard to read still works, but the log says so: `Theme "budget.sunrise"
@@ -1615,7 +1849,7 @@ DevTools console (Tools › Toggle Developer Tools).
 | Plugin does nothing | `Skipping "<id>": has a circular service dependency` | Plugins require each other's services, directly or indirectly |
 | `Service "…" is already provided by "…"` | `[plugins] Failed to activate` | Two plugins provide the same id, or a plugin provided it twice |
 | `declares service "…" but did not provide it` | `[plugins]` warning | `activate` never called `context.services.provide` for a declared id, or passed the arguments in the wrong order (it is `provide(provider, id, impl)`) |
-| `cannot register command "…": ids must start with "<id>."` | `[plugins] Failed to activate` | A command id doesn't start with your plugin id. An IPC-style handler (`'app.state:get'`) belongs on `context.ipc.register`, not `commands.register` |
+| `cannot register command "…": ids must start with "<id>."` | `[plugins] Failed to activate` | A command id doesn't start with your plugin id. An IPC-style handler (`'budget:summary'`) belongs on `context.ipc.register`, not `commands.register` |
 | `Service not available: <id>` | the thrown error | `get` for a service that has no provider; add it to `services.requires`, or check `has` first |
 | Menu missing or misplaced | `[menus] …` | Unknown parent, wrong `kind`, duplicate id; or the menu has no items, so it was dropped |
 | Menu item greyed out | none | Its command isn't registered or has a typo; or its `enablement` is false. Check the keys with `context.contextKeys.get` |
@@ -1626,6 +1860,14 @@ DevTools console (Tools › Toggle Developer Tools).
 | "*title* could not be displayed." | `[views] View "<id>" failed` in DevTools | Remote entry not found, module not exposed, no default export, or a render error |
 | "Invalid hook call" | DevTools | Your remote bundles its own React; mark React as shared |
 | `invoke` rejects with `NO_HANDLER` | none | Channel typo, or the handler isn't registered; channels are `<pluginId>:<event>` |
+| `cannot register settings "…"` or `the defaults fail their own validation` | `[plugins] Failed to activate` | A settings id that isn't yours (or isn't lower-case dotted words), registered twice, or defaults your `validate` refuses |
+| Settings page missing from Options | `[settings] Settings page "…" ignored: …` | Its id doesn't start with your plugin id, it edits settings you didn't register, or it has both `module` and `fields` |
+| A field missing from a page | `[settings] Settings page "…": field "…" …; the field is left out` | Its `key` has no default, or the default doesn't suit the kind (a number field over a string) |
+| Your settings are back at their defaults | `[settings] Settings "…" …` | The saved file was not JSON (it is now `<id>.json.bad`), failed `validate`, or `migrate` threw; the message says which |
+| A setting doesn't seem to be saved | Tools › Settings Inspector… | A namespace at its defaults has no file, by design; one that differs should show *Matches its file*. *Differs* or *File unreadable* says why |
+| `used context.state without requiring "app.state"` | the rejected call, or `[plugins] Failed to activate` | Add `"app.state"` to `services.requires` in your manifest |
+| `"app.state" is not available` | the rejected call | The `app-state` plugin isn't installed, or failed to activate (look for its own message), or the storage engine it needs is missing |
+| A saved setting can't be changed | `… were saved by version N of their shape …; they are read-only` | A newer version of your plugin saved it; raise your `version` and migrate, or reset it |
 
 ---
 
@@ -1639,6 +1881,11 @@ DevTools console (Tools › Toggle Developer Tools).
 | Views extension point | `shell.views` | [shared/views/types.ts](../shared/views/types.ts) |
 | Main slot | `shell.main` | [shared/views/types.ts](../shared/views/types.ts) |
 | Dialogs extension point | `shell.dialogs` (`DialogContribution`, `DialogProps`) | [tessera-types/dialogs.ts](../tessera-types/dialogs.ts) |
+| Application state | `context.state` (`PluginState`), service `app.state` (`APP_STATE_SERVICE`) | [tessera-types/app-state.ts](../tessera-types/app-state.ts), [core/state/PluginState.ts](../core/state/PluginState.ts) |
+| Settings | `context.settings` (`SettingsApi`, `SettingsDefinition`, `SettingsHandle`, `SettingsReader`) | [tessera-types/settings.ts](../tessera-types/settings.ts) |
+| Settings pages extension point | `shell.settings.pages` (`SettingsPageContribution`, `SettingsField`, `SettingsPageProps`) | [tessera-types/settings.ts](../tessera-types/settings.ts) |
+| Opening the Options dialog | command `shell.settings.open` (optional argument: a page id) | [shell/main/settings/registerSettings.ts](../shell/main/settings/registerSettings.ts) |
+| Settings page and field validation | `resolveSettingsPages`, `fieldValueProblem` | [shared/settings/](../shared/settings/) |
 | Prompts and file services | `shell.prompts` (`ShellPrompts`), `shell.files` (`ShellFiles`) | [tessera-types/dialogs.ts](../tessera-types/dialogs.ts) |
 | Dialog validation | `resolveDialogs` | [shared/dialogs/resolveDialogs.ts](../shared/dialogs/resolveDialogs.ts) |
 | Finance plugin contracts | `@tessera/ledger-api`, `@tessera/accounts-api` | [packages/ledger-api/](../packages/ledger-api/), [packages/accounts-api/](../packages/accounts-api/) |

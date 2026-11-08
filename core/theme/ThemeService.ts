@@ -159,13 +159,34 @@ export class ThemeService {
       this.log?.warn(`[theme] Could not load the saved theme: ${describe(err)}`)
       return undefined
     })
+    this.adoptGlobal(raw)
+  }
+
+  /**
+   * Takes the application-wide selection from where it is kept (the settings), without saving it back. Only its
+   * form is checked: its theme may be a plugin's that hasn't activated yet, and until it does the shell's own theme
+   * is shown (see `noteMissing`). True when the selection changed; windows are told as for `setGlobal`.
+   */
+  adoptGlobal(raw: unknown): boolean {
     const { selection, warning } = parseStoredSelection(raw)
     if (warning) this.log?.warn(`[theme] ${warning}`)
-    if (selection) {
-      this.global = selection
-      this.port.setSource(this.platformSource())
-      this.update()
+    if (!selection || (selection.theme === this.global.theme && selection.mode === this.global.mode)) return false
+    this.global = selection
+    this.port.setSource(this.platformSource())
+    this.update()
+    return true
+  }
+
+  /** Returns every window with a theme of its own to the application-wide one, forgetting the overrides. */
+  clearOverrides() {
+    let cleared = false
+    for (const entry of this.windows.values()) {
+      if (entry.override === undefined) continue
+      entry.override = undefined
+      cleared = true
+      if (entry.key !== undefined) this.queue(() => this.persistence?.saveOverride(entry.key!, undefined))
     }
+    if (cleared) this.update()
   }
 
   /** Starts tracking a window, with the override saved under `key` (if any). Resolves with its first state. */

@@ -3,6 +3,7 @@
 // Ports the core depends on. Adapters live in shell/main. Nothing in core/ may
 // import electron or node:* — tests/architecture enforces this.
 
+import type { JsonObject } from '@tessera/types'
 import { PluginManifest } from "@shared/plugins/manifest"
 
 /** Where a plugin was found: shipped with the app, or installed by the user. */
@@ -33,4 +34,21 @@ export interface ThemePort {
   setSource(mode: 'system' | 'light' | 'dark'): void
   /** Fires when `systemPrefersDark` may have changed. Returns an unsubscribe. */
   onSystemChange(listener: () => void): () => void
+}
+
+/** A settings namespace as it is kept: the version of its shape when saved, and only what differs from the defaults. */
+export interface StoredSettings {
+  version: number
+  values: JsonObject
+}
+
+/** Where settings are kept, one document per namespace. Adapted to JSON files under the user-data folder in shell/main. */
+export interface SettingsPersistence {
+  /**
+   * Every saved namespace's document, by namespace id, as read: the service checks them. The adapter leaves out (and
+   * sets aside) a document it can't read, so one bad file never costs the others.
+   */
+  loadAll(): Promise<Record<string, unknown>>
+  /** Replaces a namespace's document, atomically; `undefined` removes it (everything is at its default). */
+  save(id: string, document: StoredSettings | undefined): Promise<void>
 }

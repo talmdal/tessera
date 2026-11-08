@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | Phases 0 (spike), 1 (theme manager), 2 (MUI foundation, no flash), 3 (`@tessera/ui` and icons) and 4 (shell components) done; phase 5 (plugins) done; phase 6 (polish) done except the items that wait on other work (listed in its results). The earlier open questions are answered (see [Decisions](#decisions)); a few new ones are at the end |
-| **Date** | 2026-11-04 (first draft 2026-11-03) |
+| **Status** | Phases 0 (spike), 1 (theme manager), 2 (MUI foundation, no flash), 3 (`@tessera/ui` and icons) and 4 (shell components) done; phase 5 (plugins) done; phase 6 (polish) done except the items that wait on other work (listed in its results). The theme is now chosen on the Options dialog's **Appearance** page, and the application's theme is a setting (see [The Appearance page](#the-appearance-page)); the theme chooser dialog and the View ▸ Theme menu are gone. The earlier open questions are answered (see [Decisions](#decisions)); a few new ones are at the end |
+| **Date** | 2026-11-07 (first draft 2026-11-03; Appearance page 2026-11-07) |
 | **Scope** | One component library and icon set (Material UI) for the shell and plugin views, exposed to plugins through `@tessera/ui`; a theme manager that follows the OS light or dark setting, lets plugins contribute themes, and lets a window override the theme |
 | **Related** | [layout-controller-design.md](layout-controller-design.md) ([Icons](layout-controller-design.md#icons)), [plugin-creation.md](plugin-creation.md) ([Shared dependencies](plugin-creation.md#shared-dependencies)), [settings-design.md](settings-design.md), [todo.md](todo.md) |
 
@@ -28,7 +28,8 @@
 - [Phase 4 results](#phase-4-results)
 - [Phase 5 results](#phase-5-results)
 - [Phase 6 results](#phase-6-results)
-- [The theme chooser](#the-theme-chooser)
+- [The theme chooser](#the-theme-chooser) (replaced)
+- [The Appearance page](#the-appearance-page)
 - [Open questions](#open-questions)
 
 ## Summary
@@ -127,6 +128,8 @@ Answers to the first draft's questions, followed by the design decisions.
 | 17 | **Plugins cannot change the theme.** They read it (`useTheme`, `useThemeState`); the commands and IPC requests that change it are for the user's own gestures | A plugin switching the theme under the user would be hostile |
 | 18 | Theme tokens start at palette, background, text and divider | Widen later if needed |
 | 19 | A window override is persisted with that window's state | |
+| 20 | **The theme is chosen in the Options dialog** (Appearance page), and **the application's theme is a setting** (`shell.theme`); the theme chooser dialog and the View ▸ Theme menu are removed | The settings framework gives one place for preferences, with OK, Apply and Cancel. The setting is the one source of truth: the Options dialog and the theme commands change it, and the theme manager follows it, re-theming every window. See [The Appearance page](#the-appearance-page) |
+| 21 | **Changing the application's theme, once the app runs, clears windows' own themes** | Nothing in the UI manages a window's own theme any more, so one left in place would silently defeat the user's choice. The commands for it (`setForWindow`, `clearWindowOverride`) remain |
 
 ## `@tessera/ui`: what plugins import
 
@@ -298,16 +301,21 @@ cannot differ per window (see open questions).
 |---|---|
 | `shell.theme.useSystem` / `useLight` / `useDark` | global mode (current theme) |
 | `shell.theme.toggle` | flip to the opposite explicit mode |
-| `shell.theme.select` | choose the global theme (a quick pick when the quick-pick UI exists; the argument form works now) |
+| `shell.theme.select` | choose the global theme (argument: a theme id) |
+| `shell.theme.set` | set the global theme and mode exactly (argument: a `ThemeSelection`) |
+| `shell.theme.choose` | open the Options dialog at the Appearance page |
 | `shell.theme.setForWindow` | override this window's selection (focused window, as the layout commands do) |
 | `shell.theme.clearWindowOverride` | return this window to the global setting |
+
+The commands that change the global theme change the `shell.theme` setting, as the
+Appearance page does (see [The Appearance page](#the-appearance-page)).
 
 Context keys: `shell.theme.mode`, `shell.theme.id`, `shell.theme.overridden`
 (true while the focused window has an override).
 
-The `View` menu gains a **Theme** submenu with the commands. Radio items
-don't exist yet ([todo.md](todo.md#menus-commands-and-context-keys)), so the
-current choice isn't ticked until they do.
+There is **no Theme menu** any more: the theme is chosen on the Options dialog's
+Appearance page (Tools ▸ Options…). The View ▸ Theme submenu described in the phase 1
+and phase 6 results was removed with the theme chooser.
 
 ### IPC
 
@@ -321,9 +329,11 @@ Following the layout channels, attributed to the window by `IpcMessage.sender`:
 Events go to every window and carry the window id, as the layout's do;
 targeted delivery is the open todo "Events to one window".
 
-**There is no request that changes the theme.** The renderer has nothing to
-change it with until phase 6's settings page, and until IPC senders are
-validated ([todo.md](todo.md#security)) any plugin view could send one. The
+**There is no request that changes the theme.** The renderer changes it the
+way it changes any setting: the Options dialog commits the `shell.theme`
+setting (`shell:settings.commit`), which the theme manager follows. Until IPC
+senders are validated ([todo.md](todo.md#security)) any plugin view could send
+that commit, as for every setting. The
 decision that plugins can't change the theme is enforced as far as the platform
 allows: no such request exists, and the commands below are, like every
 command, runnable by any privileged code. Revisit with sender validation and a
@@ -331,20 +341,25 @@ plugin trust model.
 
 ### Persistence
 
-The global selection is stored in `app-state` under the existing `theme`
-key; a window's override is stored with that window's state, keyed like its
-layout (`PRIMARY_WINDOW_KEY` for the first window), so it survives a restart.
+The global selection is the **`shell.theme` setting**, kept by the settings
+framework as `<userData>/settings/shell.theme.json` (only what differs from
+`{ theme: 'tessera.default', mode: 'system' }`). A window's override is window
+state, stored in `app-state` with that window's state, keyed like its layout
+(`PRIMARY_WINDOW_KEY` for the first window), so it survives a restart.
 
-| Stored `theme` | Meaning |
+The global selection used to be stored in `app-state` under the `theme` key. The
+first start with the setting moves such a value into the setting (unless the setting
+already holds one) and removes the old key. What it may hold:
+
+| Stored `theme` (old) | Meaning |
 |---|---|
 | absent | `{ theme: 'tessera.default', mode: 'system' }` |
 | `'light'`, `'dark'` (the old hook's values) | `{ theme: 'tessera.default', mode }` |
 | a `ThemeSelection` object | itself |
 | anything else | ignored with a `[theme]` warning, treated as absent |
 
-It is read **before the first window is created**, and the manager runs with
-defaults, unpersisted, if `app-state` is unavailable, as the layout
-controller does.
+It is read **before the first window is created**. Window overrides are not
+remembered, and nothing fails, if `app-state` is unavailable, as for the layout.
 
 ### Startup without a flash
 
@@ -728,7 +743,7 @@ Findings and departures:
 |---|---|
 | WCAG contrast of a theme's colours | [shared/theme/contrast.ts](../shared/theme/contrast.ts) |
 | Warning for contributed themes, `onDidChangeThemes` | [core/theme/ThemeService.ts](../core/theme/ThemeService.ts) |
-| Theme picker (View ▸ Theme) | [shell/main/theme/themeMenus.ts](../shell/main/theme/themeMenus.ts), [shell/main/theme/registerTheme.ts](../shell/main/theme/registerTheme.ts) |
+| Theme picker (View ▸ Theme) | `shell/main/theme/themeMenus.ts` (removed), [shell/main/theme/registerTheme.ts](../shell/main/theme/registerTheme.ts) |
 | Reduced motion, forced colours | [shell/renderer/theme/createShellTheme.ts](../shell/renderer/theme/createShellTheme.ts), [ShellThemeProvider.tsx](../shell/renderer/theme/ShellThemeProvider.tsx), [Splitter.tsx](../shell/renderer/layout/Splitter.tsx) |
 
 **Contrast.** The shell's own colours were reviewed with real figures (WCAG AA asks
@@ -747,7 +762,8 @@ A tool or a user may want exactly that theme, and a plugin can be fixed; refusin
 hide a theme instead of explaining it. Translucent text is blended over its background
 as it is drawn, which is how the shell's own text colours are written.
 
-**The theme picker.** View ▸ Theme now lists every registered theme, and has a
+**The theme picker.** *(Removed since: the theme is chosen on the Options dialog's
+Appearance page; see [The Appearance page](#the-appearance-page).)* View ▸ Theme now lists every registered theme, and has a
 **This Window** submenu with the same list plus "Use the Application Theme" (enabled
 only while the window has its own). Choosing a theme keeps the current mode when the
 theme has it and uses the theme's own when it doesn't; the window variant keeps the
@@ -775,13 +791,12 @@ high-contrast themes, so how they *look* is unchecked.
 
 **Not done, because each waits on something else:**
 
-- **A settings page for the choice** needs the settings framework
-  ([settings-design.md](settings-design.md)). The menu is the way to choose until then.
-- **Ticking the current choice** in the menu needs radio or checkbox items
-  ([todo.md](todo.md#menus-commands-and-context-keys)).
-- **The menu lists themes registered at startup.** It is built once after the plugins
-  activate, so a theme that appears later is available as a command but not in the menu
-  until a restart (the existing "menu structure changes at runtime" todo).
+- **A settings page for the choice.** *Done since:* the Appearance page
+  ([below](#the-appearance-page)), which also makes the next two moot.
+- **Ticking the current choice** in the menu needed radio or checkbox items. The menu is gone; the
+  Appearance page shows the current choice.
+- **The menu listed themes registered at startup** only. The Appearance page lists every theme
+  registered when it is shown, and one contributed while it is open.
 - **Density** stays compact for everything; re-evaluate with real finance screens.
 - **A splash screen and a themed title bar** were explicitly left for later.
 
@@ -792,13 +807,16 @@ plugin publishes.
 
 ## The theme chooser
 
-**View ▸ Theme ▸ Choose Theme…** opens a dialog that shows a preview of a theme before
+> **Replaced** by the Options dialog's Appearance page ([The Appearance page](#the-appearance-page)).
+> This section records what the dialog did; `ThemeChooser.tsx` and the View ▸ Theme menu were removed.
+
+**View ▸ Theme ▸ Choose Theme…** opened a dialog that shows a preview of a theme before
 it is chosen. It was added after phase 6 as polish, and uses a MUI dialog rather than a
 native one, as decision 16 prefers.
 
 | Piece | Where |
 |---|---|
-| The dialog, and the host that opens it | [shell/renderer/theme/ThemeChooser.tsx](../shell/renderer/theme/ThemeChooser.tsx) |
+| The dialog, and the host that opens it | `shell/renderer/theme/ThemeChooser.tsx` (removed) |
 | The preview | [shell/renderer/theme/ThemePreview.tsx](../shell/renderer/theme/ThemePreview.tsx) |
 | `shell.theme.choose`, `shell.theme.set`, the open event | [shell/main/theme/registerTheme.ts](../shell/main/theme/registerTheme.ts), [shared/theme/types.ts](../shared/theme/types.ts) |
 
@@ -853,6 +871,83 @@ relaunch confirmed the saved theme and no override.
 theme's colours rather than how a given layout would look in them. "Follow the system" is
 previewed with the last operating-system value Electron could read (see
 [Phase 1 results](#phase-1-results)).
+
+## The Appearance page
+
+The theme is chosen on the **Options dialog's Appearance page** (Tools ▸ Options…, or the
+`shell.theme.choose` command), like every other preference. It replaced the theme
+chooser dialog and the View ▸ Theme menu (decisions 20 and 21).
+
+| Piece | Where |
+|---|---|
+| The `shell.theme` setting, the page's ids | [shared/theme/settings.ts](../shared/theme/settings.ts) |
+| The page contribution, the commands, following the setting | [shell/main/theme/registerTheme.ts](../shell/main/theme/registerTheme.ts) |
+| Reading the setting, moving an old `app.state` choice into it | [shell/main/theme/appStatePersistence.ts](../shell/main/theme/appStatePersistence.ts) |
+| `adoptGlobal`, `clearOverrides` | [core/theme/ThemeService.ts](../core/theme/ThemeService.ts) |
+| The page | [shell/renderer/settings/pages/AppearancePage.tsx](../shell/renderer/settings/pages/AppearancePage.tsx) |
+| The theme gallery | [shell/renderer/theme/ThemeGallery.tsx](../shell/renderer/theme/ThemeGallery.tsx) |
+| The preview (unchanged) | [shell/renderer/theme/ThemePreview.tsx](../shell/renderer/theme/ThemePreview.tsx) |
+
+**One source of truth, one direction.** The application's theme is the `shell.theme`
+setting, `{ theme, mode }`. It is changed only through the settings: by OK or Apply on
+the Appearance page, or by a theme command (`useDark`, `select`, `set`…), which checks
+the selection against the registered themes and then updates the setting. The theme
+manager follows the setting (`adoptGlobal`) and re-themes every window: each gets
+`shell:theme.changed`, and its `ShellThemeProvider` re-renders in the new theme. The
+theme manager never writes the setting back; an earlier draft did, and two quick
+commands then raced (the first's queued write arrived after the second and flipped the
+theme back), which a test now guards.
+
+**Windows' own themes.** Once the app is running, any change to the setting clears every
+window's own theme, so the user's choice shows everywhere (decision 21); reading the
+setting at start-up does not. The page says so when the window it is shown in has a
+theme of its own.
+
+**What is checked.** The setting checks only its form (a theme id, and `system`,
+`light` or `dark`), not that the theme exists: a plugin's theme is registered only when
+that plugin activates, after the settings are read. A missing theme shows the shell's
+own until it returns, with the choice kept, as before; the page says when the chosen
+theme isn't available. The commands check more (the theme exists, and has the mode).
+
+**The page.** It is one of the shell's own settings pages (`pluginId: 'shell'`, drawn
+from the renderer's built-in pages rather than a plugin remote), with the same draft
+lifecycle as every page: choosing changes the draft, OK or Apply applies it, Cancel
+forgets it, and Restore Defaults returns to the shell's theme following the system.
+
+- **Theme:** the gallery (below).
+- **Mode:** System, Light or Dark, with those the theme lacks switched off, and the
+  *wished* mode remembered as the chooser did: a dark-only theme shows Dark, and a theme
+  with both variants brings System back. With System, it says what the system shows now.
+- **Preview:** the same miniature of the application the chooser had, and the same
+  contrast warning for a theme that may be hard to read in the previewed mode.
+
+**The gallery: showing any number of themes.** The chooser listed themes as radio
+buttons with three colour dots. The gallery is built to scale with what plugins
+contribute, and to need nothing from them but their data:
+
+- Each theme is a **card** with a miniature window (page, title bar, side panel, text
+  lines and a button) drawn only from the theme's tokens (`tokensFor`), in the mode
+  choosing it would show. A contributed theme presents itself; there is no code per
+  theme, and nothing for a plugin to provide beyond its `ThemeDescriptor`.
+- Under the name, the card shows what the data says: the theme's **`description`**
+  (a new optional field of `ThemeDescriptor`, validated like the others), whether it is
+  **light or dark only**, and **which plugin** offers it (the id prefix the registry
+  enforces).
+- The cards fill a responsive grid, and from seven themes a **filter box** searches
+  names, descriptions and plugins.
+- It is a **radio group** for keyboard and assistive technology: the arrow keys and
+  Home/End move the choice, and only the chosen card is a tab stop.
+- It follows the theme list live: a theme a plugin contributes while the page is open
+  appears (the renderer's theme context now carries the theme list, `useThemeCatalogue`).
+
+**Verified** in a real browser (headless Chromium) against the production renderer
+bundle, with a stand-in for the main process: the cards drew the shell's, Sunrise,
+Midnight and a fourth theme in light and dark; choosing Midnight switched the mode to
+Dark with System and Light off; OK sent `{ theme, mode }` to `shell:settings.commit` and
+closed the dialog, and the window re-themed to Sunrise from the `shell:theme.changed`
+event (page background checked). The main-process half (setting → theme manager →
+event, the file `settings/shell.theme.json`, no Theme menu) is covered by
+[tests/main/app.test.ts](../tests/main/app.test.ts). Not run in Electron itself.
 
 ## Phase 5 results
 

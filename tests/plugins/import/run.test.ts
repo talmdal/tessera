@@ -238,7 +238,8 @@ describe('the file dialog and the service', () => {
     const [options] = env.files.showOpenFilesDialog.mock.calls[0] as unknown as [{ defaultPath: string, filters: unknown[] }]
     expect(options.defaultPath).toBe(env.files.downloadsPath())
     expect(options.filters[0]).toEqual({ name: 'All supported statements', extensions: ['ofx', 'qfx'] })
-    expect(await env.appState.get(IMPORT_STATE_KEYS.lastFolder)).toBe(sample('').replace(/\/$/, ''))
+    // Kept in the import's context.state, stored as import.lastFolder in app.state
+    expect(await env.appState.get(`import.${IMPORT_STATE_KEYS.lastFolder}`)).toBe(sample('').replace(/\/$/, ''))
     // Cancelling the file dialog imports nothing, and shows no summary
     env.files.showOpenFilesDialog.mockResolvedValueOnce([])
     expect(await env.manager.importFiles()).toBeUndefined()

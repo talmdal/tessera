@@ -320,7 +320,7 @@ Done on 2026-11-04. The plugin is `plugins/ledger/` (id `ledger`), built like th
 | Migrations | `privileged/migrations.ts` | Plans before anything is written: a newer file is refused, and a backup is needed only when existing data changes. Runs one version at a time, recording each |
 | Scoped database | `privileged/scopedDatabase.ts` | A contributor's view: its own collections, meta keys and change events; it can't close the database |
 | Disk | `privileged/disk.ts` | Existence, header sniff (`sqlite`/`json`/`empty`/`unknown`), side files (`-wal`, `-shm`, `-journal`, `~`) and backups that never overwrite. A port, so the session is tested on the memory engine |
-| Recent ledgers | `privileged/RecentLedgers.ts` | `ledger.recent` and `ledger.last` in `app.state`, read defensively |
+| Recent ledgers | `privileged/RecentLedgers.ts` | `ledger.recent` and `ledger.last` in `app.state` (through `context.state`, as `recent` and `last`), read defensively |
 | Commands, IPC, contributions | `privileged/commands.ts`, `ipc.ts`, `contributions.ts`, `index.ts` | As designed; failures the user caused go to a message box. The service is a facade with exactly the `LedgerSession` members |
 | Views and dialogs | `renderer/StartView.tsx`, `LedgerTree.tsx`, `NewLedgerDialog.tsx`, `RenameDialog.tsx` | The dialogs save through IPC and show `DUPLICATE_NAME` and `CONFLICT` on the field, staying open |
 

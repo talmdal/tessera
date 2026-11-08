@@ -240,7 +240,7 @@ Files of type:  [ All supported statements (*.ofx, *.qfx, *.csv, *.qif)  ▾ ]
   files the user can import. One filter per format follows, in `order` and then label order, and *All files* comes
   last.
 - Several files can be chosen at once (`showOpenFilesDialog`, a new `shell.files` method).
-- The dialog opens in the folder used last time (`import.lastFolder` in `app.state`, since it isn't ledger data),
+- The dialog opens in the folder used last time (`import.lastFolder` in `app.state`, since it isn't ledger data; the plugin reaches it through `context.state` as `lastFolder`),
   or in the user's Downloads folder, where banks' statements usually land. (The shell gains `downloadsPath()`
   beside `documentsPath()`.)
 - With no format installed, the command is disabled (`import.hasFormats` is false), so *Import…* is greyed out.
@@ -616,7 +616,7 @@ few hundred rows, even for busy accounts.
 | 4 to 7 | 0.70 |
 | 8 to 14 | 0.40 |
 | −1 to −3 (the user dated it later than the bank) | 0.70 |
-| a cheque whose number matches, 4 to 90 | 0.60, or the row above if higher |
+| a cheque whose number matches, 0 to 90 | 0.60, or the row above if higher |
 | anything else | not a candidate |
 
 **Amount score** `A`, from `Δ` = |line − transaction| in minor units, and `r` = Δ / |line|:
@@ -659,8 +659,57 @@ Worked examples (`P` as [payee similarity](#payee-similarity) computes it; `matc
 | Oct 9, (no payee), −120.00 | Oct 8, Hydro One, −120.00 | 1.00 | 0.90 | – | 0.96 | Matched |
 | Nov 20, CHQ 104, −300.00 | Oct 2, Landlord, #104, −300.00 | 1.00 | 0.60 | 0.00 | 0.78 | Possible match (0.63 plus the cheque-number bonus) |
 
-The weights, windows and thresholds are constants in one file (`matching/tuning.ts`), tuned against a fixture corpus
-of real-looking statements ([Testing](#testing)). They move to a settings page when the settings framework exists.
+The numbers above are the **Balanced** preset, the default. Every weight, window and threshold lives in one file
+(`matching/tuning.ts`), tuned against a fixture corpus of real-looking statements ([Testing](#testing)), and the user
+chooses among consistent sets of them, never a single number: see [Matching tolerances](#matching-tolerances).
+
+### Matching tolerances
+
+How closely a line must match is the user's choice, on the Options dialog's **Import** page (Tools › Options…): one
+setting, `matching` in the `import` namespace, with three **presets**. The numbers depend on one another (the date
+table must cover the date window, the thresholds assume the weights, the amount tiers must widen as their scores
+fall), so a preset is a whole set, and there is no field per number.
+
+| | Strict | **Balanced** (default) | Lenient |
+|---|---|---|---|
+| Date window: bank after purchase / user later than bank / cheque | 7 / 2 / 60 days | 14 / 3 / 90 days | 21 / 5 / 120 days |
+| `D` for 4 to 7 days / 8 to 14 / 15 to 21 | 0.60 / – / – | 0.70 / 0.40 / – | 0.75 / 0.50 / 0.30 |
+| `A` tiers (ratio: score): near / far | 3%: 0.60 / 10%: 0.35 | 5%: 0.70 / 25%: 0.45 | 8%: 0.70 / 35%: 0.50 |
+| Close amount: ratio, or within | 1%, or 1 major unit | 1%, or 1 major unit | 2%, or 2 major units |
+| Proposed from / payees agree from | 0.75 / 0.60 | 0.65 / 0.50 | 0.60 / 0.45 |
+| Shown as *Matched* from | 0.90 | 0.85 | 0.85 |
+| In short | Fewer, surer proposals: no tips, a week's posting delay; more lines added as new | The tuned set | Late posting, large tips and estimates; more possible matches to check |
+
+The weights, the cheque score and bonus, and the 1.00 / 0.90 for the same day and up to 3 days are the same in all
+three.
+
+**Consistent, defined.** `tuningProblems` in `tuning.ts` says what makes a set inconsistent, and a test holds every
+preset to it: the date table covers every day of the window exactly once and nothing outside it; the same day scores
+1 and no day scores better than a nearer one; the cheque window is at least the ordinary one; the amount tiers widen as
+their scores fall; each set of weights sums to 1; a proposal needs less than a match.
+
+**A ladder.** The presets are ordered: for any line and transaction, Strict's score is at most Balanced's, and
+Balanced's at most Lenient's; whatever Strict proposes, Balanced does, and whatever Balanced proposes, Lenient does. A
+test checks this over a grid of date gaps (a week after to four months before), amount differences (none to half
+again), payees (alike, abbreviated, different, missing) and cheques.
+
+**What each promises, on the corpus** (`matching/presets.test.ts`):
+
+| Preset | Precision | Recall | Promise |
+|---|---|---|---|
+| Strict | 1.000 | 0.900 | Never less precise than Balanced; finds at least 85%. It leaves the three tips and a 4.5% fuel estimate for the user |
+| Balanced | 1.000 | 1.000 | The corpus's own bar (95% each) |
+| Lenient | 0.952 | 1.000 | Finds everything Balanced does; a wrong proposal is never shown as *Matched*. Its two are near-misses the corpus keeps on purpose, shown as possible matches |
+
+A second fixture set, `tests/fixtures/import/presets/`, shows where they part ways: card purchases posted 2, 10 and 18
+days late, bills the tip made 15% and 31% larger (of the bank's amount), a fuel estimate 4% short, a purchase written
+down five days after the bank posted it, and cheques cashed 19, 75 and 110 days after they were written. Each line names the strictest preset that should pair it, and each
+preset pairs exactly those, each with the right transaction.
+
+**When a change takes effect.** The next import uses the preset chosen then (one preset for a whole statement, even
+if the user changes it meanwhile), and so does the Change Match dialog's list. Proposals already waiting for review are
+scored again in the register with the preset chosen now, so they show as *Matched* or *Possible match* by it; the
+registers with such proposals are told to read their marks again. Nothing already accepted changes.
 
 ### Payee similarity
 
@@ -2043,7 +2092,7 @@ on the next import; badges follow reviews.
 | Transfer detection | A new line in one account that mirrors one in another becomes a transfer pair, with the user's approval |
 | A Downloads "inbox" | Watch the Downloads folder for files the formats can read, and offer to import them |
 | Drag and drop | Drop files on the window to import them (needs a shell facility for file drops) |
-| Settings page | Matching tolerances, the default folder, and auto-accept if it is ever wanted (needs [settings-design.md](settings-design.md)) |
+| Settings page, more | The matching presets are done ([Matching tolerances](#matching-tolerances)); the default folder, and auto-accept if it is ever wanted, could join them |
 | Probable-duplicate warning | For sources that reissue ids: same date, amount and payee as an imported row |
 | `.mny` reader | See [A `.mny` reader](#a-mny-reader) |
 | Bank connections | A plugin calling `import.manager.importStatements` |

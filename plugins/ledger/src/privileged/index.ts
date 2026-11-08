@@ -1,7 +1,7 @@
 // The ledger plugin: the file that holds a user's finances and its sub-ledgers. Domain-free: it never mentions
 // accounts; domain plugins declare their collections through `ledger.schema` and use `ledger.session`.
 // See docs/account-manager-design.md, "The ledger".
-import type { AppState, PluginContext, ShellFiles, ShellPrompts, StorageEngine } from '@tessera/types'
+import type { PluginContext, ShellFiles, ShellPrompts, StorageEngine } from '@tessera/types'
 import { SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
 import { LEDGER_PLUGIN_ID, LEDGER_SESSION_SERVICE, LEDGER_VIEWS, type LedgerSession } from '@tessera/ledger-api'
 import { registerCommands, revealer } from './commands'
@@ -11,6 +11,7 @@ import { LedgerPublisher, registerIpc } from './ipc'
 import { LedgerSessionImpl, describeError, ledgerName } from './LedgerSessionImpl'
 import { RecentLedgers } from './RecentLedgers'
 import { SchemaRegistry } from './SchemaRegistry'
+import { LEDGER_SETTINGS, settingsContribution } from './settings'
 
 let active: LedgerSessionImpl | undefined
 
@@ -38,12 +39,13 @@ export function publicSession(session: LedgerSessionImpl): LedgerSession {
 
 export async function activate(context: PluginContext, options: { disk?: LedgerDisk } = {}) {
   const engine = context.services.get<StorageEngine>('storage.engine')
-  const appState = context.services.get<AppState>('app.state')
   const files = context.services.get<ShellFiles>(SHELL_FILES_SERVICE)
   const prompts = context.services.get<ShellPrompts>(SHELL_PROMPTS_SERVICE)
   const disk = options.disk ?? nodeDisk()
 
-  const recent = new RecentLedgers(appState)
+  const settings = context.settings.register(LEDGER_SETTINGS)
+  // What the ledger remembers (recent ledgers, the last one open) is its state; how many to list is a setting
+  const recent = new RecentLedgers(context.state, undefined, () => settings.get().recentLimit)
   const schema = new SchemaRegistry(context.extensions, context.services, context.logger)
   const session = new LedgerSessionImpl({ engine, files, prompts, recent, schema, disk, log: context.logger })
   const publisher = new LedgerPublisher(context, session, recent, disk)
@@ -60,7 +62,9 @@ export async function activate(context: PluginContext, options: { disk?: LedgerD
     }),
     session.onDidChangeTree(tree => publisher.publishTree(tree)),
     session.onDidChangeNavigator(() => publisher.publishState()),
-    ...contributions().map(([point, id, impl]) => context.extensions.contribute(LEDGER_PLUGIN_ID, point, id, impl)),
+    ...[...contributions(), settingsContribution()].map(([point, id, impl]) => context.extensions.contribute(LEDGER_PLUGIN_ID, point, id, impl)),
+    // A new limit shows on the start view at once
+    settings.onDidChange(({ changed }) => { if (changed.includes('recentLimit')) void publisher.publishRecent() }),
     ...registerCommands(context, session, prompts),
     ...registerIpc(context, session, publisher, recent),
     context.services.provide(LEDGER_PLUGIN_ID, LEDGER_SESSION_SERVICE, publicSession(session)),
@@ -68,9 +72,10 @@ export async function activate(context: PluginContext, options: { disk?: LedgerD
     context.lifecycle.onShuttingDown(() => session.shutdown())
   )
 
-  // Reopen the last ledger once every plugin has activated: the schema contributors and their migrators are there
+  // Reopen the last ledger once every plugin has activated: the schema contributors and their migrators are there.
+  // The user may prefer to start at the start view.
   context.lifecycle.onStarted(async () => {
-    const last = await recent.last().catch(() => undefined)
+    const last = settings.get().reopenLast ? await recent.last().catch(() => undefined) : undefined
     if (last !== undefined) {
       try {
         await session.open(last)

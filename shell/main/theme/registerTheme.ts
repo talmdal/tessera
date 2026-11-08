@@ -1,11 +1,25 @@
 // shell/main/theme/registerTheme.ts
-import type { Disposable, IpcMessage, Logger, PluginContext, PluginRuntime, ThemeDescriptor, ThemeModePreference, ThemeSelection, ThemeSnapshot, ThemeState } from '@tessera/types'
+import type {
+  IpcMessage, Logger, PluginContext, PluginRuntime, SettingsHandle, SettingsPageContribution, ThemeDescriptor, ThemeModePreference,
+  ThemeSelection, ThemeSnapshot, ThemeState
+} from '@tessera/types'
+import { SETTINGS_OPEN_COMMAND, SETTINGS_PAGES_EXTENSION_POINT } from '@tessera/types'
 import { ThemeService } from '../../../core/theme/ThemeService'
 import { PRIMARY_WINDOW_KEY } from '../../../shared/layout/types'
-import { MENUS_EXTENSION_POINT } from '../../../shared/menus/types'
-import { selectionFor } from '../../../shared/theme/selection'
-import { DEFAULT_THEME_ID, THEME_CHANGED, THEME_CHOOSER_OPEN, THEME_COMMANDS, THEME_GET, ThemeChooserOpen, themeKey, themeUseCommand, themeWindowUseCommand } from '../../../shared/theme/types'
-import { themeMenus, themePickerItems } from './themeMenus'
+import { selectionFor, selectionProblem } from '../../../shared/theme/selection'
+import { THEME_SETTINGS_ID, THEME_SETTINGS_MODULE, THEME_SETTINGS_PAGE } from '../../../shared/theme/settings'
+import { DEFAULT_THEME_ID, THEME_CHANGED, THEME_COMMANDS, THEME_GET, themeKey } from '../../../shared/theme/types'
+
+/** The Options dialog's Appearance page: the application's theme and mode, drawn by the shell's renderer. */
+export const APPEARANCE_PAGE: SettingsPageContribution = {
+  id: THEME_SETTINGS_PAGE,
+  title: 'Appearance',
+  description: 'The colours Tessera uses, and whether it follows your system\'s light or dark setting.',
+  keywords: ['theme', 'colour', 'color', 'dark', 'light', 'mode', 'contrast'],
+  settings: THEME_SETTINGS_ID,
+  module: THEME_SETTINGS_MODULE,
+  order: -1000
+}
 
 /** What the Electron side tells the theme manager about its windows and the saved choice. */
 export interface ThemeHost {
@@ -28,16 +42,27 @@ export interface ThemeHost {
 /**
  * Connects the theme manager to the rest of the shell: answers a window's
  * request for its theme, publishes each window's state when it changes,
- * registers the `shell.theme.*` commands, the View ▸ Theme menu and the theme's
- * context keys, and finishes saving on shutdown. `shell` is the shell's own
- * plugin context, which owns the handlers.
+ * registers the `shell.theme.*` commands and the theme's context keys,
+ * contributes the Options dialog's Appearance page, and finishes saving on
+ * shutdown. `shell` is the shell's own plugin context, which owns the handlers.
  *
- * There is deliberately no request that changes the theme: the renderer has
- * nothing to change it with yet, and until IPC senders are validated any view
- * could send it. Changes go through the commands, which any privileged code
- * can already run like every other command.
+ * The application-wide theme is the `shell.theme` setting (`settings`), and
+ * changes flow one way: the user changes it on the Appearance page (OK or
+ * Apply), or a command changes it, both through the setting; the theme manager
+ * follows the setting and re-themes every window, and a window's own theme
+ * gives way, so the choice shows everywhere. The theme manager never writes the
+ * setting back, so there are no echoes to tell apart from real changes.
+ *
+ * There is deliberately no request that changes the theme directly: changes go
+ * through the settings (the Options dialog) or the commands.
  */
-export function registerTheme(shell: PluginContext, runtime: PluginRuntime, theme: ThemeService, log: Logger): ThemeHost {
+export function registerTheme(
+  shell: PluginContext,
+  runtime: PluginRuntime,
+  theme: ThemeService,
+  log: Logger,
+  settings: SettingsHandle<ThemeSelection>
+): ThemeHost {
   let focused: number | undefined
 
   /** The window theme commands act on: the focused one, else the primary window, else the oldest. */
@@ -61,36 +86,11 @@ export function registerTheme(shell: PluginContext, runtime: PluginRuntime, them
 
   shell.ipc.register(THEME_GET, (msg: IpcMessage) => snapshot(theme.getState(windowOf(msg))))
 
-  const { selectTheme, useThemeInWindow } = registerThemeCommands(shell, theme, target, log)
+  registerThemeCommands(shell, theme, target, log, settings)
 
-  // The chooser is a dialog in the window's own page, so opening it is an event to that window.
-  shell.commands.register(THEME_COMMANDS.choose, () => {
-    runtime.events.publish(THEME_CHOOSER_OPEN, { windowId: target() } satisfies ThemeChooserOpen)
-  })
-  for (const contribution of themeMenus) {
-    shell.extensions.contribute(shell.pluginId, MENUS_EXTENSION_POINT, contribution.id, contribution)
-  }
-
-  // One command and two menu items per registered theme, kept in step as themes come and go. The menu bar is
-  // built once after the plugins have activated, so a theme contributed later is not listed until a restart.
-  const picker = new Map<string, Disposable[]>()
-  const syncPicker = () => {
-    const wanted = new Map(theme.list().map(t => [`${t.id}\n${t.label}`, t]))
-    for (const [key, disposables] of picker) {
-      if (wanted.has(key)) continue
-      for (const disposable of disposables) disposable.dispose()
-      picker.delete(key)
-    }
-    for (const [key, descriptor] of wanted) {
-      if (picker.has(key)) continue
-      picker.set(key, [
-        shell.commands.register(themeUseCommand(descriptor.id), () => { selectTheme(descriptor.id) }),
-        shell.commands.register(themeWindowUseCommand(descriptor.id), () => { useThemeInWindow(descriptor.id) }),
-        ...themePickerItems(descriptor).map(item => shell.extensions.contribute(shell.pluginId, MENUS_EXTENSION_POINT, item.id, item))
-      ])
-    }
-  }
-  syncPicker()
+  // Choosing a theme is done on the Options dialog's Appearance page; the command opens the dialog there.
+  shell.commands.register(THEME_COMMANDS.choose, () => shell.commands.execute(SETTINGS_OPEN_COMMAND, THEME_SETTINGS_PAGE))
+  shell.extensions.contribute(shell.pluginId, SETTINGS_PAGES_EXTENSION_POINT, APPEARANCE_PAGE.id, APPEARANCE_PAGE)
 
   /** Publishes the focused window's theme (the application-wide one while there is no window) as context keys. */
   const syncKeys = () => {
@@ -108,8 +108,13 @@ export function registerTheme(shell: PluginContext, runtime: PluginRuntime, them
       runtime.events.publish(THEME_CHANGED, snapshot(state))
       syncKeys()
     }),
-    theme.onDidChangeThemes(syncPicker),
-    { dispose: () => { for (const disposables of picker.values()) for (const d of disposables) d.dispose(); picker.clear() } },
+    // The setting is the one place the application's theme is changed (by OK or Apply in the Options dialog, or by a
+    // command); the theme manager only follows it, so every window is re-themed. Once the app is running, a window's
+    // own theme gives way too: the user chose a theme for Tessera. What is read at start-up leaves them alone.
+    settings.onDidChange(({ value }) => {
+      theme.adoptGlobal(value)
+      if (runtime.lifecycle.phase === 'started') theme.clearOverrides()
+    }),
     runtime.lifecycle.onShuttingDown(() => theme.flush())
   )
 
@@ -135,7 +140,18 @@ export function registerTheme(shell: PluginContext, runtime: PluginRuntime, them
   }
 }
 
-function registerThemeCommands(shell: PluginContext, theme: ThemeService, target: () => number, log: Logger) {
+function registerThemeCommands(shell: PluginContext, theme: ThemeService, target: () => number, log: Logger, settings: SettingsHandle<ThemeSelection>) {
+  /**
+   * Changes the application's theme the way the Options dialog does: through the setting, which the theme manager
+   * follows. Checked against the registered themes first, with a message the user can read.
+   */
+  const setGlobal = (selection: unknown) => {
+    const problem = selectionProblem(selection, theme.list())
+    if (problem) throw new Error(problem)
+    const { theme: id, mode } = selection as ThemeSelection
+    return settings.update({ theme: id, mode })
+  }
+
   const descriptorOf = (themeId: unknown): ThemeDescriptor => {
     const descriptor = theme.list().find(t => t.id === themeId)
     if (!descriptor) throw new Error(`Unknown theme "${String(themeId)}"`)
@@ -143,14 +159,7 @@ function registerThemeCommands(shell: PluginContext, theme: ThemeService, target
   }
 
   /** Chooses the application's theme, keeping its mode when the theme has it and using the theme's own when it does not. */
-  const selectTheme = (themeId: unknown) => { theme.setGlobal(selectionFor(descriptorOf(themeId), theme.getGlobal().mode)) }
-
-  /** Gives the focused window the theme, in the mode it shows now, or the theme's own when it has no such mode. */
-  const useThemeInWindow = (themeId: unknown) => {
-    const windowId = target()
-    const mode = theme.getState(windowId).override?.mode ?? theme.getGlobal().mode
-    theme.setOverride(windowId, selectionFor(descriptorOf(themeId), mode))
-  }
+  const selectTheme = (themeId: unknown) => setGlobal(selectionFor(descriptorOf(themeId), theme.getGlobal().mode))
 
   /** Changes the application-wide mode, keeping its theme; warns, and changes nothing, when the theme lacks that mode. */
   const useMode = (mode: ThemeModePreference) => {
@@ -161,20 +170,18 @@ function registerThemeCommands(shell: PluginContext, theme: ThemeService, target
       log.warn(`[theme] Theme "${descriptor.id}" cannot show "${mode}"`)
       return
     }
-    theme.setGlobal(wanted)
+    return setGlobal(wanted)
   }
 
-  shell.commands.register(THEME_COMMANDS.useSystem, () => { useMode('system') })
-  shell.commands.register(THEME_COMMANDS.useLight, () => { useMode('light') })
-  shell.commands.register(THEME_COMMANDS.useDark, () => { useMode('dark') })
-  shell.commands.register(THEME_COMMANDS.toggle, () => { useMode(theme.resolveGlobal().mode === 'dark' ? 'light' : 'dark') })
+  shell.commands.register(THEME_COMMANDS.useSystem, () => useMode('system'))
+  shell.commands.register(THEME_COMMANDS.useLight, () => useMode('light'))
+  shell.commands.register(THEME_COMMANDS.useDark, () => useMode('dark'))
+  shell.commands.register(THEME_COMMANDS.toggle, () => useMode(theme.resolveGlobal().mode === 'dark' ? 'light' : 'dark'))
 
-  shell.commands.register(THEME_COMMANDS.select, themeId => { selectTheme(themeId) })
-  shell.commands.register(THEME_COMMANDS.set, selection => { theme.setGlobal(selection as ThemeSelection) })
+  shell.commands.register(THEME_COMMANDS.select, themeId => selectTheme(themeId))
+  shell.commands.register(THEME_COMMANDS.set, selection => setGlobal(selection))
 
   shell.commands.register(THEME_COMMANDS.setForWindow, selection => { theme.setOverride(target(), selection as ThemeSelection) })
   shell.commands.register(THEME_COMMANDS.clearWindowOverride, () => { theme.setOverride(target(), undefined) },
     { enablement: themeKey.overridden })
-
-  return { selectTheme, useThemeInWindow }
 }

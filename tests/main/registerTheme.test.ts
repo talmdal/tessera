@@ -1,14 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AppState, ThemeSnapshot, ThemeState } from '@tessera/types'
+import { SETTINGS_OPEN_COMMAND, SETTINGS_PAGES_EXTENSION_POINT } from '@tessera/types'
 import { createPluginContext, createPluginRuntime } from '../../core/plugins/PluginContext'
 import { ThemeService } from '../../core/theme/ThemeService'
-import { resolveMenus } from '../../shared/menus/resolveMenus'
-import { normalizeMenuNodes } from '../../shared/menus/normalize'
 import { MENUS_EXTENSION_POINT } from '../../shared/menus/types'
 import { SHELL_CONTRIBUTOR_ID } from '../../shared/plugins/manifest'
-import { THEMES_EXTENSION_POINT, THEME_CHANGED, THEME_CHOOSER_OPEN, THEME_COMMANDS, THEME_GET, DEFAULT_THEME_ID, themeKey, themeUseCommand, themeWindowUseCommand } from '../../shared/theme/types'
+import { THEME_SETTINGS, THEME_SETTINGS_ID, THEME_SETTINGS_MODULE, THEME_SETTINGS_PAGE } from '../../shared/theme/settings'
+import { THEMES_EXTENSION_POINT, THEME_CHANGED, THEME_COMMANDS, THEME_GET, DEFAULT_THEME_ID, themeKey } from '../../shared/theme/types'
 import { createThemePersistence } from '../../shell/main/theme/appStatePersistence'
-import { layoutMenus } from '../../shell/main/layout/layoutMenus'
 import { registerTheme } from '../../shell/main/theme/registerTheme'
 import { createLogger } from '../helpers/runtime'
 import { fakeThemePort, memoryThemePersistence, midnight, sunrise } from '../helpers/theme'
@@ -22,7 +21,9 @@ function setup(saved: { global?: unknown, overrides?: Record<string, unknown> } 
   const platform = fakeThemePort(systemDark)
   const { store, persistence } = memoryThemePersistence(saved)
   const theme = new ThemeService(runtime.extensions, platform.port, { persistence, log })
-  const host = registerTheme(shell, runtime, theme, log)
+  // The application's theme is the shell.theme setting, as in the app
+  const settings = runtime.settings.register(SHELL_CONTRIBUTOR_ID, THEME_SETTINGS)
+  const host = registerTheme(shell, runtime, theme, log, settings)
 
   const events: { name: string, data?: any }[] = []
   runtime.events.subscribe(event => events.push(event))
@@ -36,7 +37,7 @@ function setup(saved: { global?: unknown, overrides?: Record<string, unknown> } 
   const run = (command: string, ...args: unknown[]) => runtime.commands.execute(command, ...args)
   const changes = () => events.filter(e => e.name === THEME_CHANGED).map(e => e.data as ThemeSnapshot)
 
-  return { runtime, theme, host, platform, log, store, persistence, events, changes, contribute, ask, run }
+  return { runtime, shell, settings, theme, host, platform, log, store, persistence, events, changes, contribute, ask, run }
 }
 
 describe('registerTheme: requests', () => {
@@ -295,90 +296,25 @@ describe('registerTheme: context keys', () => {
   })
 })
 
-/** The resolved View ▸ Theme submenu, as the menu bar would show it. */
-function themeSubmenu(runtime: ReturnType<typeof setup>['runtime']) {
-  // The View menu itself belongs to the layout, as in the app
-  for (const menu of layoutMenus) runtime.extensions.contribute('shell', MENUS_EXTENSION_POINT, menu.id, menu)
-
-  const { menus, diagnostics } = resolveMenus([
-    { kind: 'menu', id: 'shell.file', label: 'File' }, { kind: 'menu', id: 'shell.tools', label: 'Tools' }, { kind: 'menu', id: 'shell.help', label: 'Help' },
-    ...runtime.extensions.getContributions(MENUS_EXTENSION_POINT).map(c => c.impl)
-  ] as never)
-  const view = menus.find(m => m.id === 'shell.view')!
-  return { theme: view.children.find(c => c.type === 'submenu' && c.id === 'shell.view.theme') as any, diagnostics }
-}
-
-const itemsOf = (menu: any) => menu.children.filter((c: any) => c.type === 'item')
-
-describe('registerTheme: the View ▸ Theme menu', () => {
-  it('resolves cleanly into a submenu of the View menu with the modes, the themes and a submenu for this window', () => {
+describe('registerTheme: choosing a theme in the Options dialog', () => {
+  it('contributes the Appearance page, drawn by the shell, for the shell.theme setting, and no menu', () => {
     const { runtime } = setup()
 
-    const { theme, diagnostics } = themeSubmenu(runtime)
-
-    expect(diagnostics).toEqual([])
-    expect(theme).toMatchObject({ type: 'submenu', label: '&Theme' })
-    expect(itemsOf(theme).map((i: any) => i.command)).toEqual([
-      THEME_COMMANDS.choose, THEME_COMMANDS.useSystem, THEME_COMMANDS.useLight, THEME_COMMANDS.useDark, THEME_COMMANDS.toggle, themeUseCommand(SHELL)
-    ])
-    const window = theme.children.find((c: any) => c.type === 'submenu')
-    expect(window).toMatchObject({ label: 'This &Window' })
-    expect(itemsOf(window).map((i: any) => i.command)).toEqual([themeWindowUseCommand(SHELL), THEME_COMMANDS.clearWindowOverride])
+    const pages = runtime.settings.pages()
+    expect(pages.map(p => [p.id, p.pluginId, p.settings, p.module])).toEqual([[THEME_SETTINGS_PAGE, 'shell', THEME_SETTINGS_ID, THEME_SETTINGS_MODULE]])
+    expect(pages[0].keywords).toEqual(expect.arrayContaining(['theme', 'dark', 'light']))
+    expect(runtime.extensions.getContributions(MENUS_EXTENSION_POINT)).toEqual([])
+    expect(runtime.extensions.getContributions(SETTINGS_PAGES_EXTENSION_POINT).map(c => c.contributor)).toEqual(['shell'])
   })
 
-  it('has a working command behind every item', () => {
-    const { runtime, contribute } = setup()
-    contribute(sunrise())
-
-    const { theme } = themeSubmenu(runtime)
-
-    const all = [...itemsOf(theme), ...itemsOf(theme.children.find((c: any) => c.type === 'submenu'))]
-    expect(all.length).toBeGreaterThan(8)
-    for (const { command } of all) expect(runtime.commands.has(command), command).toBe(true)
-  })
-
-  it('separates the chooser, the modes, the themes and this window with separators', () => {
-    const { runtime } = setup()
-
-    const { theme } = themeSubmenu(runtime)
-
-    // The resolver surrounds every group with separators; the menu bar consolidates them
-    const shown = normalizeMenuNodes(theme.children)
-    expect(shown.map((c: any) => c.type === 'separator' ? '-' : c.type === 'submenu' ? 'submenu' : 'item')).toEqual([
-      'item', '-', 'item', 'item', 'item', 'item', '-', 'item', '-', 'submenu'
-    ])
-  })
-})
-
-describe('registerTheme: the theme chooser', () => {
-  it('opens in the focused window, by telling that window', async () => {
-    const { host, run, events } = setup()
-    await host.attachWindow(1, 'main')
-    await host.attachWindow(2, 'window-2')
-    host.focus(2)
+  it('opens the Options dialog at the Appearance page for the choose command', async () => {
+    const { shell, run } = setup()
+    const opened: unknown[] = []
+    shell.commands.register(SETTINGS_OPEN_COMMAND, page => { opened.push(page) })
 
     await run(THEME_COMMANDS.choose)
 
-    expect(events.filter(e => e.name === THEME_CHOOSER_OPEN)).toEqual([{ name: THEME_CHOOSER_OPEN, data: { windowId: 2 } }])
-  })
-
-  it('falls back to the primary window when none has focus, and fails when there is none', async () => {
-    const { host, run, events } = setup()
-    await expect(run(THEME_COMMANDS.choose)).rejects.toThrow('There is no window')
-
-    await host.attachWindow(2, 'window-2')
-    await host.attachWindow(1, 'main')
-    await run(THEME_COMMANDS.choose)
-
-    expect(events.find(e => e.name === THEME_CHOOSER_OPEN)?.data).toEqual({ windowId: 1 })
-  })
-
-  it('is the first item of View ▸ Theme', () => {
-    const { runtime } = setup()
-
-    const { theme } = themeSubmenu(runtime)
-
-    expect(itemsOf(theme)[0]).toMatchObject({ label: '&Choose Theme…', command: THEME_COMMANDS.choose })
+    expect(opened).toEqual([THEME_SETTINGS_PAGE])
   })
 
   it('sets the application theme and mode exactly, by a selection', async () => {
@@ -410,104 +346,91 @@ describe('registerTheme: the theme chooser', () => {
   })
 })
 
-describe('registerTheme: choosing a theme from the menu', () => {
-  it('lists each registered theme, the shell\'s first, once for the application and once for this window', () => {
-    const { runtime, contribute } = setup()
-    contribute(sunrise())
+describe('registerTheme: the theme setting', () => {
+  /** What OK or Apply in the Options dialog does with the Appearance page's draft. */
+  const apply = (runtime: ReturnType<typeof setup>['runtime'], value: unknown) => runtime.settings.commit([{ id: THEME_SETTINGS_ID, value }])
+
+  it('re-themes every window when a theme is applied in the Options dialog', async () => {
+    const { runtime, host, theme, changes, contribute } = setup()
     contribute(midnight())
-
-    const { theme } = themeSubmenu(runtime)
-
-    const labels = (menu: any) => itemsOf(menu).map((i: any) => i.label)
-    expect(labels(theme)).toEqual(expect.arrayContaining(['Tessera', 'Sunrise', 'Midnight']))
-    expect(labels(theme.children.find((c: any) => c.type === 'submenu'))).toEqual(['Tessera', 'Sunrise', 'Midnight', 'Use the &Application Theme'])
-  })
-
-  it('shows a plugin\'s ampersand as an ampersand, not a mnemonic', () => {
-    const { runtime, contribute } = setup()
-    contribute(sunrise({ label: 'Salt & Pepper' }))
-
-    const { theme } = themeSubmenu(runtime)
-
-    expect(itemsOf(theme).map((i: any) => i.label)).toContain('Salt && Pepper')
-  })
-
-  it('chooses the theme for the application, keeping the mode when the theme has it', async () => {
-    const { theme, run, contribute } = setup()
-    contribute(sunrise())
-    theme.setGlobal({ theme: SHELL, mode: 'dark' })
-
-    await run(themeUseCommand('p.sunrise'))
-
-    expect(theme.getGlobal()).toEqual({ theme: 'p.sunrise', mode: 'dark' })
-  })
-
-  it('uses a single-variant theme\'s own mode when it has no such mode', async () => {
-    const { theme, run, contribute } = setup()
-    contribute(midnight())
-
-    await run(themeUseCommand('p.midnight'))
-
-    expect(theme.getGlobal()).toEqual({ theme: 'p.midnight', mode: 'dark' })
-  })
-
-  it('gives the focused window the theme, and no other window', async () => {
-    const { host, theme, run, contribute } = setup()
-    contribute(sunrise())
     await host.attachWindow(1, 'main')
     await host.attachWindow(2, 'window-2')
-    host.focus(2)
 
-    await run(themeWindowUseCommand('p.sunrise'))
+    expect(await apply(runtime, { theme: 'p.midnight', mode: 'dark' })).toMatchObject({ ok: true })
 
-    expect(theme.getState(2).override).toEqual({ theme: 'p.sunrise', mode: 'system' })
+    expect(theme.getGlobal()).toEqual({ theme: 'p.midnight', mode: 'dark' })
+    expect(changes().map(c => [c.state.windowId, c.state.theme, c.state.mode])).toEqual([[1, 'p.midnight', 'dark'], [2, 'p.midnight', 'dark']])
+    expect(runtime.contextKeys.get(themeKey.id)).toBe('p.midnight')
+  })
+
+  it('gives every window the applied theme once the app is running, even one with a theme of its own', async () => {
+    const { runtime, host, theme, store } = setup()
+    await host.attachWindow(1, 'main')
+    await host.attachWindow(2, 'window-2')
+    theme.setOverride(2, { theme: SHELL, mode: 'light' })
+    await runtime.lifecycle.markStarted()
+
+    await apply(runtime, { theme: SHELL, mode: 'dark' })
+    await theme.flush()
+
+    expect(theme.getState(2)).toMatchObject({ mode: 'dark' })
+    expect(theme.getState(2).override).toBeUndefined()
+    expect(store.overrides.has('window-2')).toBe(false)
+  })
+
+  it('keeps windows\' own themes when the setting is only being read at start-up', async () => {
+    const { runtime, host, theme } = setup()
+    await host.attachWindow(1, 'main')
+    theme.setOverride(1, { theme: SHELL, mode: 'light' })
+
+    await apply(runtime, { theme: SHELL, mode: 'dark' })
+
+    expect(theme.getGlobal().mode).toBe('dark')
+    expect(theme.getState(1).override).toEqual({ theme: SHELL, mode: 'light' })
+  })
+
+  it('changes the setting for a command, as the Options dialog does, and gives every window the theme once running', async () => {
+    const { runtime, settings, host, theme, run } = setup()
+    await host.attachWindow(1, 'main')
+    theme.setOverride(1, { theme: SHELL, mode: 'light' })
+    await runtime.lifecycle.markStarted()
+
+    await run(THEME_COMMANDS.useDark)
+
+    expect(settings.get()).toEqual({ theme: SHELL, mode: 'dark' })
+    expect(theme.getGlobal()).toEqual({ theme: SHELL, mode: 'dark' })
+    expect(theme.getState(1)).toMatchObject({ mode: 'dark' })
     expect(theme.getState(1).override).toBeUndefined()
   })
 
-  it('keeps the window\'s own mode when it changes its theme', async () => {
-    const { host, theme, run, contribute } = setup()
-    contribute(sunrise())
+  it('ends on the last of several quick changes, never going back to an earlier one', async () => {
+    const { settings, host, theme, run, changes } = setup()
     await host.attachWindow(1, 'main')
-    theme.setOverride(1, { theme: SHELL, mode: 'dark' })
 
-    await run(themeWindowUseCommand('p.sunrise'))
+    await Promise.all([run(THEME_COMMANDS.useDark), run(THEME_COMMANDS.useLight), run(THEME_COMMANDS.useSystem)])
+    await theme.flush()
 
-    expect(theme.getState(1).override).toEqual({ theme: 'p.sunrise', mode: 'dark' })
+    expect(settings.get()).toEqual({ theme: SHELL, mode: 'system' })
+    expect(theme.getGlobal()).toEqual({ theme: SHELL, mode: 'system' })
+    expect(changes().map(c => c.state.global.mode)).toEqual(['dark', 'light', 'system'])
   })
 
-  it('adds the items of a theme that is contributed later, and drops those of one that goes away', () => {
-    const { runtime, contribute } = setup()
-    const registration = contribute(midnight())
-    expect(runtime.commands.has(themeUseCommand('p.midnight'))).toBe(true)
-    expect(itemsOf(themeSubmenu(runtime).theme).map((i: any) => i.label)).toContain('Midnight')
+  it('keeps a theme that is not registered yet, since its plugin may activate later', async () => {
+    const { runtime, theme, contribute } = setup()
 
-    registration.dispose()
+    expect(await apply(runtime, { theme: 'p.midnight', mode: 'dark' })).toMatchObject({ ok: true })
+    expect(theme.getGlobal()).toEqual({ theme: 'p.midnight', mode: 'dark' })
+    expect(theme.resolveGlobal().theme).toBe(SHELL)
 
-    expect(runtime.commands.has(themeUseCommand('p.midnight'))).toBe(false)
-    expect(runtime.commands.has(themeWindowUseCommand('p.midnight'))).toBe(false)
-    expect(runtime.extensions.getContributions(MENUS_EXTENSION_POINT).map(c => c.id)).not.toContain('shell.view.theme.use.p.midnight')
-  })
-
-  it('renames an item when a theme\'s label changes', () => {
-    const { runtime, contribute } = setup()
-    const first = contribute(sunrise({ label: 'Old' }))
-    first.dispose()
-
-    contribute(sunrise({ label: 'New' }))
-
-    const labels = itemsOf(themeSubmenu(runtime).theme).map((i: any) => i.label)
-    expect(labels).toContain('New')
-    expect(labels).not.toContain('Old')
-  })
-
-  it('does not add items twice for a theme it already lists', () => {
-    const { runtime, contribute } = setup()
-    contribute(sunrise())
     contribute(midnight())
+    expect(theme.resolveGlobal()).toEqual({ theme: 'p.midnight', mode: 'dark' })
+  })
 
-    const ids = runtime.extensions.getContributions(MENUS_EXTENSION_POINT).map(c => c.id)
+  it('refuses a setting that is not a theme and a mode', async () => {
+    const { runtime, theme } = setup()
 
-    expect(ids.filter(id => id === 'shell.view.theme.use.p.sunrise')).toHaveLength(1)
+    expect(await apply(runtime, { theme: ' ', mode: 'sepia' })).toEqual({ ok: false, errors: { [THEME_SETTINGS_ID]: ['Choose a theme.', 'Choose System, Light or Dark.'] } })
+    expect(theme.getGlobal()).toEqual({ theme: SHELL, mode: 'system' })
   })
 })
 
@@ -531,26 +454,26 @@ describe('registerTheme: windows and persistence', () => {
     expect(runtime.contextKeys.get(themeKey.mode)).toBe('dark')
   })
 
-  it('saves what commands change, under the keys the app-state adapter uses', async () => {
-    const { host, run, persistence, store } = setup()
+  it('keeps what commands change: the application theme in the setting, a window\'s own theme through the persistence', async () => {
+    const { host, run, persistence, store, settings } = setup()
     await host.attachWindow(1, 'main')
 
     await run(THEME_COMMANDS.useDark)
     await run(THEME_COMMANDS.setForWindow, { theme: SHELL, mode: 'light' })
     await vi.waitFor(() => expect(persistence.saveOverride).toHaveBeenCalled())
 
-    expect(store.global).toEqual({ theme: SHELL, mode: 'dark' })
+    expect(settings.get()).toEqual({ theme: SHELL, mode: 'dark' })
     expect(store.overrides.get('main')).toEqual({ theme: SHELL, mode: 'light' })
   })
 
   it('finishes its writes on shutdown', async () => {
     const { host, runtime, run, store } = setup()
     await host.attachWindow(1, 'main')
-    await run(THEME_COMMANDS.useDark)
+    await run(THEME_COMMANDS.setForWindow, { theme: SHELL, mode: 'dark' })
 
     await runtime.lifecycle.requestShutdown('system')
 
-    expect(store.global).toEqual({ theme: SHELL, mode: 'dark' })
+    expect(store.overrides.get('main')).toEqual({ theme: SHELL, mode: 'dark' })
   })
 
   it('stops following a window that closed', async () => {
@@ -574,15 +497,19 @@ describe('registerTheme: windows and persistence', () => {
       set: async (key: string, value: unknown) => { data.set(key, value) },
       remove: async (key: string) => { data.delete(key) }
     } as unknown as AppState
-    const theme = new ThemeService(runtime.extensions, fakeThemePort().port, { persistence: createThemePersistence(() => appState), log })
-    const host = registerTheme(shell, runtime, theme, log)
+    const settings = runtime.settings.register(SHELL_CONTRIBUTOR_ID, THEME_SETTINGS)
+    const theme = new ThemeService(runtime.extensions, fakeThemePort().port, { persistence: createThemePersistence(() => appState, settings, log), log })
+    const host = registerTheme(shell, runtime, theme, log, settings)
 
     await host.load()
     await host.attachWindow(1, 'main')
     await runtime.commands.execute(THEME_COMMANDS.setForWindow, { theme: SHELL, mode: 'light' })
     await theme.flush()
 
+    // The old choice was moved into the setting, and the window's own theme is window state in app.state
     expect(theme.getGlobal().mode).toBe('dark')
+    expect(settings.get()).toEqual({ theme: SHELL, mode: 'dark' })
+    expect(data.has('theme')).toBe(false)
     expect(data.get('shell.theme.main')).toEqual({ theme: SHELL, mode: 'light' })
   })
 })
