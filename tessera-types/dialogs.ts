@@ -4,8 +4,8 @@
 //    dialog a plugin contributed and resolves with what it closed with.
 //  - `shell.dialogs` (extension point): a plugin's own modal dialog. The shell draws the frame (modal, title, size,
 //    Escape and clicking outside to cancel); the plugin's component draws the content and the buttons.
-//  - `shell.files` (service): open (one file or several) and save file dialogs, the documents and downloads folders,
-//    and moving files to the OS trash.
+//  - `shell.files` (service): open (one file or several), save and folder dialogs, the documents and downloads
+//    folders, and moving files to the OS trash.
 
 /** The service id of `ShellPrompts`. The shell provides it before any plugin activates, so `requires` can name it. */
 export const SHELL_PROMPTS_SERVICE = 'shell.prompts'
@@ -148,6 +148,8 @@ export interface ShellFiles {
   showOpenFilesDialog(options?: FileDialogOptions): Promise<string[]>
   /** Resolves the chosen path, or undefined if cancelled. The platform's dialog asks before replacing a file. */
   showSaveDialog(options?: FileDialogOptions): Promise<string | undefined>
+  /** Asks for a folder; the user may make a new one. Resolves its path, or undefined if cancelled. `filters` are ignored. */
+  showOpenFolderDialog(options?: FileDialogOptions): Promise<string | undefined>
   exists(path: string): Promise<boolean>
   /** Moves a file or folder to the OS trash (Recycle Bin), where the user can restore it. Never deletes. */
   trash(path: string): Promise<void>

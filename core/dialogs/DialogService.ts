@@ -1,7 +1,7 @@
 // core/dialogs/DialogService.ts
 import type { EventHub, ExtensionRegistry, Logger, ShowDialogOptions } from '@tessera/types'
 import { resolveDialogs } from '../../shared/dialogs/resolveDialogs'
-import { DIALOGS_EXTENSION_POINT, DIALOG_OPEN, DialogClose, DialogDescriptor, DialogOpen } from '../../shared/dialogs/types'
+import { DIALOGS_EXTENSION_POINT, DIALOG_DISMISS, DIALOG_OPEN, DialogClose, DialogDescriptor, DialogDismiss, DialogOpen } from '../../shared/dialogs/types'
 
 export interface DialogServiceOptions {
   /** A plugin's renderer remote entry URL, or undefined when it has no renderer. */
@@ -89,6 +89,18 @@ export class DialogService {
     for (const [requestId, { message, resolve }] of [...this.pending]) {
       if (message.windowId !== windowId) continue
       this.pending.delete(requestId)
+      resolve(undefined)
+    }
+  }
+
+  /**
+   * Every open request resolves undefined, as if cancelled, and its window takes it down: when a quit goes ahead, so
+   * code waiting for an answer (an import in one of its dialogs) can finish before the shutdown.
+   */
+  cancelAll() {
+    for (const [requestId, { message, resolve }] of [...this.pending]) {
+      this.pending.delete(requestId)
+      if (this.ready.has(message.windowId)) this.events.publish(DIALOG_DISMISS, { windowId: message.windowId, requestId } satisfies DialogDismiss)
       resolve(undefined)
     }
   }

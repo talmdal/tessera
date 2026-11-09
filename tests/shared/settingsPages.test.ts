@@ -12,6 +12,7 @@ describe('settings fields: definitions', () => {
     expect(fieldDefinitionProblem({ kind: 'number', key: 'matching.days', label: 'Days', min: 0, max: 60, integer: true, unit: 'days' }, DEFAULTS)).toBeUndefined()
     expect(fieldDefinitionProblem({ kind: 'text', key: 'name', label: 'Name', required: true, maxLength: 40 }, DEFAULTS)).toBeUndefined()
     expect(fieldDefinitionProblem({ kind: 'choice', key: 'sort', label: 'Sort', options: [{ value: 'name', label: 'Name' }, { value: 'date', label: 'Date' }] }, DEFAULTS)).toBeUndefined()
+    expect(fieldDefinitionProblem({ kind: 'folder', key: 'name', label: 'Folder', placeholder: '/home/me/Backups' }, DEFAULTS)).toBeUndefined()
   })
 
   it('refuses a field it could not edit, saying why', () => {
@@ -19,7 +20,9 @@ describe('settings fields: definitions', () => {
     expect(problem('x')).toBe('a field is not an object')
     expect(problem({ kind: 'boolean', key: '__proto__', label: 'X' })).toBe('a field has an invalid key "__proto__"')
     expect(problem({ kind: 'boolean', key: 'reopenLast' })).toBe('field "reopenLast" is missing a label')
-    expect(problem({ kind: 'slider', key: 'recentLimit', label: 'X' })).toBe('field "recentLimit" has an unknown kind "slider"; use boolean, number, text, choice')
+    expect(problem({ kind: 'slider', key: 'recentLimit', label: 'X' })).toBe('field "recentLimit" has an unknown kind "slider"; use boolean, number, text, choice, folder')
+    expect(problem({ kind: 'folder', key: 'recentLimit', label: 'X' })).toBe('field "recentLimit" is a folder, but its default is not a string')
+    expect(problem({ kind: 'folder', key: 'name', label: 'X', placeholder: 3 })).toBe('field "name" has an invalid placeholder')
     expect(problem({ kind: 'boolean', key: 'missing', label: 'X' })).toBe('field "missing" has no default: the namespace\'s defaults have no "missing"')
     expect(problem({ kind: 'boolean', key: 'recentLimit', label: 'X' })).toBe('field "recentLimit" is a checkbox, but its default is not true or false')
     expect(problem({ kind: 'number', key: 'name', label: 'X' })).toBe('field "name" is a number, but its default is not a number')
@@ -52,6 +55,16 @@ describe('settings fields: values', () => {
     expect(fieldValueProblem({ kind: 'choice', key: 'sort', label: 'Sort', options: [{ value: 'name', label: 'Name' }, { value: 'date', label: 'Date' }] }, 'size'))
       .toBe('Sort: choose one of Name, Date.')
     expect(fieldValueProblem({ kind: 'boolean', key: 'reopenLast', label: 'Reopen' }, 'yes')).toBe('Reopen: choose on or off.')
+  })
+
+  it('takes a folder as a full path on any platform, or empty for the default', () => {
+    const folder: SettingsField = { kind: 'folder', key: 'folder', label: 'Backup folder' }
+    for (const value of ['', '/home/me/Backups', 'C:\\Users\\me\\Backups', 'D:/Backups', '\\\\server\\share\\Backups']) {
+      expect(fieldValueProblem(folder, value), value).toBeUndefined()
+    }
+    for (const value of ['Backups', './Backups', 'C:Backups', 3]) {
+      expect(fieldValueProblem(folder, value), String(value)).toBe('Backup folder: choose a folder with Browse…, or Default.')
+    }
   })
 
   it('lists every problem in a value, in field order', () => {

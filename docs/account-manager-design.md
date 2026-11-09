@@ -245,6 +245,7 @@ A ledger is one database opened through `storage.engine` with
 | `ledger.format` | `1`, the ledger's own format version. A file without it is not a ledger |
 | `ledger.createdAt` | ISO timestamp |
 | `ledger.createdWith` | Application version |
+| `ledger.id` | The ledger's identity, a ULID: written when it is created, or the first time an older ledger is opened writable. Added for backups ([backup-restore-design.md](backup-restore-design.md#ledger-identity)) |
 | `ledger.schema.<contributor>` | Schema version of each `ledger.schema` contributor, such as `ledger.schema.accounts` = `1` |
 
 **SQLite is the default engine** (decided in review). It is write-through:
@@ -373,6 +374,13 @@ export interface LedgerSession {
 
   /** A plugin that places items in sub-ledgers. Dispose to stop participating. */
   participate(contributor: string, participant: SubLedgerParticipant): Disposable
+
+  /**
+   * One long operation at a time (added for backups): marks the ledger busy until disposed; BUSY while another
+   * runs. While one runs, New, Open, Close and Delete are disabled and refuse. See backup-restore-design.md.
+   */
+  beginOperation(label: string): Disposable
+  readonly operation: string | undefined
 
   /** Runs, awaited, before the database closes, while it is still writable. */
   onWillClose(listener: (ledger: LedgerInfo) => void | Promise<void>): Disposable
@@ -520,6 +528,15 @@ and transactions go with it. You can restore the file from the Recycle Bin."
 It then closes the ledger, sends the file (and any `-wal`/`-shm` side files)
 to the trash, and removes it from the recent list. The start view offers the
 same for a recent ledger that isn't open.
+
+**Back Up Ledger…** (`ledger.backup`), in its own group between Import… and
+Delete Ledger…: a checked copy of the open ledger, written while it stays
+open, then retention in the default backup folder. New, Open, Close and
+Delete are disabled while a backup or an import runs. **Restore Ledger…**
+(`ledger.restore`), after it, restores a backup as a new ledger, or in place
+of its ledger with the current file kept under another name; it works with no
+ledger open, and the start view offers it too. Designed in
+[backup-restore-design.md](backup-restore-design.md).
 
 **Sub-ledger commands.** These take the sub-ledger's id as an argument, so
 any view can offer them. The Accounts menu and the navigator pass the
@@ -1476,8 +1493,10 @@ the plugin guide, [Asking the user](plugin-creation.md#asking-the-user-dialogs-p
    `showOpenDialog`, `showSaveDialog` (modal to the focused window, with
    filters; the platform asks before replacing a file), `exists`, `trash`
    (Electron `shell.trashItem`; never a permanent delete) and
-   `documentsPath`. Locks, atomic writes and backups come later; a backup is
-   a file copy the ledger can make itself.
+   `documentsPath`. Locks and atomic writes come later. A backup of an open
+   ledger can't be a file copy (its recent writes may be only in the `-wal`
+   file): it is a snapshot by the storage engine, made by the ledger. See
+   [backup-restore-design.md](backup-restore-design.md).
 2. **`shell.prompts` service** (`ShellPrompts`): `confirm({ message, detail,
    confirmLabel, destructive })` and `message(...)` as native message boxes
    (for `destructive`, Cancel is the default button); `prompt(...)`, a line

@@ -1,17 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SETTINGS_OPEN_COMMAND, SETTINGS_PAGES_EXTENSION_POINT } from '@tessera/types'
 import { createPluginContext, createPluginRuntime } from '../../core/plugins/PluginContext'
 import { resolveMenus } from '../../shared/menus/resolveMenus'
 import { MENUS_EXTENSION_POINT, TOOLS_MENU } from '../../shared/menus/types'
 import { SHELL_CONTRIBUTOR_ID } from '../../shared/plugins/manifest'
-import { SETTINGS_CHANGED, SETTINGS_COMMIT, SETTINGS_GET, SETTINGS_OPEN, SettingsCatalogue } from '../../shared/settings/types'
+import { SETTINGS_CHANGED, SETTINGS_CHOOSE_FOLDER, SETTINGS_COMMIT, SETTINGS_GET, SETTINGS_OPEN, SettingsCatalogue } from '../../shared/settings/types'
 import { registerSettings } from '../../shell/main/settings/registerSettings'
 import { createLogger } from '../helpers/runtime'
 import { memorySettingsPersistence } from '../helpers/settings'
 
 const DEFAULTS = { reopenLast: true, recentLimit: 10 }
 
-function setup(options: { window?: number } = { window: 3 }) {
+function setup(options: { window?: number, chooseFolder?: (windowId: number | undefined, options: object) => Promise<string | undefined> } = { window: 3 }) {
   const log = createLogger()
   const store = memorySettingsPersistence()
   const runtime = createPluginRuntime(undefined, log, { settingsPersistence: store.persistence })
@@ -19,7 +19,8 @@ function setup(options: { window?: number } = { window: 3 }) {
   registerSettings(shell, runtime, {
     remoteEntryFor: id => id === 'headless' ? undefined : `tessera-plugin://${id}/remoteEntry.js`,
     targetWindow: () => options.window,
-    log
+    log,
+    ...(options.chooseFolder && { chooseFolder: options.chooseFolder })
   })
 
   const events: { name: string, data?: any }[] = []
@@ -32,6 +33,22 @@ function setup(options: { window?: number } = { window: 3 }) {
   const plugin = (id: string) => createPluginContext(id, runtime).context
   return { runtime, shell, log, store, events, ask, plugin }
 }
+
+describe('settings in the shell: choosing a folder', () => {
+  it('opens the folder dialog for the window that asked, with only a start folder and a title', async () => {
+    const chooseFolder = vi.fn(async () => '/mnt/usb/Backups')
+    const { ask } = setup({ window: 3, chooseFolder })
+    expect(await ask(SETTINGS_CHOOSE_FOLDER, { defaultPath: '/home/me', title: 'Backup folder', other: 'ignored' })).toBe('/mnt/usb/Backups')
+    expect(chooseFolder).toHaveBeenCalledWith(3, { defaultPath: '/home/me', title: 'Backup folder' })
+    await ask(SETTINGS_CHOOSE_FOLDER, { defaultPath: 7 })
+    expect(chooseFolder).toHaveBeenLastCalledWith(3, {})
+  })
+
+  it('answers nothing when the shell has no folder dialog', async () => {
+    const { ask } = setup()
+    expect(await ask(SETTINGS_CHOOSE_FOLDER, {})).toBeUndefined()
+  })
+})
 
 describe('settings in the shell: the Options dialog\'s requests', () => {
   it('lists every page, with the remote entry of those that have a component, and every namespace', async () => {

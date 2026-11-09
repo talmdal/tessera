@@ -4,7 +4,13 @@
 import type { JsonObject, SettingsField } from '@tessera/types'
 import { getAtPath, isValidPath } from './values'
 
-const KINDS = ['boolean', 'number', 'text', 'choice'] as const
+const KINDS = ['boolean', 'number', 'text', 'choice', 'folder'] as const
+
+/**
+ * A full path on any platform: `/…` (macOS, Linux), `C:\…` or `C:/…` (Windows), `\\server\share…` (a network share).
+ * Here, not `node:path`, because this runs in the renderer too, and a setting saved on one system is read on another.
+ */
+export const isFullPath = (value: string) => /^(\/|[A-Za-z]:[\\/]|\\\\[^\\])/.test(value)
 
 const isText = (x: unknown): x is string => typeof x === 'string' && x.trim().length > 0
 const isFiniteNumber = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
@@ -46,6 +52,10 @@ export function fieldDefinitionProblem(raw: unknown, defaults: JsonObject): stri
       if (f.maxLength !== undefined && !(Number.isInteger(f.maxLength) && (f.maxLength as number) > 0)) return `${where} has an invalid maxLength`
       if (f.required !== undefined && typeof f.required !== 'boolean') return `${where} has an invalid required flag`
       break
+    case 'folder':
+      if (typeof initial !== 'string') return `${where} is a folder, but its default is not a string`
+      if (f.placeholder !== undefined && typeof f.placeholder !== 'string') return `${where} has an invalid placeholder`
+      break
     case 'choice': {
       if (!Array.isArray(f.options) || f.options.length === 0) return `${where} is a choice with no options`
       const values = new Set<unknown>()
@@ -84,6 +94,7 @@ export function copyField(field: SettingsField): SettingsField {
       kind: 'choice', ...base,
       options: field.options.map(({ value, label, description }) => ({ value, label, ...(description !== undefined && { description }) }))
     }
+    case 'folder': return { kind: 'folder', ...base, ...(field.placeholder !== undefined && { placeholder: field.placeholder }) }
   }
 }
 
@@ -113,6 +124,10 @@ export function fieldValueProblem(field: SettingsField, value: unknown): string 
       return field.options.some(option => option.value === value)
         ? undefined
         : `${field.label}: choose one of ${field.options.map(option => option.label).join(', ')}.`
+    case 'folder':
+      return typeof value === 'string' && (value === '' || isFullPath(value))
+        ? undefined
+        : `${field.label}: choose a folder with Browse…, or Default.`
   }
 }
 

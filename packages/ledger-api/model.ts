@@ -7,6 +7,11 @@ export interface LedgerInfo {
   /** The file name without `.tessera`; shown in the title, the status bar and the start view. */
   name: string
   readOnly: boolean
+  /**
+   * The ledger's identity (`ledger.id` in its meta). Absent only for an older ledger opened read-only, which hasn't
+   * been given one yet.
+   */
+  id?: string
 }
 
 /** A container inside a ledger, stored in the ledger's own `ledger.subledgers` collection. */
@@ -39,6 +44,8 @@ export interface RecentLedger {
   name: string
   /** ISO timestamp of the last time it was opened. */
   openedAt: string
+  /** The ledger's identity, when it had one: how a backup finds the ledger it came from. */
+  id?: string
   /** Filled in when the list is requested: whether the file is still there. */
   exists?: boolean
 }

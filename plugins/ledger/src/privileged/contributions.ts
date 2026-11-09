@@ -7,10 +7,14 @@ const FILE_MENU = 'shell.file'
 
 export const MENUS = [
   { kind: 'group', id: 'ledger.file', parent: FILE_MENU, order: 0 },
+  // After Import… (order 5), before Delete Ledger… (order 10)
+  { kind: 'group', id: 'ledger.backup', parent: FILE_MENU, order: 7 },
   { kind: 'group', id: 'ledger.danger', parent: FILE_MENU, order: 10 },
   { kind: 'item', id: 'ledger.file.new', label: '&New Ledger…', parent: FILE_MENU, group: 'ledger.file', command: LEDGER_COMMANDS.new },
   { kind: 'item', id: 'ledger.file.open', label: '&Open Ledger…', parent: FILE_MENU, group: 'ledger.file', command: LEDGER_COMMANDS.open, accelerator: 'CmdOrCtrl+O' },
   { kind: 'item', id: 'ledger.file.close', label: '&Close Ledger', parent: FILE_MENU, group: 'ledger.file', command: LEDGER_COMMANDS.close },
+  { kind: 'item', id: 'ledger.file.backup', label: '&Back Up Ledger…', parent: FILE_MENU, group: 'ledger.backup', command: LEDGER_COMMANDS.backup },
+  { kind: 'item', id: 'ledger.file.restore', label: '&Restore Ledger…', parent: FILE_MENU, group: 'ledger.backup', command: LEDGER_COMMANDS.restore },
   { kind: 'item', id: 'ledger.file.delete', label: '&Delete Ledger…', parent: FILE_MENU, group: 'ledger.danger', command: LEDGER_COMMANDS.delete }
 ] as const
 
@@ -23,13 +27,25 @@ export const VIEWS = [
 
 export const DIALOGS: DialogContribution[] = [
   { id: LEDGER_DIALOGS.newLedger, title: 'New Ledger', module: './NewLedgerDialog', size: 'sm' },
-  { id: LEDGER_DIALOGS.renameSubLedger, title: 'Rename Sub-Ledger', module: './RenameDialog', size: 'xs' }
+  { id: LEDGER_DIALOGS.renameSubLedger, title: 'Rename Sub-Ledger', module: './RenameDialog', size: 'xs' },
+  { id: LEDGER_DIALOGS.restore, title: 'Restore Ledger', module: './RestoreDialog', size: 'md' }
 ]
 
 export const BAR_ITEMS = [
   {
     kind: 'text', id: 'ledger.status.name', slot: 'shell.bottom', align: 'start', icon: 'AccountBalance',
     text: `Ledger: {${LEDGER_CONTEXT_KEYS.name}}`, when: LEDGER_CONTEXT_KEYS.isOpen, tooltip: 'The open ledger'
+  },
+  {
+    // "Backing up “Home”… 45%", then "Backed up “Home” at 10:14" for a minute; nothing for work that is over quickly
+    kind: 'text', id: 'ledger.status.activity', slot: 'shell.bottom', align: 'start', order: 1, icon: 'Save',
+    text: `{${LEDGER_CONTEXT_KEYS.activity}}`, when: LEDGER_CONTEXT_KEYS.activity, tooltip: 'What the ledger is doing'
+  },
+  {
+    // Until a backup of that ledger succeeds, at the next start too; clicking it opens the Backups page
+    kind: 'text', id: 'ledger.status.backupProblem', slot: 'shell.bottom', align: 'start', order: 2, icon: 'Warning',
+    text: 'Last backup failed', when: LEDGER_CONTEXT_KEYS.backupProblem, tooltip: `{${LEDGER_CONTEXT_KEYS.backupProblem}}`,
+    command: LEDGER_COMMANDS.backupSettings
   }
 ] as const
 

@@ -9,6 +9,8 @@ import type { LedgerSessionImpl } from './LedgerSessionImpl'
 
 const K = LEDGER_CONTEXT_KEYS
 const WRITABLE = `${K.isOpen} && !${K.isReadOnly}`
+/** The file commands wait while a long operation (an import, a backup) runs on the ledger. */
+const IDLE = `!${K.isBusy}`
 
 /** Shows a failure the user caused in a message box; anything else is also logged, as a bug. */
 export function reportingFailures(context: Pick<PluginContext, 'logger'>, prompts: ShellPrompts) {
@@ -61,20 +63,20 @@ export function registerCommands(context: PluginContext, session: LedgerSessionI
       const result = await prompts.show<NewLedgerDialogResult>(LEDGER_DIALOGS.newLedger, input)
       if (result?.kind === 'file') return createFile(result.name)
       return result      // a sub-ledger, created by the dialog itself so it could show a duplicate name; or cancelled
-    }, { enablement: `!${K.isReadOnly}` }),
+    }, { enablement: `!${K.isReadOnly} && ${IDLE}` }),
 
-    context.commands.register(LEDGER_COMMANDS.open, () => attempt('open the ledger', () => session.open())),
+    context.commands.register(LEDGER_COMMANDS.open, () => attempt('open the ledger', () => session.open()), { enablement: IDLE }),
 
     context.commands.register(LEDGER_COMMANDS.close, async () => {
       await session.close()
       await reveal(LEDGER_VIEWS.start)
-    }, { enablement: K.isOpen }),
+    }, { enablement: `${K.isOpen} && ${IDLE}` }),
 
     context.commands.register(LEDGER_COMMANDS.delete, async () => {
       const deleted = await attempt('delete the ledger', () => session.delete())
       if (deleted) await reveal(LEDGER_VIEWS.start)
       return deleted
-    }, { enablement: WRITABLE }),
+    }, { enablement: `${WRITABLE} && ${IDLE}` }),
 
     context.commands.register(LEDGER_COMMANDS.renameSubLedger, async (args?: unknown) => {
       const id = subLedgerId(args)

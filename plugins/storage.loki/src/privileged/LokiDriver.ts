@@ -5,7 +5,7 @@ import {
   checkDatabaseName, ioError, StorageError,
   type BackendDriver, type IndexSpec, type LoadedDatabase, type StorageBackend, type StorageChange
 } from '@tessera/storage-kit'
-import type { DatabaseTarget, Doc, Json } from '@tessera/types'
+import type { DatabaseTarget, Doc, Json, SnapshotOptions } from '@tessera/types'
 
 const EXTENSION = '.loki.json'
 const COLLECTIONS = '__tessera.collections'
@@ -27,6 +27,25 @@ export interface LokiDriverOptions {
 }
 
 interface Envelope { id: string, doc: Doc }
+
+/** Loads a file through the adapter: its text, or undefined when there is none. */
+function loadText(adapter: LokiAdapter, file: string): Promise<string | undefined> {
+  return new Promise((resolve, reject) => adapter.loadDatabase(file, data => {
+    if (data instanceof Error) reject(data)
+    else resolve(typeof data === 'string' ? data : undefined)
+  }))
+}
+
+function saveText(adapter: LokiAdapter, file: string, text: string): Promise<void> {
+  return new Promise((resolve, reject) => adapter.saveDatabase(file, text, err => err ? reject(err) : resolve()))
+}
+
+/** Sets a meta value in a Loki instance's reserved meta collection, as a committed 'meta' change does. */
+function setMeta(db: any, key: string, value: Json) {
+  const meta = db.getCollection(META) ?? db.addCollection(META, { unique: ['key'] })
+  const entry = meta.by('key', key)
+  if (entry) { entry.value = value; meta.update(entry) } else meta.insert({ key, value })
+}
 
 /**
  * One Loki instance per database. Each user collection is a Loki collection of envelopes `{ id, doc }`, so
@@ -161,6 +180,36 @@ class LokiBackend implements StorageBackend {
     await this.save()
   }
 
+  /**
+   * The in-memory Loki holds every committed batch (saves to disk are buffered), and serialising it is synchronous,
+   * so the copy is one committed state. The copy is rebuilt as a Loki of its own to add the meta, then saved through
+   * the same adapter as the database, which writes `<file>~` and renames it.
+   */
+  async snapshot(file: string, { meta, signal, onProgress }: SnapshotOptions) {
+    const target = path.resolve(file)
+    const adapter: LokiAdapter = this.db.persistenceAdapter
+    const abandoned = () => new StorageError('ABORTED', `the snapshot to ${target} was abandoned`)
+    if (signal?.aborted) throw abandoned()
+    if (await loadText(adapter, target).catch(() => 'unreadable') !== undefined) {
+      throw new StorageError('INVALID_ARGUMENT', `${target} already exists`)
+    }
+    const copy = new (Loki as any)(target, { adapter, autoload: false, autosave: false })
+    copy.loadJSON(this.db.serialize())
+    for (const [key, value] of Object.entries(meta ?? {})) setMeta(copy, key, value)
+    const text: string = copy.serialize()
+    JSON.parse(text)    // the check: what is written reads back
+    if (signal?.aborted) throw abandoned()
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    try {
+      await saveText(adapter, target, text)
+      if (signal?.aborted) throw abandoned()
+    } catch (err) {
+      for (const candidate of [target, `${target}~`]) fs.rmSync(candidate, { force: true })
+      throw signal?.aborted ? abandoned() : ioError(`could not write ${target}`, err)
+    }
+    onProgress?.(1)
+  }
+
   async close() {
     await this.flush()
     await new Promise<void>(resolve => this.db.close(() => resolve()))
@@ -175,6 +224,17 @@ export function lokiDriver(options: LokiDriverOptions): BackendDriver {
     id: 'storage-loki',
     capabilities: { transactions: true, aggregate: 'emulated', regex: 'emulated', textSearch: 'emulated', durability: 'buffered' },
     open: (target, { readOnly }) => LokiBackend.open(fileOf(target), options, readOnly),
+    /** Loki has to read the whole file, but builds nothing from it but the meta. */
+    async readMeta(target) {
+      const file = fileOf(target)
+      const text = await loadText(options.adapter ?? new (Loki as any).LokiFsAdapter(), file)
+        .catch(err => { throw ioError(`could not read ${file}`, err) })
+      if (text === undefined) throw new StorageError('NOT_FOUND', `there is no database at ${file}`)
+      let saved: { collections?: { name?: string, data?: { key: string, value: Json }[] }[] }
+      try { saved = JSON.parse(text) } catch (err) { throw ioError(`could not read the meta of ${file}`, err) }
+      const entries = (Array.isArray(saved?.collections) ? saved.collections : []).find(c => c?.name === META)?.data ?? []
+      return Object.fromEntries(entries.map(entry => [entry.key, entry.value]))
+    },
     async list() {
       if (!fs.existsSync(options.directory)) return []
       return fs.readdirSync(options.directory)

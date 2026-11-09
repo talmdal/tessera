@@ -4,7 +4,8 @@
 // file. These are the phase's manual checks, automated.
 import { describe, expect, it } from 'vitest'
 import { ACCOUNTS_DIALOGS, categoryLabel, type AccountInput } from '@tessera/accounts-api'
-import { IMPORT_DIALOGS, IMPORT_FORMATS_POINT, IMPORT_STATE_KEYS, isImportError, type AccountDialogInput, type ImportReport } from '@tessera/import-api'
+import { IMPORT_COMMANDS, IMPORT_DIALOGS, IMPORT_FORMATS_POINT, IMPORT_STATE_KEYS, isImportError, type AccountDialogInput, type ImportReport } from '@tessera/import-api'
+import { LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_SESSION_SERVICE, type LedgerSession } from '@tessera/ledger-api'
 import { createPluginContext } from '../../../core/plugins/PluginContext'
 import { sample, setupImport, type ImportEnv } from './harness'
 
@@ -281,5 +282,57 @@ describe('categories the ledger knows', () => {
     const env = await setupImport()
     const categories = await env.accounts.categories.list()
     expect(categories.map(c => categoryLabel(categories, c.id))).toEqual(expect.arrayContaining(['Bank fees', 'Interest', 'Interest paid']))
+  })
+})
+
+describe('one long operation at a time on the ledger', () => {
+  const statement = { account: { key: 'bank:conn:1', label: 'Connected account' }, currency: 'CAD', lines: [{ date: '2026-10-05', amount: '-10.00', payee: 'SHOP', externalId: 'C1' }] }
+
+  it('is the ledger\'s operation for its whole run, dialogs included, so no backup or file command runs meanwhile', async () => {
+    const env = await setupImport()
+    const mine = await env.accounts.createAccount(chequing())
+    const session = env.runtime.services.get<LedgerSession>(LEDGER_SESSION_SERVICE)
+    // Recorded while the account dialog is open, and checked after: the import would report a throw from a dialog
+    // as a failed statement, and carry on
+    let during: unknown
+    env.answer(IMPORT_DIALOGS.account, () => {
+      during = {
+        operation: session.operation,
+        busy: env.runtime.contextKeys.get(LEDGER_CONTEXT_KEYS.isBusy),
+        enabled: [LEDGER_COMMANDS.backup, LEDGER_COMMANDS.close, LEDGER_COMMANDS.open, LEDGER_COMMANDS.new].map(id => env.runtime.commands.isEnabled(id))
+      }
+      return { kind: 'account', accountId: mine.id, remember: true }
+    })
+    const report = await env.manager.importStatements([statement], { label: 'Bank connection' })
+    expect(report.results[0]).toMatchObject({ outcome: 'imported' })
+    expect(during).toEqual({ operation: 'Importing statements', busy: true, enabled: [false, false, false, false] })
+    expect(session.operation).toBeUndefined()
+    expect(env.runtime.commands.isEnabled(LEDGER_COMMANDS.backup)).toBe(true)
+  })
+
+  it('ends the operation however the import ends: cancelled, or failed', async () => {
+    const env = await setupImport()
+    const session = env.runtime.services.get<LedgerSession>(LEDGER_SESSION_SERVICE)
+    env.answer(IMPORT_DIALOGS.account, undefined)                // cancelled
+    await env.manager.importStatements([statement], { label: 'Bank connection' })
+    expect(session.operation).toBeUndefined()
+    env.answer(IMPORT_DIALOGS.account, () => { throw new Error('the dialog broke') })
+    await env.manager.importStatements([statement], { label: 'Bank connection' }).catch(() => {})
+    expect(session.operation).toBeUndefined()
+  })
+
+  it('can\'t start while another operation runs on the ledger, and says which; File › Import… is disabled meanwhile', async () => {
+    const env = await setupImport()
+    const session = env.runtime.services.get<LedgerSession>(LEDGER_SESSION_SERVICE)
+    expect(env.runtime.commands.isEnabled(IMPORT_COMMANDS.file)).toBe(true)
+    const backingUp = session.beginOperation('Backing up “Home”')
+
+    expect(env.runtime.commands.isEnabled(IMPORT_COMMANDS.file)).toBe(false)
+    const err = await env.manager.importStatements([statement], { label: 'Bank connection' }).catch(e => e)
+    expect(isImportError(err) && { code: err.code, message: err.message }).toEqual({ code: 'BUSY', message: 'Wait for “Backing up “Home”” to finish.' })
+    expect(env.dialogs(IMPORT_DIALOGS.account)).toEqual([])
+
+    backingUp.dispose()
+    expect(env.runtime.commands.isEnabled(IMPORT_COMMANDS.file)).toBe(true)
   })
 })

@@ -1,9 +1,10 @@
 // shell/renderer/settings/FieldsPage.tsx — the form the shell draws for a settings page contributed as `fields`.
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import type { JsonObject, NumberSettingsField, SettingsField, SettingsPageProps } from '@tessera/types'
+import type { FolderSettingsField, JsonObject, NumberSettingsField, SettingsField, SettingsPageProps } from '@tessera/types'
 import {
-  Box, Checkbox, FormControl, FormControlLabel, FormHelperText, FormLabel, InputAdornment, Radio, RadioGroup, Stack, TextField, Typography
+  Box, Button, Checkbox, FormControl, FormControlLabel, FormHelperText, FormLabel, InputAdornment, Radio, RadioGroup, Stack, TextField, Typography
 } from '@tessera/ui'
+import type { SettingsChooseFolder } from '../../../shared/settings/types'
 import { fieldValueProblem } from '../../../shared/settings/fields'
 import { getAtPath, setAtPath } from '../../../shared/settings/values'
 
@@ -18,7 +19,11 @@ function parseNumber(text: string): number | undefined {
  * One control per field, bound to the namespace's draft by the field's key. A problem shows under its field and
  * makes the page invalid, which disables OK and Apply; the main process checks the same rules again on saving.
  */
-export function FieldsPage({ fields, value, onChange, onValidityChange, disabled }: SettingsPageProps & { fields: readonly SettingsField[] }) {
+export function FieldsPage({ fields, value, onChange, onValidityChange, disabled, chooseFolder }: SettingsPageProps & {
+  fields: readonly SettingsField[]
+  /** The platform's folder dialog, for a `folder` field's Browse…. */
+  chooseFolder?(request: SettingsChooseFolder): Promise<string | undefined>
+}) {
   // What is typed into number fields, by key, while it isn't simply the value (half-typed, or not a number yet).
   const [typed, setTyped] = useState<Record<string, string>>({})
 
@@ -57,13 +62,13 @@ export function FieldsPage({ fields, value, onChange, onValidityChange, disabled
             const n = parseNumber(text)
             if (n !== undefined) set(field.key, n)
           }}
-          onSet={item => set(field.key, item)} />
+          onSet={item => set(field.key, item)} chooseFolder={chooseFolder} />
       ))}
     </Stack>
   )
 }
 
-function Field({ field, value, problem, disabled, typed, onType, onSet }: {
+function Field({ field, value, problem, disabled, typed, onType, onSet, chooseFolder }: {
   field: SettingsField
   value: unknown
   problem?: string
@@ -71,6 +76,7 @@ function Field({ field, value, problem, disabled, typed, onType, onSet }: {
   typed?: string
   onType(text: string): void
   onSet(value: boolean | number | string): void
+  chooseFolder?(request: SettingsChooseFolder): Promise<string | undefined>
 }) {
   const id = useId()
   // The problem replaces the help while there is one; both are announced with the control.
@@ -99,6 +105,9 @@ function Field({ field, value, problem, disabled, typed, onType, onSet }: {
           slotProps={{ htmlInput: { ...(field.maxLength !== undefined && { maxLength: field.maxLength }) } }} />
       )
 
+    case 'folder':
+      return <FolderField field={field} value={value} problem={problem} help={help} disabled={disabled} onSet={onSet} chooseFolder={chooseFolder} />
+
     case 'choice': {
       const index = field.options.findIndex(option => option.value === value)
       return (
@@ -124,6 +133,35 @@ function Field({ field, value, problem, disabled, typed, onType, onSet }: {
       )
     }
   }
+}
+
+/**
+ * A folder: shown as a path that isn't typed into, chosen with the platform's folder dialog (Browse…); Default clears
+ * it, and the placeholder says what the default is.
+ */
+function FolderField({ field, value, problem, help, disabled, onSet, chooseFolder }: {
+  field: FolderSettingsField
+  value: unknown
+  problem?: string
+  help?: string
+  disabled: boolean
+  onSet(value: string): void
+  chooseFolder?(request: SettingsChooseFolder): Promise<string | undefined>
+}) {
+  const folder = typeof value === 'string' ? value : ''
+  const browse = async () => {
+    const chosen = await chooseFolder?.({ title: field.label, ...((folder || field.placeholder) && { defaultPath: folder || field.placeholder }) })
+    if (chosen) onSet(chosen)
+  }
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+      <TextField size="small" fullWidth label={field.label} value={folder} placeholder={field.placeholder} disabled={disabled}
+        error={problem !== undefined} helperText={help}
+        slotProps={{ htmlInput: { readOnly: true }, inputLabel: { shrink: true } }} />
+      <Button onClick={browse} disabled={disabled || !chooseFolder} sx={{ flexShrink: 0, mt: 0.25 }}>Browse…</Button>
+      <Button onClick={() => onSet('')} disabled={disabled || folder === ''} sx={{ flexShrink: 0, mt: 0.25 }}>Default</Button>
+    </Stack>
+  )
 }
 
 function NumberField({ field, value, problem, help, disabled, typed, onType }: {

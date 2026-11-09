@@ -1,5 +1,5 @@
 // Bringing each `ledger.schema` contributor's data up to its plugin's version.
-import type { Database } from '@tessera/types'
+import type { Database, Json } from '@tessera/types'
 import { LEDGER_META, LedgerError, type SchemaContribution } from '@tessera/ledger-api'
 import type { SchemaRegistry } from './SchemaRegistry'
 import { scopedDatabase } from './scopedDatabase'
@@ -16,11 +16,11 @@ export interface MigrationPlan {
   needsBackup: boolean
 }
 
-/** Reads the contributors' versions from a ledger's meta. */
-export async function schemaVersions(db: Database, contributions: readonly SchemaContribution[]): Promise<Record<string, number>> {
+/** The contributors' versions, from a ledger's meta (as `StorageEngine.readMeta` gives it). */
+export function schemaVersions(meta: Readonly<Record<string, Json>>, contributions: readonly SchemaContribution[]): Record<string, number> {
   const versions: Record<string, number> = {}
   for (const { id } of contributions) {
-    const version = await db.meta.get(LEDGER_META.schemaVersion(id))
+    const version = meta[LEDGER_META.schemaVersion(id)]
     versions[id] = typeof version === 'number' && Number.isInteger(version) && version > 0 ? version : 0
   }
   return versions

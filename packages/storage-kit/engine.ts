@@ -1,4 +1,4 @@
-import type { Database, DatabaseTarget, OpenOptions, StorageCapabilities, StorageEngine } from '@tessera/types'
+import type { Database, DatabaseTarget, Json, OpenOptions, StorageCapabilities, StorageEngine } from '@tessera/types'
 import type { BackendDriver } from './backend'
 import { KitDatabase } from './database'
 import { ioError, StorageError } from './errors'
@@ -55,6 +55,22 @@ export class KitStorageEngine implements StorageEngine {
     const names = new Set(await this.driver.list())
     for (const key of this.open_.keys()) if (key.startsWith('name:')) names.add(key.slice(5))
     return [...names].sort()
+  }
+
+  /** An open database answers from memory (what it holds may not be on disk yet); any other goes to the driver. */
+  async readMeta(target: DatabaseTarget): Promise<Record<string, Json>> {
+    const open = this.open_.get(keyOf(target))
+    if (open) {
+      const db = await open.catch(() => undefined)
+      if (db instanceof KitDatabase) {
+        try { return db.metaCopy() } catch { /* closed meanwhile: read what it left */ }
+      }
+    }
+    try {
+      return await this.driver.readMeta(target)
+    } catch (err) {
+      throw ioError(`could not read the meta of database "${'name' in target ? target.name : target.path}"`, err)
+    }
   }
 
   async drop(target: DatabaseTarget) {

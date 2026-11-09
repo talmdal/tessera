@@ -16,6 +16,19 @@ export const SETTINGS_COMMIT = shell('settings.commit')
 /** Push event: the Options dialog should open in the window named (`SettingsOpen`). */
 export const SETTINGS_OPEN = shell('settings.open')
 
+/**
+ * Request (`SettingsChooseFolder`) → the folder chosen, or undefined: the platform's folder dialog, for a `folder`
+ * field's Browse…, modal to the window that asked.
+ */
+export const SETTINGS_CHOOSE_FOLDER = shell('settings.chooseFolder')
+
+export interface SettingsChooseFolder {
+  /** Where the dialog starts. */
+  defaultPath?: string
+  /** The dialog's title: the field's label. */
+  title?: string
+}
+
 /** Push event: a namespace's value changed (`SettingsChanged`), from any window or from its owner. */
 export const SETTINGS_CHANGED = shell('settings.changed')
 

@@ -20,7 +20,8 @@ export function scopedTransaction(tx: Transaction, contributor: string): Transac
 
 /**
  * The open ledger's database as one contributor may use it. Collections and meta keys outside `<contributor>.` are
- * rejected, change events are filtered to its own collections, and closing is the ledger's job, not a contributor's.
+ * rejected, change events are filtered to its own collections, and closing and copying the database (`snapshot`) are
+ * the ledger's job, not a contributor's.
  */
 export function scopedDatabase(db: Database, contributor: string): Database {
   const check = guard(contributor)
@@ -51,6 +52,8 @@ export function scopedDatabase(db: Database, contributor: string): Database {
     }),
     meta,
     flush: () => db.flush(),
+    // A copy of the whole ledger would hold every other contributor's data too: backups are the ledger's job
+    snapshot: () => Promise.reject(new LedgerError('INVALID', 'A contributor can’t copy the ledger; the ledger makes its backups')),
     close: () => Promise.reject(new LedgerError('INVALID', 'The ledger closes its database; use ledger.session.close()'))
   }
 }

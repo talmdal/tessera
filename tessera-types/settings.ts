@@ -149,8 +149,19 @@ export interface ChoiceSettingsField extends SettingsFieldBase {
   options: { value: string | number, label: string, description?: string }[]
 }
 
+/**
+ * A folder, chosen with the platform's folder dialog (Browse…), or '' for the default (Default). The default must be a
+ * string; a value is '' or a full path. Whether the folder is there isn't checked: a drive can be unplugged and
+ * plugged back in, so the plugin checks it when it uses it.
+ */
+export interface FolderSettingsField extends SettingsFieldBase {
+  kind: 'folder'
+  /** Shown while the value is '': what the default is ("C:\\Users\\me\\Documents\\Tessera Backups"). */
+  placeholder?: string
+}
+
 /** A field of a page the shell draws. Its constraints are checked in the dialog and again when the value is saved. */
-export type SettingsField = BooleanSettingsField | NumberSettingsField | TextSettingsField | ChoiceSettingsField
+export type SettingsField = BooleanSettingsField | NumberSettingsField | TextSettingsField | ChoiceSettingsField | FolderSettingsField
 
 /**
  * A page of the Options dialog, contributed from a plugin's privileged `activate` as plain data:

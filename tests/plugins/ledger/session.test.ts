@@ -21,7 +21,7 @@ describe('creating a ledger', () => {
       defaultPath: path.join(DIR, 'Documents', 'Home Finances.tessera'),
       filters: [{ name: 'Tessera ledger', extensions: ['tessera'] }]
     }))
-    expect(ledger).toEqual({ path: file('Home Finances.tessera'), name: 'Home Finances', readOnly: false })
+    expect(ledger).toEqual({ path: file('Home Finances.tessera'), name: 'Home Finances', readOnly: false, id: expect.any(String) })
     expect(session.current).toEqual(ledger)
     expect(driver.databases.has(file('Home Finances.tessera'))).toBe(true)
   })
@@ -119,6 +119,33 @@ describe('opening a ledger', () => {
     env.session.onDidChange(change => changes.push(change))
     await env.session.open(file('Home.tessera'))
     expect(changes).toEqual([])
+  })
+
+  it('closes the open ledger when it opens another: its close listeners run, then it closes, then the other opens', async () => {
+    const env = await saved()
+    await env.created('Other.tessera')
+    const order: string[] = []
+    env.session.onWillClose(ledger => { order.push(`will close ${ledger.name}`) })
+    env.session.onDidChange(change => { order.push(`${change.type} ${change.ledger.name}`) })
+    const other = await env.engine.open({ path: file('Other.tessera') })
+
+    await env.session.open(file('Home.tessera'))
+
+    expect(order).toEqual(['will close Other', 'closed Other', 'opened Home'])
+    // Its database is closed: the engine's copy was released
+    await expect(other.collection('c').count()).rejects.toMatchObject({ code: 'NOT_OPEN' })
+  })
+
+  it('checks a file from its meta, so it is read only once: by opening it', async () => {
+    const env = await saved()
+    const opened: unknown[] = []
+    const open = env.engine.open.bind(env.engine)
+    env.engine.open = (target, options) => { opened.push(target); return open(target, options) }
+
+    await env.session.open(file('Home.tessera'))
+
+    expect(opened).toEqual([{ path: file('Home.tessera') }])
+    expect(env.session.current?.name).toBe('Home')
   })
 
   it('refuses a missing file without creating one, and keeps the open ledger open', async () => {
@@ -278,7 +305,7 @@ describe('the recent list', () => {
 })
 
 describe('what a contributor can reach', () => {
-  it('is its own collections and meta keys only, and never closing the ledger', async () => {
+  it('is its own collections and meta keys only, and never closing or copying the ledger', async () => {
     const { session, contribute, created } = setupSession()
     contribute(contributor('accounts', 1))
     await created()
@@ -290,6 +317,8 @@ describe('what a contributor can reach', () => {
     await expect(db.meta.set('ledger.format', 2)).rejects.toThrow()
     expect(await db.listCollections()).toEqual(['accounts.things'])
     await expect(db.close()).rejects.toThrow('The ledger closes its database')
+    // A copy would hold every contributor's data: backups are the ledger's job
+    await expect(db.snapshot({ path: file('copy.tesserabkp') })).rejects.toThrow('the ledger makes its backups')
     await db.transaction(async tx => { expect(() => tx.collection('ledger.subledgers')).toThrow() })
   })
 
@@ -320,5 +349,111 @@ describe('running one file operation at a time', () => {
     const opened = await Promise.all([env.session.open(file('A.tessera')), env.session.open(file('B.tessera'))])
     expect(opened.map(l => l?.name)).toEqual(['A', 'B'])
     expect(env.session.current?.name).toBe('B')
+  })
+})
+
+describe('changes since the last backup', () => {
+  it('counts the changes made since the ledger opened, or since a backup of it began', async () => {
+    const env = setupSession()
+    await env.created('Home.tessera')
+    await env.session.close()
+    await env.session.open(file('Home.tessera'))
+    expect(env.session.changedSinceBackup).toBe(false)
+
+    await env.session.createSubLedger({ name: 'Savings', parentId: null })
+    expect(env.session.changedSinceBackup).toBe(true)
+
+    // A backup begins: later changes are for the next; a failed one puts the flag back
+    const undo = env.session.backupStarting()
+    expect(env.session.changedSinceBackup).toBe(false)
+    undo()
+    expect(env.session.changedSinceBackup).toBe(true)
+    env.session.backupStarting()
+    expect(env.session.changedSinceBackup).toBe(false)
+    await env.session.createSubLedger({ name: 'Written during the backup', parentId: null })
+    expect(env.session.changedSinceBackup).toBe(true)
+
+    await env.session.close()
+    expect(env.session.changedSinceBackup).toBe(false)
+  })
+
+  it('does not let an undo from a backup of one ledger mark another as changed', async () => {
+    const env = setupSession()
+    await env.created('Home.tessera')
+    await env.session.createSubLedger({ name: 'Savings', parentId: null })
+    const undo = env.session.backupStarting()
+    await env.session.create(file('Work.tessera'))
+    undo()
+    expect(env.session.changedSinceBackup).toBe(false)
+  })
+
+  it('counts an upgrade as a change: the file no longer matches any backup of it', async () => {
+    const env = setupSession()
+    env.contribute(contributor('accounts', 1))
+    await env.created()
+    await env.session.close()
+    const v2 = contributor('accounts', 2)
+    env.extensions.getContributions('ledger.schema')[0].impl = v2.contribution
+    ;(env.services.get('accounts.migrator') as any).migrate = v2.migrator.migrate
+
+    await env.session.open(file('Home.tessera'))
+
+    expect(v2.migrator.migrate).toHaveBeenCalledTimes(1)
+    expect(env.session.changedSinceBackup).toBe(true)
+  })
+})
+
+describe('the close hook (the backup as the ledger closes)', () => {
+  async function hooked() {
+    const env = setupSession()
+    const calls: [string, string][] = []
+    env.session.setCloseHook(async (_db, ledger, why) => { calls.push([ledger.name, why]) })
+    return { ...env, calls }
+  }
+
+  it('says why the ledger is closing: Close, switching, Delete, a restore in place, a quit or an OS shutdown', async () => {
+    const env = await hooked()
+    await env.created('Home.tessera')
+    await env.session.close()
+    await env.session.open(file('Home.tessera'))
+    await env.created('Work.tessera')
+    await env.session.open(file('Home.tessera'))
+    await env.session.delete()
+    await env.session.open(file('Work.tessera'))
+    await env.session.withFileOperations(ops => ops.close())
+    await env.session.open(file('Work.tessera'))
+    await env.session.shutdown()
+    await env.session.open(file('Work.tessera'))
+    await env.session.shutdown('user')
+    await env.session.open(file('Work.tessera'))
+    await env.session.shutdown('system')
+    expect(env.calls).toEqual([
+      ['Home', 'close'], ['Home', 'switch'], ['Work', 'switch'], ['Home', 'delete'], ['Work', 'restore'],
+      ['Work', 'quit'], ['Work', 'quit'], ['Work', 'system']
+    ])
+  })
+
+  it('runs after the close listeners, with the database still open, before it closes', async () => {
+    const env = setupSession()
+    await env.created('Home.tessera')
+    const order: string[] = []
+    env.session.onWillClose(() => { order.push('listener') })
+    env.session.setCloseHook(async db => {
+      order.push('hook')
+      expect(env.session.current?.name).toBe('Home')
+      await db.collection('ledger.subledgers').find()          // still usable
+    })
+    env.session.onDidChange(change => { if (change.type === 'closed') order.push('closed') })
+    await env.session.close()
+    expect(order).toEqual(['listener', 'hook', 'closed'])
+  })
+
+  it('closes the ledger even when the hook fails, logging it', async () => {
+    const env = setupSession()
+    await env.created('Home.tessera')
+    env.session.setCloseHook(async () => { throw new Error('no room') })
+    await env.session.close()
+    expect(env.session.current).toBeUndefined()
+    expect(env.log.error).toHaveBeenCalledWith('[ledger] The close hook failed', expect.any(Error))
   })
 })

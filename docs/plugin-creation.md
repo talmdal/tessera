@@ -425,7 +425,7 @@ you will use:
 | `extensions` | `contribute(contributor, point, id, impl): Disposable`<br>`getContributions(point)` | Pass your plugin id as `contributor`. `impl` is the contribution object. |
 | `services` | `provide(provider, id, impl): Disposable`<br>`get<T>(id)`, `has(id)`, `providerOf(id)` | Pass your plugin id as `provider`. |
 | `contextKeys` | `set(key, value)`, `get(key)`, `snapshot()`, `onDidChange`, `deleteNamespace(ns)` | `undefined` removes a key. |
-| `lifecycle` | `phase`, `onStarted(listener)`, `onShuttingDown(listener): Disposable`, `onDidChangePhase(listener)` | The shell-only members (`markStarted`, `requestShutdown`, `onShutDown`, `markShutDown`) are on the same object; don't call them. |
+| `lifecycle` | `phase`, `onStarted(listener)`, `onWillQuit(listener): Disposable`, `onShuttingDown(listener): Disposable`, `onDidChangePhase(listener)` | The shell-only members (`markStarted`, `askToQuit`, `requestShutdown`, `onShutDown`, `markShutDown`) are on the same object; don't call them. See [Application lifecycle](#application-lifecycle). |
 | `settings` | `register(definition): SettingsHandle`<br>`read(id): SettingsReader` | Tracked: unregistered, and readers' listeners removed, on deactivation. See [Settings](#settings). |
 | `state` | `get(key, default?)`, `set(key, value)`, `update(key, patch)`, `remove(key)` | Your own keys in `app.state`; needs `app.state` in `services.requires`. See [Remembering application state](#remembering-application-state). |
 
@@ -889,7 +889,7 @@ plugin activates**, so you can list them in `services.requires`. Their types are
 | Service | Methods | Shown as |
 |---|---|---|
 | `shell.prompts` (`ShellPrompts`) | `confirm`, `message`, `prompt`, `show` | native message boxes; the shell's dialog frame for `prompt` and `show` |
-| `shell.files` (`ShellFiles`) | `showOpenDialog`, `showOpenFilesDialog`, `showSaveDialog`, `exists`, `trash`, `documentsPath`, `downloadsPath` | native file dialogs; the OS trash |
+| `shell.files` (`ShellFiles`) | `showOpenDialog`, `showOpenFilesDialog`, `showSaveDialog`, `showOpenFolderDialog`, `exists`, `trash`, `documentsPath`, `downloadsPath` | native file and folder dialogs; the OS trash |
 
 ```json
 "services": { "requires": ["shell.prompts", "shell.files"] }
@@ -926,6 +926,9 @@ const chosen = await files.showOpenFilesDialog({ // several files at once: a lis
   filters: [{ name: 'OFX statement', extensions: ['ofx', 'qfx'] }]
 })
 for (const statement of chosen) { /* … */ }
+
+const folder = await files.showOpenFolderDialog({ title: 'Restore To', defaultPath: files.documentsPath() })
+                                                // a folder, which the user may make; undefined when cancelled
 ```
 
 Every method takes an optional `windowId`; by default the question belongs to the focused window.
@@ -1060,6 +1063,7 @@ context.subscriptions.push(context.extensions.contribute('budget', SETTINGS_PAGE
 | `number` | `min`, `max`, `integer`, `unit` | a number |
 | `text` | `placeholder`, `maxLength`, `required` | a string |
 | `choice` (radio buttons) | `options: { value, label, description? }[]`, string or number values; `description` is shown under the option | one of the values |
+| `folder` (a path, with **Browse…** and **Default**) | `placeholder`: shown while the value is `''`, e.g. the folder `''` stands for | a string: `''`, or a full path. Browse… opens the platform's folder dialog; Default sets `''`. Whether the folder exists isn't checked (a drive can be unplugged) |
 
 Every field has a `key` (a top-level key, or a dotted path such as `alerts.warnAt`), a `label`, and an optional
 `description` shown under it. The dialog checks the field's rules as the user types, and the main process checks
@@ -1270,9 +1274,30 @@ await db.transaction(async tx => {                 // atomic: all or nothing
 db.collection('ledger.subledgers')                 // throws: not yours
 ```
 
+Closing the database and copying it (`snapshot`) are the ledger's job: your `db` refuses both. A copy of the ledger
+holds every plugin's data, and backups are made by the ledger itself.
+
 Follow the ledger with `session.onDidChange` (`opened`, `closed`) and flush anything you buffer in
 `session.onWillClose`, which runs while the ledger can still be written. Menus follow the context keys
 `ledger.isOpen`, `ledger.isReadOnly` and `ledger.name`.
+
+**Long jobs take the ledger's operation.** A job that runs for a while and shouldn't overlap a backup, an import or
+the ledger closing (a year-end close, a sync) wraps itself in `session.beginOperation(label)`:
+
+```ts
+let operation: Disposable
+try {
+  operation = session.beginOperation('Closing the year')   // shown to the user: "Wait for “Closing the year” to finish."
+} catch (err) {
+  if (isLedgerError(err) && err.code === 'BUSY') return showBusy(err.message)   // an import or a backup is running
+  throw err
+}
+try { await closeTheYear() } finally { operation.dispose() }
+```
+
+While it is held, New, Open, Close, Delete and Back Up are disabled (`ledger.isBusy`), and the session's file methods
+throw `BUSY`; reading and editing carry on. Add `!ledger.isBusy` to the enablement of your own command that starts
+such a job, as *File › Import…* does.
 
 **3. If you place items in sub-ledgers**, take part in deleting them. Deleting a sub-ledger moves everything in it to
 its parent, in one transaction with yours:
@@ -1791,7 +1816,8 @@ through four phases:
 |---|---|---|
 | `starting` | The app begins; plugins are activating | Your `activate` *is* your starting hook |
 | `started` | **Every** plugin has activated and the window exists | `context.lifecycle.onStarted` |
-| `shuttingDown` | The app is asked to quit, **before any plugin deactivates** | `context.lifecycle.onShuttingDown` |
+| (pass 1 of a user quit) | The user quits, before anything shuts down; the app may keep running | `context.lifecycle.onWillQuit` |
+| `shuttingDown` | The app is quitting, **before any plugin deactivates** | `context.lifecycle.onShuttingDown` |
 | `shutDown` | The last plugin has deactivated | No: you're already gone. `deactivate()` is your hook |
 
 ```js
@@ -1802,38 +1828,64 @@ exports.activate = (context) => {
     await reopenLastNotebook()
   })
 
-  context.lifecycle.onShuttingDown(async (event) => {
-    if (notebookIsDirty()) {
-      const choice = await askToSave()           // everything is still running here
-      if (choice === 'cancel') return event.veto('user cancelled')
-      if (choice === 'save') await saveNotebook()
+  // Pass 1 of a user quit: "can we close?" Do slow work here, and say why not if you can't
+  context.subscriptions.push(context.lifecycle.onWillQuit(async () => {
+    if (syncIsRunning()) return '“Syncing the notebook” is still running.'
+    try {
+      await saveNotebook()                       // no time limit; the window is still open
+    } catch (err) {
+      return `The notebook couldn’t be saved. ${err.message}`
     }
-  })
+  }))
+
+  // Pass 2: the app is going. Quick tidying only
+  context.subscriptions.push(context.lifecycle.onShuttingDown(async (event) => {
+    await flushBuffers()
+  }))
 }
 ```
 
-**`onShuttingDown` is where interactive or slow work belongs**: prompting to
-save, flushing buffers. Rules:
+A **user quit** (File › Exit, Cmd+Q, closing the last window on Windows and
+Linux) runs in two passes:
 
-- Listeners run **one at a time, in registration order**, and the shell waits
-  for async ones.
-- `event.veto()` **cancels a user-initiated quit**. Later listeners are skipped,
-  nothing is deactivated, and the app keeps running. Calling it for
-  `event.reason === 'system'` (the OS is shutting down) has no effect, because
-  that can't be refused.
-- There is a **time limit of 10 seconds** for all shutdown listeners together.
-  After that the shutdown carries on without them, so don't wait on the user
-  indefinitely. A veto that arrives after the limit is ignored.
-- A listener that throws is logged, and the others still run.
-- After the listeners, plugins deactivate (dependents before the plugins they
-  depend on), and the shell does its final flushes.
+1. **Pass 1, `onWillQuit`: "can we close?"** Each listener may do work, then
+   returns a reason not to close yet (a sentence the user reads), or nothing.
+   - Listeners run **one at a time, newest first** (reverse activation order):
+     your plugin runs before the plugins it depends on, so it can hand them its
+     last writes before they do their own pass-1 work. The `ledger` plugin
+     backs the ledger up here, last, so the backup holds everything.
+   - There is **no time limit**, and the windows are still open, so progress in
+     the status bar is seen.
+   - If any listener gives a reason, the shell shows every reason in one box,
+     **Tessera can't close yet**, with **Retry** (pass 1 again), **Quit Anyway**
+     (on to pass 2) and **Cancel** (the default: the app keeps running, as it was).
+   - A listener that throws is logged and counts as no reason.
+2. **Pass 2, `onShuttingDown`: the shutdown.** First the shell **cancels every
+   open plugin dialog** (`prompts.show` resolves `undefined`), so code waiting
+   on one can finish. Then:
+   - listeners run **one at a time, in registration order**, and the shell waits
+     for async ones;
+   - there is a **time limit of 10 seconds** for all of them together. After
+     that the shutdown carries on without them;
+   - `event.veto()` still cancels a user quit, but **don't ask the user here**:
+     a question that takes longer than the limit is ignored, answer and all. Ask
+     in pass 1, by giving a reason;
+   - a listener that throws is logged, and the others still run;
+   - after the listeners, plugins deactivate (dependents before the plugins they
+     depend on), and the shell does its final flushes.
 
-`onShuttingDown` returns a `Disposable`. Push it onto `context.subscriptions`
-if the listener should be removed when your plugin deactivates.
+An **OS shutdown** (`event.reason === 'system'`) skips pass 1: nobody is there
+to answer, and it can't be refused (a veto has no effect). Its dialogs are
+cancelled the same way, and pass 2 runs within its time limit. Keep pass-2 work
+short for this reason: the `ledger` plugin gives its backup on an OS shutdown
+3 of the 10 seconds.
+
+`onWillQuit` and `onShuttingDown` return a `Disposable`. Push it onto
+`context.subscriptions` so the listener goes when your plugin deactivates.
 
 > Quitting is not guaranteed to run any of this: a crash, a force-quit or a
-> forced OS shutdown skips it. Save important data as it changes, and use
-> `onShuttingDown` for tidying up and for asking the user.
+> forced OS shutdown skips it. Save important data as it changes, and use the
+> quit for tidying up and for saying why not to close yet.
 
 ---
 
@@ -1903,6 +1955,7 @@ DevTools console (Tools › Toggle Developer Tools).
 |---|---|---|
 | Plugin does nothing | `[plugins] Skipping …` | Invalid manifest (id format, missing field), invalid JSON, or a duplicate id |
 | App won't quit | `[lifecycle] Shutdown cancelled: …` | An `onShuttingDown` listener called `event.veto()` |
+| "Tessera can't close yet" on every quit | The reasons in the box; `[lifecycle] Quitting anyway: …` after Quit Anyway | An `onWillQuit` listener gives a reason each time: an operation that never ends, or work that keeps failing |
 | Quit is slow, then proceeds | `[lifecycle] Shutdown listeners exceeded … ms` | An `onShuttingDown` listener took longer than the 10 s limit |
 | `onStarted` listener never runs | none | It was registered after the app had shut down, or `activate` threw before reaching it |
 | Plugin does nothing | `[plugins] Failed to activate "<id>"` | `activate` threw, e.g. you registered an id without your prefix |

@@ -8,7 +8,8 @@ import type {
   StartedListener, 
   ShuttingDownListener, 
   ShutDownListener,
-  ShutdownEvent
+  ShutdownEvent,
+  WillQuitListener
 } from '@tessera/types'
 
 
@@ -31,6 +32,8 @@ export class AppLifecycleImpl implements AppLifecycle {
   private current: AppPhase = 'starting'
   private started = new Set<StartedListener>()
   private shuttingDown = new Set<ShuttingDownListener>()
+  private willQuit = new Set<WillQuitListener>()
+  private asking?: Promise<string[]>
   private shutDown = new Set<ShutDownListener>()
   private pending?: Promise<boolean>
   private phaseListeners = new Set<(phase: AppPhase) => void>()
@@ -63,6 +66,35 @@ export class AppLifecycleImpl implements AppLifecycle {
     }
     this.started.add(listener)
     return { dispose: () => { this.started.delete(listener) } }
+  }
+
+  /** Pass 1 of a user quit: see `AppLifecycle.onWillQuit`. */
+  onWillQuit(listener: WillQuitListener): Disposable {
+    this.willQuit.add(listener)
+    return { dispose: () => { this.willQuit.delete(listener) } }
+  }
+
+  /**
+   * Runs the WillQuit listeners one at a time, newest first, with no time limit, and resolves their reasons. Nothing
+   * changes phase: the app is still running, and the user may yet cancel.
+   */
+  askToQuit(): Promise<string[]> {
+    if (this.asking) return this.asking
+    const run = (async () => {
+      const reasons: string[] = []
+      for (const listener of [...this.willQuit].reverse()) {
+        try {
+          const reason = await listener()
+          if (typeof reason === 'string' && reason.trim() !== '') reasons.push(reason.trim())
+        } catch (err) {
+          this.log?.error('[lifecycle] An onWillQuit listener failed', err)
+        }
+      }
+      return reasons
+    })()
+    this.asking = run
+    void run.finally(() => { if (this.asking === run) this.asking = undefined })
+    return run
   }
 
   /** Runs, in registration order, when the app is asked to quit. */

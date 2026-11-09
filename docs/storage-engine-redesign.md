@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Phases 1–4 implemented (contract, shared kit as `@tessera/storage-kit`, memory engine, conformance suite, LokiJS and SQLite backends, `app-state` on the engine, tier-0 bootstrap); phase 5 (vault integration) open. Supersedes the first `StorageEngine` |
+| **Status** | Phases 1–4 implemented (contract, shared kit as `@tessera/storage-kit`, memory engine, conformance suite, LokiJS and SQLite backends, `app-state` on the engine, tier-0 bootstrap); phase 5 (vault integration) open. Supersedes the first `StorageEngine`. `Database.snapshot` and `StorageEngine.readMeta` added 2026-11-09, for backups ([backup-restore-design.md](backup-restore-design.md)) |
 | **Date** | 2026-10-30, reworked 2026-11-04 (kit moved out of `core/`) |
 | **Related** | [storage-api-design.md](storage-api-design.md) (the `Store` proposal this absorbs), [vault-design.md](vault-design.md), [settings-design.md](settings-design.md) |
 | **Audience** | Authors of storage backends (LokiJS, SQLite…) and of plugins that store data (`app-state`, settings, vault, domain plugins) |
@@ -123,9 +123,10 @@ The contract is the code: [tessera-types/storage.ts](../tessera-types/storage.ts
 semantics as tests). In outline:
 
 ```
-StorageEngine   id, capabilities(), open(target, options), list(), drop(target), newId(), closeAll()
+StorageEngine   id, capabilities(), open(target, options), list(), readMeta(target), drop(target), newId(), closeAll()
 Database        collection(name), listCollections(), createCollection(schema), dropCollection(name),
-                renameCollection(from, to), transaction(work), onDidChange(listener), meta, flush(), close()
+                renameCollection(from, to), transaction(work), onDidChange(listener), meta, flush(),
+                snapshot(to, options), close()
 Transaction     collection(name)
 Collection      get, getMany, findOne, find, findPage, count, scan
                 insert, insertMany, replace, updateOne, updateMany, deleteOne, deleteMany
@@ -171,6 +172,21 @@ say:
   made with one sort is rejected with another.
 - `Database.meta` is a plain key/value store, not transactional, for
   schema versions and similar bookkeeping.
+- **`snapshot({ path }, { meta, signal, onProgress })`** writes a copy of
+  the database to a new file while it stays open: one committed state,
+  checked before it resolves, with `meta` added to the copy only. Writes
+  carry on meanwhile; no lock is taken, because each batch reaches the
+  backend whole. The target must not exist (INVALID_ARGUMENT); an abort
+  rejects with ABORTED; on any failure nothing is left at the target.
+  `close()` waits for running snapshots. SQLite uses its online backup API
+  and finishes the copy in a worker thread (no WAL, the meta, `quick_check`);
+  Loki serialises its in-memory database and saves it through its adapter.
+  Why a backup is a snapshot and not a file copy: [backup-restore-design.md](backup-restore-design.md#taking-a-backup-copy-the-file-or-something-better).
+- **`readMeta(target)`** reads a database's meta without loading its
+  documents or writing anything (for SQLite, one read-only query), so many
+  files can be inspected cheaply. An open database answers from memory; a
+  readable file with no meta gives `{}`; a missing one is NOT_FOUND, and
+  nothing is created.
 
 ### Filters
 
@@ -312,8 +328,9 @@ in the plugin from `find`/`scan`. Never a backend-specific escape hatch.
 | `INVALID_DOCUMENT` | Not JSON-serialisable, non-string `id`, field name starting with `$` or containing `.` |
 | `INVALID_UPDATE` | Update without operators, unknown operator, wrong type for `$inc`/`$push`, or touching `id`/`rev` |
 | `NOT_FOUND` | `replace` of a missing document without `upsert`; `renameCollection` of a missing collection is `UNKNOWN_COLLECTION` |
-| `INVALID_ARGUMENT` | Malformed options: a bad sort direction, negative limit, mixed projection, bad cursor, index change inside a transaction |
+| `INVALID_ARGUMENT` | Malformed options: a bad sort direction, negative limit, mixed projection, bad cursor, index change inside a transaction; a snapshot target that already exists |
 | `IO` | Backend or file failure, with `cause` |
+| `ABORTED` | A `snapshot` abandoned through its `signal` |
 
 ### Collection creation
 
@@ -439,9 +456,10 @@ interface StorageBackend {            // one per open database
   load(): Promise<LoadedDatabase>     // collections (indexes + documents) and meta, at open
   commit(changes: StorageChange[])    // one atomic batch: collection/drop/rename/put/delete/meta
   flush(): Promise<void>
+  snapshot(file, { meta, signal, onProgress })  // a checked copy of what is committed, to a new file
   close(): Promise<void>
 }
-interface BackendDriver { id; capabilities; open(target, { readOnly }); list(); drop(target) }
+interface BackendDriver { id; capabilities; open(target, { readOnly }); list(); readMeta(target); drop(target) }
 ```
 
 A batch reaches the backend **before** it becomes visible, so a failed write leaves the database as it
@@ -475,7 +493,12 @@ the contract. It must cover, beyond what storage-api-design lists:
 - `findPage` cursors remain correct when rows are inserted before the
   cursor;
 - for buffered backends, a failure during `flush` leaves the previous file
-  intact.
+  intact;
+- snapshots and `readMeta`: the copy holds every collection, index and meta
+  value, and only whole transactions when written to meanwhile; meta is
+  added to the copy only; an existing target, an abort and a closed
+  database are refused, leaving nothing behind; `close` waits for a running
+  snapshot; `readMeta` never creates a database.
 
 ## `app-state` on the new engine
 

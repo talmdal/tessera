@@ -10,8 +10,8 @@ function interpolate(text: string, keys: Record<string, unknown>) {
 
 /**
  * A bar's row of buttons and text. A button is enabled while its command is
- * (the main process says so in the descriptor), and text follows the context
- * keys it names, so a status line updates without any request of its own.
+ * (the main process says so in the descriptor), and text and tooltips follow
+ * the context keys they name, so a status line updates without any request of its own.
  */
 export function ItemStrip({ side, items }: { side: Border, items: BorderItemDescriptor[] }) {
   const keys = useContextKeySnapshot()
@@ -19,11 +19,12 @@ export function ItemStrip({ side, items }: { side: Border, items: BorderItemDesc
 
   const draw = (item: BorderItemDescriptor) => {
     const text = item.kind === 'button' ? item.label : interpolate(item.text, keys)
+    const tooltip = item.tooltip === undefined ? undefined : interpolate(item.tooltip, keys)
     const icon = item.icon ? <BarIcon icon={item.icon} title={item.kind === 'button' ? item.label : item.text} /> : undefined
 
     if (item.command === undefined) {
       return (
-        <Typography key={item.id} component="span" variant="body2" data-item={item.id} title={item.tooltip}
+        <Typography key={item.id} component="span" variant="body2" data-item={item.id} title={tooltip}
           sx={{ display: 'inline-flex', gap: 0.5, alignItems: 'center' }}>
           {icon}{text}
         </Typography>
@@ -32,7 +33,7 @@ export function ItemStrip({ side, items }: { side: Border, items: BorderItemDesc
 
     const command = item.command
     return (
-      <Button key={item.id} data-item={item.id} title={item.tooltip} disabled={!item.enabled} startIcon={icon}
+      <Button key={item.id} data-item={item.id} title={tooltip} disabled={!item.enabled} startIcon={icon}
         aria-label={item.kind === 'button' ? item.label : undefined} onClick={() => execute(command)}>
         {text}
       </Button>

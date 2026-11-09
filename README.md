@@ -27,6 +27,19 @@ platform.
   ledger through the `ledger.session` service and the `ledger.schema`
   extension point ([@tessera/ledger-api](packages/ledger-api/),
   [design](docs/account-manager-design.md#the-ledger)).
+- **Backups** (the `ledger` plugin): *File › Back Up Ledger…* writes a checked
+  copy of the open ledger (`.tesserabkp`) while it stays open, suggesting
+  *Documents/Tessera Backups*; expired backups of the ledger there are trimmed
+  (30 days, always the newest five). *File › Restore Ledger…* lists the
+  backups there and restores one as a new ledger, or in place of its ledger
+  with the current file kept under another name: nothing is replaced or
+  deleted, and a message says where each file is. The ledger is also backed
+  up as it closes (Close Ledger, opening another, quitting, an OS shutdown)
+  when it has changed since its last backup; a failure shows as "Last backup
+  failed" in the status bar. Tools › Options… › Ledger › Backups sets the
+  folder, backing up on close and retention. One long operation at a time:
+  while an import, a backup or a restore runs, the ledger's file commands
+  wait, and quitting asks first ([design](docs/backup-restore-design.md)).
 - **Accounts** (the `accounts` plugin): chequing, savings, credit card,
   mortgage, investment and other accounts, in the ledger or any sub-ledger.
   An *Accounts* menu and an *Accounts* navigator in the left bar (which
@@ -120,7 +133,8 @@ platform.
   search, and OK, Apply, Cancel and Restore Defaults. Every change is checked in
   the main process, and only what differs from the defaults is saved, as one
   plain JSON file per plugin under `settings/` in the user-data folder. The
-  ledger's start-up and recent-ledger settings are the first. See
+  ledger's start-up, recent-ledger and backup settings are examples; field
+  kinds include a folder, chosen with the platform's folder dialog. See
   [Settings](docs/plugin-creation.md#settings). To check them, **Tools ›
   Settings Inspector…** shows, for every plugin's settings, what is in effect,
   the defaults and the file on disk, and whether they agree.
@@ -201,7 +215,7 @@ How a plugin connects:
 | Context key | publish state that enablement depends on | `ledger.isOpen` |
 | Service | let other plugins call into your code | `ledger.session` |
 | IPC | connect your view to your own privileged code | `window.api.invoke('ledger:tree')` |
-| Lifecycle | run code once everything has started, or before quitting | `context.lifecycle.onShuttingDown` |
+| Lifecycle | run code once everything has started; on a user quit, do slow work and say why not to close yet; tidy up as the app shuts down | `context.lifecycle.onStarted`, `onWillQuit`, `onShuttingDown` |
 
 The full guide to writing a plugin is
 **[docs/plugin-creation.md](docs/plugin-creation.md)**.
@@ -330,6 +344,12 @@ samples/statements/   Sample bank statements to import by hand, with walkthrough
   of text Tessera styles separately), a Fonts page in the Options dialog, and
   fonts in themes; phases 1 to 5 are done (the roles, their use throughout,
   the setting, the Fonts page, and fonts in themes)
+- [docs/backup-restore-design.md](docs/backup-restore-design.md): backing up
+  and restoring ledgers: snapshots by the storage engine, File › Back Up
+  Ledger… and Restore Ledger…, retention, backing up on close, a two-pass quit,
+  and one long operation at a time; phases 0 to 4 are done (the spike,
+  snapshots in the engines, Back Up with retention, Restore, the Backups page
+  with backing up on close and the two-pass quit)
 - [docs/todo.md](docs/todo.md): known gaps and planned work
 
 ## License

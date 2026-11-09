@@ -4,7 +4,7 @@
 // See docs/import-manager-design.md, "The import flow".
 import path from 'node:path'
 import type { ContextKeyService, Database, Logger, PluginState, ShellFiles, ShellPrompts } from '@tessera/types'
-import type { LedgerSession } from '@tessera/ledger-api'
+import { isLedgerError, type LedgerSession } from '@tessera/ledger-api'
 import { isAccountsError, isLiability, type Account, type AccountsService, type PayeeSuggestion } from '@tessera/accounts-api'
 import {
   IMPORT_CONTEXT_KEYS, IMPORT_DIALOGS, IMPORT_LIMITS, IMPORT_STATE_KEYS, ImportError, isImportError,
@@ -24,6 +24,9 @@ import { BALANCED, type MatchTuning } from './matching/tuning'
 import { formatMemory } from './memory'
 import { settleInterrupted } from './review'
 import { collectionsOf } from './store'
+
+/** The import's label as the ledger's running operation: "Wait for “Importing statements” to finish." */
+export const IMPORT_OPERATION = 'Importing statements'
 
 export interface ImporterDeps {
   session: LedgerSession
@@ -125,12 +128,22 @@ export class Importer {
     })
   }
 
-  /** Runs `work` as the one import in progress, with the ledger open and writable. */
+  /**
+   * Runs `work` as the one import in progress, with the ledger open and writable. It is the ledger's operation for
+   * the whole run, dialogs included, so no backup (or Close Ledger) happens in the middle of an import.
+   */
   private async exclusively<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const current = this.deps.session.current
     if (!current) throw new ImportError('NO_LEDGER', 'Open a ledger to import into.')
     if (current.readOnly) throw new ImportError('READ_ONLY', 'This ledger is open read-only.')
     if (this.running) throw new ImportError('BUSY', 'Another import is running. Wait for it to finish.')
+    let operation: { dispose(): void }
+    try {
+      operation = this.deps.session.beginOperation(IMPORT_OPERATION)
+    } catch (err) {
+      if (isLedgerError(err) && err.code === 'BUSY') throw new ImportError('BUSY', err.message)
+      throw err
+    }
     this.running = true
     this.deps.contextKeys.set(IMPORT_CONTEXT_KEYS.isRunning, true)
     const controller = new AbortController()
@@ -140,6 +153,7 @@ export class Importer {
       return await work(controller.signal)
     } finally {
       closing.dispose()
+      operation.dispose()
       this.running = false
       this.deps.contextKeys.set(IMPORT_CONTEXT_KEYS.isRunning, false)
     }

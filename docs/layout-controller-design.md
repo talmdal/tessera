@@ -301,7 +301,7 @@ persistence port, so it belongs in `core/` and can be tested without Electron.
 
 | Decided by the controller in the main process (in `LayoutState`) | Derived in the renderer (from mirrored context keys) |
 |---|---|
-| Which views and items are present in each slot (`when`), and their order | The text of `{key}` placeholders in text items |
+| Which views and items are present in each slot (`when`), and their order | The text of `{key}` placeholders in text items and tooltips |
 | Whether a bar has content, is collapsed, and its size | Transient drag position while resizing |
 | The active view of each slot | |
 | Whether a button item is enabled (`commands.isEnabled`, carried in its descriptor) | |
@@ -393,7 +393,7 @@ interface BarItemBase {
   align?: 'start' | 'end'   // default 'start'
   order?: number            // within the slot and alignment; lower first
   when?: string             // absent while false
-  tooltip?: string
+  tooltip?: string          // `{key}` is replaced as in a text item's text (added for the ledger's "Last backup failed")
 }
 
 /** A button. Enabled exactly when its command is enabled, like a menu item. */

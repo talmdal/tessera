@@ -5,6 +5,8 @@ import type { ChangeEvent, Database, Doc, StorageEngine, StorageErrorCode } from
 
 export interface Harness {
   engine: StorageEngine
+  /** A path, distinct per name, where a snapshot can be written and the engine can open it (it doesn't exist yet). */
+  pathFor(name: string): string
   /** Closes the engine and returns a fresh one over the same storage, as a restart of the application would. */
   restart(): Promise<StorageEngine>
   dispose(): Promise<void>
@@ -744,6 +746,151 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
         const c = db.collection<{ n: number }>('c')
         const doc: Doc<{ n: number }> = await c.insert({ n: 1 })
         expect(doc.n + doc.rev).toBe(2)
+      })
+    })
+
+    // See docs/backup-restore-design.md: a backup is the database copying itself, while it stays open
+    describe('snapshots and readMeta', () => {
+      const copyOf = (path: string) => engine.open({ path }, { readOnly: true })
+
+      it('copies every collection, index and meta value, adds meta to the copy only, and leaves the database as it was', async () => {
+        const tx = await ledger()
+        await tx.ensureIndex({ name: 'byAccount', fields: ['accountId'] })
+        await db.collection('other').insert({ id: 'o1' })
+        await db.meta.set('app.version', 3)
+        const target = harness.pathFor('copy')
+
+        await db.snapshot({ path: target }, { meta: { 'backup.kind': 'manual', 'backup.detail': { n: [1, 2] } } })
+
+        const copy = await copyOf(target)
+        expect((await copy.collection('ledger').find()).map(t => t.id)).toEqual(LEDGER.map(t => t.id))
+        expect(await copy.listCollections()).toEqual(['ledger', 'other'])
+        expect((await copy.collection('ledger').indexes()).map(i => i.name)).toContain('byAccount')
+        expect(await copy.meta.get('app.version')).toBe(3)
+        expect(await copy.meta.get('backup.kind')).toBe('manual')
+        expect(await copy.meta.get('backup.detail')).toEqual({ n: [1, 2] })
+        // The database: unchanged, and still in use
+        expect(await db.meta.get('backup.kind')).toBeUndefined()
+        await db.collection('ledger').insert({ id: 't6', accountId: 'a1', date: '2026-03-01', amount: 1 })
+        expect(await copy.collection('ledger').count()).toBe(LEDGER.length)
+      })
+
+      it('is a database in its own right: writing to the copy leaves the original alone', async () => {
+        await ledger()
+        const target = harness.pathFor('own')
+        await db.snapshot({ path: target })
+        const copy = await engine.open({ path: target })
+        await copy.collection('ledger').deleteMany()
+        await copy.meta.set('changed', true)
+        expect(await db.collection('ledger').count()).toBe(LEDGER.length)
+        expect(await db.meta.get('changed')).toBeUndefined()
+      })
+
+      it('lets writes carry on, and copies one committed state: whole transactions only', async () => {
+        await ledger()
+        const batches = db.collection('batches')
+        let stop = false, written = 0
+        const writer = (async () => {
+          while (!stop) {
+            const n = written++
+            await db.transaction(async tx => {
+              await tx.collection('batches').insertMany(Array.from({ length: 10 }, (_, i) => ({ id: `${n}-${i}`, n })))
+            })
+            await new Promise(resolve => setTimeout(resolve, 0))
+          }
+        })()
+        await new Promise(resolve => setTimeout(resolve, 5))
+        const target = harness.pathFor('busy')
+        await db.snapshot({ path: target })
+        stop = true
+        await writer
+
+        const copied = await (await copyOf(target)).collection('batches').count()
+        expect(copied % 10).toBe(0)
+        expect(copied).toBeLessThanOrEqual(await batches.count())
+        expect(await batches.count()).toBe(written * 10)
+      })
+
+      it('reports progress that never goes back, ending at 1', async () => {
+        await ledger()
+        const seen: number[] = []
+        await db.snapshot({ path: harness.pathFor('progress') }, { onProgress: done => seen.push(done) })
+        expect(seen.at(-1)).toBe(1)
+        expect(seen.every((done, i) => done >= 0 && done <= 1 && (i === 0 || done >= seen[i - 1]))).toBe(true)
+      })
+
+      it('refuses a target that exists, and leaves it as it was', async () => {
+        await ledger()
+        const target = harness.pathFor('twice')
+        await db.snapshot({ path: target }, { meta: { first: true } })
+        await db.collection('ledger').deleteMany()
+        await rejects(db.snapshot({ path: target }, { meta: { first: false } }), 'INVALID_ARGUMENT')
+        const copy = await copyOf(target)
+        expect(await copy.collection('ledger').count()).toBe(LEDGER.length)
+        expect(await copy.meta.get('first')).toBe(true)
+      })
+
+      it('leaves nothing behind when abandoned, and says so', async () => {
+        await ledger()
+        const target = harness.pathFor('abandoned')
+        const controller = new AbortController()
+        controller.abort()
+        await rejects(db.snapshot({ path: target }, { signal: controller.signal }), 'ABORTED')
+        await rejects(engine.readMeta({ path: target }), 'NOT_FOUND')
+      })
+
+      it('refuses bad arguments and a closed database', async () => {
+        await rejects(db.snapshot({ path: '' }), 'INVALID_ARGUMENT')
+        await rejects(db.snapshot({ path: harness.pathFor('bad') }, { meta: [] as never }), 'INVALID_ARGUMENT')
+        await db.close()
+        await rejects(db.snapshot({ path: harness.pathFor('closed') }), 'NOT_OPEN')
+      })
+
+      it('copies a database opened read-only', async () => {
+        await ledger()
+        await db.close()
+        const ro = await engine.open({ name: 'test' }, { readOnly: true })
+        const target = harness.pathFor('from-read-only')
+        await ro.snapshot({ path: target }, { meta: { note: 'ro' } })
+        const copy = await copyOf(target)
+        expect(await copy.collection('ledger').count()).toBe(LEDGER.length)
+        expect(await copy.meta.get('note')).toBe('ro')
+      })
+
+      it('closes only once a running snapshot has finished', async () => {
+        await ledger()
+        const target = harness.pathFor('closing')
+        let finished = false
+        const snapshot = db.snapshot({ path: target })
+        void snapshot.then(() => { finished = true })
+        await db.close()
+        expect(finished).toBe(true)
+        await snapshot
+        expect(await (await copyOf(target)).collection('ledger').count()).toBe(LEDGER.length)
+      })
+
+      it('reads meta without opening: an open database\'s current meta, a closed one\'s saved meta, a copy\'s', async () => {
+        await db.meta.set('ledger.format', 1)
+        expect(await engine.readMeta({ name: 'test' })).toEqual({ 'ledger.format': 1 })
+        const target = harness.pathFor('meta')
+        await db.snapshot({ path: target }, { meta: { 'backup.takenAt': '2026-11-09T10:14:05.000Z' } })
+        await db.meta.set('later', 'only in the original')
+        await db.close()
+
+        expect(await engine.readMeta({ name: 'test' })).toEqual({ 'ledger.format': 1, later: 'only in the original' })
+        expect(await engine.readMeta({ path: target })).toEqual({ 'ledger.format': 1, 'backup.takenAt': '2026-11-09T10:14:05.000Z' })
+        // Reading meta opened nothing: the database is still closed, and opening it again works
+        const reopened = await engine.open({ name: 'test' })
+        expect(await reopened.meta.get('later')).toBe('only in the original')
+      })
+
+      it('gives {} for a database with no meta, and NOT_FOUND for none at all, creating nothing', async () => {
+        await db.collection('c').insert({ id: 'a' })
+        await db.close()
+        expect(await engine.readMeta({ name: 'test' })).toEqual({})
+        await rejects(engine.readMeta({ name: 'missing' }), 'NOT_FOUND')
+        await rejects(engine.readMeta({ path: harness.pathFor('missing') }), 'NOT_FOUND')
+        expect(await engine.list()).not.toContain('missing')
       })
     })
   })
