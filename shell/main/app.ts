@@ -20,7 +20,8 @@ import { registerDialogs } from './dialogs/registerDialogs'
 import { bindRouterToElectron } from './ipc/bindRouter'
 import { createAppStatePersistence } from './layout/appStatePersistence'
 import { LayoutHost, registerLayout } from './layout/registerLayout'
-import { installQuitHandling } from './lifecycle/quit'
+import { installQuitHandling, type QuitHandling } from './lifecycle/quit'
+import { askToQuit } from './lifecycle/quitPrompt'
 import { osShutdownSources } from './lifecycle/systemShutdown'
 import { registerCoreMenus } from './menus/coreMenus'
 import { applyApplicationMenu } from './menus/electronMenu'
@@ -128,11 +129,19 @@ async function bootstrap() {
   registerInitialTheme(windowId => themeHost.snapshotFor(windowId), log)
   registerWindowReady(shell, reveal, dialogs)
   // Provided before the plugins activate, so a plugin can require them
+  const files = createElectronFiles({ dialog, BrowserWindow, shell: electronShell, app })
   registerDialogs(shell, runtime, dialogs, {
     prompts: createElectronPrompts({ dialog, BrowserWindow }, dialogs),
-    files: createElectronFiles({ dialog, BrowserWindow, shell: electronShell, app })
+    files
   })
-  registerSettings(shell, runtime, { remoteEntryFor, targetWindow, log })
+  registerSettings(shell, runtime, {
+    remoteEntryFor, targetWindow, log,
+    // A `folder` field's Browse…
+    chooseFolder: (windowId, { defaultPath, title }) => files.showOpenFolderDialog({
+      title: title ?? 'Choose a Folder', buttonLabel: 'Choose',
+      ...(defaultPath !== undefined && { defaultPath }), ...(windowId !== undefined && { windowId })
+    })
+  })
   // Registered before the plugins activate, so it runs before the storage plugin closes the store.
   runtime.lifecycle.onShuttingDown(() => trackedWindows.flush())
   // What was saved is read before any plugin registers its settings, so `get()` is right from the start.
@@ -148,6 +157,8 @@ let windowsCreated = 0
 const DEFAULT_WINDOW_SIZE = { width: 1200, height: 800 }
 const windowStates = createWindowStateStore(appState)
 const trackedWindows = createWindowStateGroup()
+/** Two-pass quitting, installed once the first window exists. */
+let quitting: QuitHandling | undefined
 
 async function createWindow() {
   // The first window is the primary one; its layout and its position and size are kept under a stable key,
@@ -184,6 +195,11 @@ async function createWindow() {
   reveal.track(win, { show: () => { if (state.maximized) win.maximize(); win.show() } })
   win.on('closed', () => { themeHost.detachWindow(id).catch(err => log.error('[theme] Could not save the theme', err)) })
   win.on('closed', () => dialogs.windowClosed(id))
+  // On Windows and Linux, closing the last window quits: the quit's first pass runs while the window is still there,
+  // and the window stays if the user cancels
+  win.on('close', event => {
+    if (process.platform !== 'darwin' && BrowserWindow.getAllWindows().length === 1) quitting?.closingLastWindow(event)
+  })
 
   win.loadURL('http://localhost:5173')
   return win
@@ -194,7 +210,10 @@ app.whenReady().then((async () => {
   const win = await createWindow()
   // Quitting runs the ShuttingDown listeners, deactivates every plugin, then quits.
   // Inside ready, because powerMonitor can't be used before it.
-  installQuitHandling(app, runtime.lifecycle, pluginManager, log, osShutdownSources(win))
+  quitting = installQuitHandling(app, runtime.lifecycle, pluginManager, log, osShutdownSources(win), {
+    ask: reasons => askToQuit({ dialog, BrowserWindow }, reasons),
+    cancelDialogs: () => dialogs.cancelAll()
+  })
   await runtime.lifecycle.markStarted()
 }))
 

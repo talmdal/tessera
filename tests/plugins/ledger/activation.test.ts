@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { KitStorageEngine, memoryDriver } from '@tessera/storage-kit'
 import { SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
 import {
-  LEDGER_CHANNELS, LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_DIALOGS, LEDGER_EVENTS, LEDGER_SESSION_SERVICE, LEDGER_SETTINGS_PAGE, LEDGER_VIEWS,
+  LEDGER_BACKUP_SETTINGS_PAGE, LEDGER_CHANNELS, LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_DIALOGS, LEDGER_EVENTS, LEDGER_SESSION_SERVICE, LEDGER_SETTINGS_PAGE, LEDGER_VIEWS,
   type LedgerSession
 } from '@tessera/ledger-api'
 import { createPluginContext, createPluginRuntime } from '../../../core/plugins/PluginContext'
@@ -70,7 +70,7 @@ describe('the ledger plugin: contributions', () => {
     const menus = resolveMenus([{ kind: 'menu', id: 'shell.file', label: '&File' }, ...impls('shell.menus').map(c => c.impl)])
     expect(menus.diagnostics).toEqual([])
     expect(menus.menus[0].children.filter(n => n.type === 'item').map(n => (n as any).label))
-      .toEqual(['&New Ledger…', '&Open Ledger…', '&Close Ledger', '&Delete Ledger…'])
+      .toEqual(['&New Ledger…', '&Open Ledger…', '&Close Ledger', '&Back Up Ledger…', '&Restore Ledger…', '&Delete Ledger…'])
 
     const views = resolveViews(impls('shell.views'), () => 'tessera-plugin://ledger/remoteEntry.js')
     expect(views.diagnostics).toEqual([])
@@ -80,18 +80,24 @@ describe('the ledger plugin: contributions', () => {
 
     const dialogs = resolveDialogs(impls('shell.dialogs'), () => 'tessera-plugin://ledger/remoteEntry.js')
     expect(dialogs.diagnostics).toEqual([])
-    expect(dialogs.dialogs.map(d => d.id)).toEqual([LEDGER_DIALOGS.newLedger, LEDGER_DIALOGS.renameSubLedger])
+    expect(dialogs.dialogs.map(d => d.id)).toEqual([LEDGER_DIALOGS.newLedger, LEDGER_DIALOGS.renameSubLedger, LEDGER_DIALOGS.restore])
 
     const items = resolveBarItems(impls('shell.bar.items'))
     expect(items.diagnostics).toEqual([])
-    expect(items.items[0]).toMatchObject({ kind: 'text', text: 'Ledger: {ledger.name}', when: 'ledger.isOpen' })
+    expect(items.items.map(item => [item.id, (item as { text?: string }).text, item.when])).toEqual([
+      ['ledger.status.name', 'Ledger: {ledger.name}', 'ledger.isOpen'],
+      ['ledger.status.activity', '{ledger.activity}', 'ledger.activity'],
+      ['ledger.status.backupProblem', 'Last backup failed', 'ledger.backupProblem']
+    ])
+    // The problem is in the tooltip; clicking opens the Backups page
+    expect(items.items[2]).toMatchObject({ tooltip: '{ledger.backupProblem}', command: 'ledger.backupSettings', icon: 'Warning' })
   })
 
   it('provides exactly the LedgerSession contract, not the implementation', async () => {
     const { session } = await setup()
     expect(Object.keys(session).sort()).toEqual([
-      'close', 'create', 'createSubLedger', 'current', 'database', 'delete', 'deleteSubLedger', 'moveSubLedger',
-      'onDidChange', 'onDidChangeTree', 'onWillClose', 'open', 'participate', 'registerNavigator', 'renameSubLedger', 'tree'
+      'beginOperation', 'close', 'create', 'createSubLedger', 'current', 'database', 'delete', 'deleteSubLedger', 'moveSubLedger',
+      'onDidChange', 'onDidChangeTree', 'onWillClose', 'open', 'operation', 'participate', 'registerNavigator', 'renameSubLedger', 'tree'
     ])
   })
 
@@ -336,8 +342,15 @@ describe('the ledger plugin: settings', () => {
     const { runtime, log } = await setup()
     const pages = runtime.settings.pages()
 
-    expect(pages.map(p => [p.id, p.settings, p.fields?.map(f => f.key)])).toEqual([[LEDGER_SETTINGS_PAGE, 'ledger', ['reopenLast', 'recentLimit']]])
+    expect(pages.map(p => [p.id, p.parent, p.settings, p.fields?.map(f => f.key)])).toEqual([
+      [LEDGER_SETTINGS_PAGE, undefined, 'ledger', ['reopenLast', 'recentLimit']],
+      // Backups, under Ledger: a namespace of its own
+      [LEDGER_BACKUP_SETTINGS_PAGE, LEDGER_SETTINGS_PAGE, 'ledger.backup', ['folder', 'onClose', 'trim', 'retentionDays', 'keepAtLeast']]
+    ])
     expect(runtime.settings.snapshot('ledger')?.value).toEqual({ reopenLast: true, recentLimit: 10 })
+    expect(runtime.settings.snapshot('ledger.backup')?.value).toEqual({ folder: '', onClose: true, trim: true, retentionDays: 30, keepAtLeast: 5 })
+    // An empty folder is the default one, which the field shows
+    expect(pages[1].fields?.[0]).toMatchObject({ kind: 'folder', placeholder: path.join(DIR, 'Documents', 'Tessera Backups') })
     expect(log.warn).not.toHaveBeenCalled()
   })
 

@@ -66,6 +66,7 @@ interface BorderItemBase {
   order?: number
   /** Context-key expression; the item is absent while it is false. */
   when?: string
+  /** `{key}` is replaced with the value of that context key ('' when unset), as in a text item's text. */
   tooltip?: string
 }
 

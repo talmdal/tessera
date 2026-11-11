@@ -51,11 +51,12 @@ describe('the start view', () => {
     return b
   }
 
-  it('offers New and Open, which run the File menu commands', async () => {
+  it('offers New, Open and Restore, which run the File menu commands', async () => {
     const b = setup()
     await userEvent.click(screen.getByRole('button', { name: 'New Ledger…' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open Ledger…' }))
-    expect(b.executed().map(c => c.id)).toEqual([LEDGER_COMMANDS.new, LEDGER_COMMANDS.open])
+    await userEvent.click(screen.getByRole('button', { name: 'Restore from a Backup…' }))
+    expect(b.executed().map(c => c.id)).toEqual([LEDGER_COMMANDS.new, LEDGER_COMMANDS.open, LEDGER_COMMANDS.restore])
   })
 
   it('lists recent ledgers; a missing one is marked and can only be removed from the list', async () => {
@@ -78,9 +79,11 @@ describe('the start view', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('“Home.tessera” is not a Tessera ledger.')
   })
 
-  it('shows why the last ledger could not be reopened, and follows changes to the list', async () => {
+  it('shows why the last ledger could not be reopened, offering to restore it, and follows changes to the list', async () => {
     const b = setup({ isOpen: false, error: '“Gone” could not be reopened.' })
-    expect(await screen.findByText('“Gone” could not be reopened.')).toBeInTheDocument()
+    const warning = (await screen.findByText('“Gone” could not be reopened.')).closest('[role="alert"]') as HTMLElement
+    await userEvent.click(within(warning).getByRole('button', { name: 'Restore from a Backup…' }))
+    expect(b.executed().map(c => c.id)).toEqual([LEDGER_COMMANDS.restore])
     act(() => b.emit(LEDGER_EVENTS.recent, []))
     expect(await screen.findByText('Ledgers you open will be listed here.')).toBeInTheDocument()
   })

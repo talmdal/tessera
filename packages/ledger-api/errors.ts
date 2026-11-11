@@ -22,6 +22,12 @@ export type LedgerErrorCode =
   | 'FILE_NOT_FOUND'
   /** A `ledger.schema` contributor's data could not be brought up to date; nothing was changed, or a backup was taken. */
   | 'MIGRATION_FAILED'
+  /** Another long operation is running on the ledger (`LedgerSession.beginOperation`); the message names it. */
+  | 'BUSY'
+  /** A backup could not be written; the message says why, and nothing was left half-written. */
+  | 'BACKUP_FAILED'
+  /** A backup could not be restored; the message says why, and the ledgers were left as they were. */
+  | 'RESTORE_FAILED'
 
 export interface ResultError<C extends string = string> {
   code: C

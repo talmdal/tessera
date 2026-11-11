@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { DialogService } from '../../core/dialogs/DialogService'
 import { ExtensionRegistryImpl } from '../../core/extensions/ExtensionRegistry'
 import { EventHubImpl } from '../../core/ipc/EventHub'
-import { DIALOGS_EXTENSION_POINT, DIALOG_OPEN, DialogOpen } from '../../shared/dialogs/types'
+import { DIALOGS_EXTENSION_POINT, DIALOG_DISMISS, DIALOG_OPEN, DialogOpen } from '../../shared/dialogs/types'
 
 function setup(options: { target?: number | undefined } = { target: 1 }) {
   const extensions = new ExtensionRegistryImpl()
@@ -15,7 +15,11 @@ function setup(options: { target?: number | undefined } = { target: 1 }) {
     log
   })
   const sent: DialogOpen[] = []
-  events.subscribe(event => { if (event.name === DIALOG_OPEN) sent.push(event.data as DialogOpen) })
+  const dismissed: unknown[] = []
+  events.subscribe(event => {
+    if (event.name === DIALOG_OPEN) sent.push(event.data as DialogOpen)
+    if (event.name === DIALOG_DISMISS) dismissed.push(event.data)
+  })
   extensions.contribute('ledger', DIALOGS_EXTENSION_POINT, 'ledger.dialog.new', { id: 'ledger.dialog.new', title: 'New Ledger', module: './NewLedgerDialog' })
 
   /** Lets a show() promise settle (or not) before checking it. */
@@ -25,8 +29,24 @@ function setup(options: { target?: number | undefined } = { target: 1 }) {
     await new Promise(resolve => setTimeout(resolve, 0))
     return state
   }
-  return { extensions, service, sent, log, settled, setTarget: (id: number | undefined) => { target = id } }
+  return { extensions, service, sent, dismissed, log, settled, setTarget: (id: number | undefined) => { target = id } }
 }
+
+describe('DialogService: cancelling every dialog (a quit going ahead)', () => {
+  it('resolves every open request as cancelled, and tells each ready window to take its dialog down', async () => {
+    const { service, sent, dismissed, settled } = setup()
+    service.rendererReady(1)
+    const shown = service.show('ledger.dialog.new')
+    const waiting = service.show('ledger.dialog.new', undefined, { windowId: 2 })    // window 2 isn't ready yet
+
+    service.cancelAll()
+
+    expect(await settled(shown)).toEqual({ value: undefined, done: true })
+    expect(await settled(waiting)).toEqual({ value: undefined, done: true })
+    expect(dismissed).toEqual([{ windowId: 1, requestId: sent[0].requestId }])
+    expect(service.openRequests()).toEqual([])
+  })
+})
 
 describe('DialogService', () => {
   it("sends a request to the target window once it is ready, and resolves with the window's answer", async () => {

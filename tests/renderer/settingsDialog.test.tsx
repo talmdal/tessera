@@ -5,7 +5,7 @@ import { useEffect } from 'react'
 import type { ComponentType } from 'react'
 import type { SettingsCommitResult, SettingsNamespaceSnapshot, SettingsPageProps, ThemeSnapshot } from '@tessera/types'
 import {
-  SETTINGS_CHANGED, SETTINGS_COMMIT, SETTINGS_GET, SETTINGS_OPEN, SettingsCatalogue, SettingsCommitRequest, SettingsPageInfo
+  SETTINGS_CHANGED, SETTINGS_CHOOSE_FOLDER, SETTINGS_COMMIT, SETTINGS_GET, SETTINGS_OPEN, SettingsCatalogue, SettingsCommitRequest, SettingsPageInfo
 } from '../../shared/settings/types'
 import { DEFAULT_THEME, THEME_GET } from '../../shared/theme/types'
 import { SettingsDialog } from '../../shell/renderer/settings/SettingsDialog'
@@ -59,15 +59,18 @@ function AccountsPage({ value, defaults, onChange, onValidityChange, disabled, e
 }
 function Broken(): never { throw new Error('broken page') }
 
-function setup({ catalogue = { pages: PAGES, namespaces: [ledger(), accounts()] } as SettingsCatalogue, loader, commit }: {
+function setup({ catalogue = { pages: PAGES, namespaces: [ledger(), accounts()] } as SettingsCatalogue, loader, commit, answers = {} }: {
   catalogue?: SettingsCatalogue
   loader?: ViewLoader
   commit?: (request: SettingsCommitRequest) => SettingsCommitResult | Promise<SettingsCommitResult>
+  /** Answers to other requests, by channel. */
+  answers?: Record<string, (data: unknown) => unknown>
 } = {}) {
   const remote = createFakeRemote({ [THEME_GET]: () => theme, [SETTINGS_GET]: () => catalogue })
   const answer = remote.bridge.invoke.getMockImplementation()!
   const commits: SettingsCommitRequest[] = []
   remote.bridge.invoke.mockImplementation(async (channel: string, data?: unknown) => {
+    if (answers[channel]) return answers[channel](data)
     if (channel !== SETTINGS_COMMIT) return answer(channel, data)
     const request = data as SettingsCommitRequest
     commits.push(structuredClone(request))
@@ -162,6 +165,50 @@ describe('the Options dialog: opening', () => {
     await waitFor(() => expect(error).toHaveBeenCalledWith('[settings] Could not open the settings', expect.any(Error)))
     expect(screen.queryByRole('dialog')).toBeNull()
     error.mockRestore()
+  })
+})
+
+describe('the Options dialog: a folder field', () => {
+  const BACKUPS = { folder: '', onClose: true }
+  const catalogue: SettingsCatalogue = {
+    pages: [{
+      id: 'ledger.backup.settings', title: 'Backups', pluginId: 'ledger', settings: 'ledger.backup', keywords: [],
+      fields: [{ kind: 'folder', key: 'folder', label: 'Backup folder', placeholder: '/home/me/Documents/Tessera Backups', description: 'Where backups go.' }]
+    }],
+    namespaces: [{ id: 'ledger.backup', owner: 'ledger', value: BACKUPS, defaults: BACKUPS }]
+  }
+
+  it('shows the default until a folder is chosen with Browse…, and Default goes back to it', async () => {
+    const asked: unknown[] = []
+    const { open, commits } = setup({ catalogue, answers: { [SETTINGS_CHOOSE_FOLDER]: request => { asked.push(request); return '/mnt/usb/Backups' } } })
+    await open('ledger.backup.settings')
+    const field = within(page('Backups')).getByRole('textbox', { name: 'Backup folder' })
+    expect(field).toHaveValue('')
+    expect(field).toHaveAttribute('placeholder', '/home/me/Documents/Tessera Backups')
+    expect(field).toHaveAttribute('readonly')
+    expect(within(page('Backups')).getByRole('button', { name: 'Default' })).toBeDisabled()
+
+    await userEvent.click(within(page('Backups')).getByRole('button', { name: 'Browse…' }))
+    await waitFor(() => expect(field).toHaveValue('/mnt/usb/Backups'))
+    expect(asked).toEqual([{ title: 'Backup folder', defaultPath: '/home/me/Documents/Tessera Backups' }])
+    await userEvent.click(button('Apply'))
+    expect(commits).toEqual([{ changes: [{ id: 'ledger.backup', value: { folder: '/mnt/usb/Backups', onClose: true } }] }])
+
+    await userEvent.click(within(page('Backups')).getByRole('button', { name: 'Default' }))
+    expect(field).toHaveValue('')
+  })
+
+  it('leaves the folder as it was when the dialog is cancelled', async () => {
+    const chosen = ['/mnt/usb/Backups', undefined]
+    const { open } = setup({ catalogue, answers: { [SETTINGS_CHOOSE_FOLDER]: () => chosen.shift() } })
+    await open('ledger.backup.settings')
+    const field = within(page('Backups')).getByRole('textbox', { name: 'Backup folder' })
+    await userEvent.click(within(page('Backups')).getByRole('button', { name: 'Browse…' }))
+    await waitFor(() => expect(field).toHaveValue('/mnt/usb/Backups'))
+
+    await userEvent.click(within(page('Backups')).getByRole('button', { name: 'Browse…' }))
+    await waitFor(() => expect(chosen).toEqual([]))
+    expect(field).toHaveValue('/mnt/usb/Backups')
   })
 })
 

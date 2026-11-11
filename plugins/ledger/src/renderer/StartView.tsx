@@ -51,12 +51,18 @@ export default function StartView() {
         </Typography>
       </Box>
 
-      {state?.error && <Alert severity="warning">{state.error}</Alert>}
+      {state?.error && (
+        // A ledger that won't open is when a backup is needed most
+        <Alert severity="warning" action={<Button color="inherit" size="small" onClick={run(LEDGER_COMMANDS.restore)}>Restore from a Backup…</Button>}>
+          {state.error}
+        </Alert>
+      )}
       {error && <Alert severity="error" onClose={() => setError(undefined)}>{error}</Alert>}
 
       <Stack direction="row" spacing={1}>
         <Button variant="contained" startIcon={<Icon name="Add" />} onClick={run(LEDGER_COMMANDS.new)}>New Ledger…</Button>
         <Button variant="outlined" startIcon={<Icon name="Folder" />} onClick={run(LEDGER_COMMANDS.open)}>Open Ledger…</Button>
+        <Button variant="outlined" startIcon={<Icon name="Undo" />} onClick={run(LEDGER_COMMANDS.restore)}>Restore from a Backup…</Button>
       </Stack>
 
       <Box>

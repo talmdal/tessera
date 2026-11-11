@@ -8,6 +8,43 @@ import { MemoryPluginSource, createLogger, createRuntime, manifest } from '../he
 afterEach(() => { vi.useRealTimers() })
 
 describe('AppLifecycle', () => {
+  it('runs pass 1 of a user quit newest first, one at a time, collecting the reasons, without changing phase', async () => {
+    const log = createLogger()
+    const lifecycle = new AppLifecycleImpl({ log })
+    lifecycle.markStarted()
+    const order: string[] = []
+    let release!: () => void
+    lifecycle.onWillQuit(() => { order.push('provider'); return undefined })
+    lifecycle.onWillQuit(async () => {
+      order.push('dependent starts')
+      await new Promise<void>(resolve => { release = resolve })
+      order.push('dependent ends')
+      return '  “Importing statements” is still running.  '
+    })
+    lifecycle.onWillQuit(() => { throw new Error('broken') })
+    lifecycle.onWillQuit(() => '   ')
+    const gone = lifecycle.onWillQuit(() => 'never asked')
+    gone.dispose()
+
+    const first = lifecycle.askToQuit()
+    const second = lifecycle.askToQuit()          // a second quit while the first is asking shares its run
+    await vi.waitFor(() => expect(order).toEqual(['dependent starts']))
+    release()
+
+    expect(await first).toEqual(['“Importing statements” is still running.'])
+    expect(await second).toEqual(['“Importing statements” is still running.'])
+    expect(order).toEqual(['dependent starts', 'dependent ends', 'provider'])
+    expect(log.error).toHaveBeenCalledWith('[lifecycle] An onWillQuit listener failed', expect.any(Error))
+    expect(lifecycle.phase).toBe('started')
+
+    // Each quit asks afresh (Retry)
+    const retry = lifecycle.askToQuit()
+    await vi.waitFor(() => expect(order.at(-1)).toBe('dependent starts'))
+    release()
+    expect(await retry).toEqual(['“Importing statements” is still running.'])
+    expect(order.filter(step => step === 'provider')).toHaveLength(2)
+  })
+
   it('moves through the phases', async () => {
     const lifecycle = new AppLifecycleImpl()
     const phases = [lifecycle.phase]

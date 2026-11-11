@@ -1,7 +1,7 @@
 // Every name the ledger plugin publishes: ids, commands, context keys, IPC channels, events, views and dialogs.
 // Both halves of the plugin, other plugins and the tests use these constants, never the strings.
 import { channelFor } from '@tessera/types'
-import type { LedgerTree } from './model'
+import type { LedgerInfo, LedgerTree } from './model'
 
 export const LEDGER_PLUGIN_ID = 'ledger'
 
@@ -24,12 +24,50 @@ export const LEDGER_FORMAT_VERSION = 1
 export const LEDGER_META = {
   /** `LEDGER_FORMAT_VERSION`. A file without it is not a ledger. */
   format: 'ledger.format',
+  /**
+   * The ledger's identity, a ULID: written when it is created, or the first time an older ledger is opened writable.
+   * It tells this ledger's backups from another ledger's with the same name.
+   */
+  id: 'ledger.id',
+  /** On a ledger restored as a new one: `{ id, takenAt }` of the backup it came from. It has an id of its own. */
+  restoredFrom: 'ledger.restoredFrom',
   createdAt: 'ledger.createdAt',
   /** The application version that created the file. */
   createdWith: 'ledger.createdWith',
   /** The schema version of a `ledger.schema` contributor. */
   schemaVersion: (contributor: string) => `ledger.schema.${contributor}`
 } as const
+
+/** A backup's extension, with its dot. A backup is a ledger file in the engine's format, with backup meta. */
+export const LEDGER_BACKUP_EXTENSION = '.tesserabkp'
+
+/** The filter for a backup's save and open dialogs. */
+export const LEDGER_BACKUP_FILTER = { name: 'Tessera backup', extensions: [LEDGER_BACKUP_EXTENSION.slice(1)] }
+
+/**
+ * Keys a snapshot adds to a backup's meta (the ledger's own meta, `ledger.id` included, is copied with it). A file is
+ * a backup only when it has both `ledger.format` and `backup.takenAt`.
+ */
+export const LEDGER_BACKUP_META = {
+  /** ISO 8601, UTC. */
+  takenAt: 'backup.takenAt',
+  /** `'manual'` (File › Back Up Ledger…) or `'auto'` (when the ledger closed). */
+  kind: 'backup.kind',
+  /** The ledger's name when it was backed up. */
+  ledgerName: 'backup.ledgerName',
+  /** The ledger's absolute path when it was backed up. */
+  ledgerPath: 'backup.ledgerPath',
+  /** `ledger <LEDGER_API_VERSION>`, as `ledger.createdWith`. */
+  takenWith: 'backup.takenWith'
+} as const
+
+export type BackupKind = 'manual' | 'auto'
+
+/** The ledger's backup settings: a namespace of their own. */
+export const LEDGER_BACKUP_SETTINGS = 'ledger.backup'
+
+/** The Backups page of the Options dialog (under Ledger): run `shell.settings.open` with it to show it. */
+export const LEDGER_BACKUP_SETTINGS_PAGE = 'ledger.backup.settings'
 
 /** The ledger's own collections, part of the ledger format rather than a schema contribution. */
 export const LEDGER_COLLECTIONS = {
@@ -45,6 +83,20 @@ export const LEDGER_COMMANDS = {
   close: 'ledger.close',
   /** File › Delete Ledger…: sends the open ledger's file to the trash. */
   delete: 'ledger.delete',
+  /**
+   * File › Back Up Ledger…: asks where, suggesting the default backup folder, then copies the open ledger there.
+   * Argument (optional): `BackUpLedgerArgs`. Resolves the backup's path, or undefined if cancelled or it failed.
+   */
+  backup: 'ledger.backup',
+  /**
+   * File › Restore Ledger…: the Restore dialog, listing the backups in the default backup folder (Browse… for others).
+   * A backup is restored as a new ledger, or in its ledger's place with the current file kept under another name:
+   * never replaced. Works with no ledger open. Argument (optional): `RestoreLedgerArgs`. Resolves the restored
+   * ledger, or undefined.
+   */
+  restore: 'ledger.restore',
+  /** Opens the Options dialog at the Backups page (the "Last backup failed" status item runs it). */
+  backupSettings: 'ledger.backupSettings',
   /** Argument: `{ id }`. No menu item of its own; the accounts navigator and menu run it. */
   renameSubLedger: 'ledger.subLedger.rename',
   /** Argument: `{ id }`. Moves the sub-ledger's contents up to its parent, then deletes it. */
@@ -54,6 +106,11 @@ export const LEDGER_COMMANDS = {
 /** Argument of `ledger.new`. With `parentId` (null = the ledger itself), the dialog starts with that parent chosen. */
 export interface NewLedgerArgs {
   parentId?: string | null
+}
+
+/** Argument of `ledger.backup`. With `path`, no dialog: the backup is written there, replacing a file already there. */
+export interface BackUpLedgerArgs {
+  path?: string
 }
 
 /** Argument of the sub-ledger commands. */
@@ -67,7 +124,21 @@ export const LEDGER_CONTEXT_KEYS = {
   /** The open ledger's name, for status text such as `Ledger: {ledger.name}`. */
   name: 'ledger.name',
   /** Another plugin's view shows the ledger tree (`registerNavigator`), so the Ledger panel is hidden. */
-  hasNavigator: 'ledger.hasNavigator'
+  hasNavigator: 'ledger.hasNavigator',
+  /**
+   * A long operation is running on the ledger (`LedgerSession.beginOperation`): an import, a backup, a restore. The
+   * ledger's file commands, and other operations, wait until it ends.
+   */
+  isBusy: 'ledger.isBusy',
+  /** The running operation's label, for the user: "Importing statements". */
+  operation: 'ledger.operation',
+  /** What the ledger is doing or has just done, for the status bar: "Backed up “Home” at 10:14". */
+  activity: 'ledger.activity',
+  /**
+   * Set while the last automatic backup of a ledger failed or was skipped, until a backup of it succeeds: what
+   * happened, for the "Last backup failed" status item's tooltip. Unset otherwise.
+   */
+  backupProblem: 'ledger.backupProblem'
 } as const
 
 const channel = (event: string) => channelFor(LEDGER_PLUGIN_ID, event)
@@ -89,7 +160,18 @@ export const LEDGER_CHANNELS = {
   /** `{ name, parentId }` → `Result<SubLedger, LedgerErrorCode>`. Used by the New Ledger dialog. */
   createSubLedger: channel('subLedger.create'),
   /** `{ id, name, expectedRev? }` → `Result<SubLedger, LedgerErrorCode>`. Used by the rename dialog. */
-  renameSubLedger: channel('subLedger.rename')
+  renameSubLedger: channel('subLedger.rename'),
+  // The Restore dialog's requests. They answer only while File › Restore Ledger… has the dialog open.
+  /** → `{ folder, backups: BackupInfo[] }`: the backups in the default backup folder, newest first. */
+  restoreList: channel('restore.list'),
+  /** → `Result<BackupInfo | undefined>`: a backup (or a ledger file) chosen in the open dialog; undefined if cancelled. */
+  restoreBrowse: channel('restore.browse'),
+  /** `{ path }` → `Result<RestorePlan>`: how a listed backup can be restored, with suggested names. */
+  restorePlan: channel('restore.plan'),
+  /** `{ defaultPath }` → `string | undefined`: a folder, chosen in the folder dialog. */
+  restoreFolder: channel('restore.folder'),
+  /** `RestoreRequest` → `Result<RestoreOutcome>`: restores, pushing `restoreProgress` meanwhile. */
+  restoreRun: channel('restore.run')
 } as const
 
 /** Push events, main → renderer. Each carries the whole new value, so a repeat is harmless. */
@@ -99,7 +181,9 @@ export const LEDGER_EVENTS = {
   /** `LedgerTree`, or null when the ledger closed. */
   tree: channel('tree.changed'),
   /** `RecentLedger[]`, with `exists` filled in. */
-  recent: channel('recent.changed')
+  recent: channel('recent.changed'),
+  /** `RestoreProgress`, while `restoreRun` works. */
+  restoreProgress: channel('restore.progress')
 } as const
 
 export const LEDGER_VIEWS = {
@@ -117,7 +201,9 @@ export const LEDGER_DIALOGS = {
   /** Input `NewLedgerDialogInput`, result `NewLedgerDialogResult`. */
   newLedger: 'ledger.dialog.new',
   /** Input `RenameSubLedgerDialogInput`, result `{ id }`. */
-  renameSubLedger: 'ledger.dialog.rename'
+  renameSubLedger: 'ledger.dialog.rename',
+  /** Input `RestoreDialogInput`, result `RestoreDialogResult`. */
+  restore: 'ledger.dialog.restore'
 } as const
 
 export interface NewLedgerDialogInput {
@@ -133,6 +219,75 @@ export interface NewLedgerDialogInput {
 export type NewLedgerDialogResult =
   | { kind: 'subLedger', id: string }
   | { kind: 'file', name: string }
+
+/** Argument of `ledger.restore`: a backup to show chosen in the dialog. */
+export interface RestoreLedgerArgs {
+  path?: string
+}
+
+/** A backup the Restore dialog offers: what is known of it before restoring. */
+export interface BackupInfo {
+  path: string
+  /** The ledger it holds: its name when it was backed up (a ledger file's own name). */
+  ledgerName: string
+  ledgerId?: string
+  /** Where that ledger was when it was backed up (a backup's `backup.ledgerPath`). */
+  ledgerPath?: string
+  /** ISO 8601: when the backup was taken; for a ledger file rather than a backup, when the file last changed. */
+  takenAt: string
+  /** `'ledger'`: a ledger file, not a backup (a copy made before an upgrade, or by hand). */
+  kind: BackupKind | 'ledger'
+  /** Bytes. */
+  size: number
+  /** Why it can't be restored, when it can't: saved by a newer Tessera, not a ledger, the open ledger itself… */
+  problem?: string
+}
+
+export interface RestoreDialogInput {
+  /** A backup to show chosen: from the command's argument. */
+  preselect?: string
+}
+
+/** What a restore did: the ledger it opened, and where the current file was kept (restoring in place of it). */
+export interface RestoreOutcome {
+  ledger: LedgerInfo
+  /** The current file's new path, when a restore in place kept it under another name. */
+  kept?: string
+}
+
+export interface RestoreDialogResult extends RestoreOutcome {
+  /** The backup's `takenAt`, for "… as it was on …". */
+  takenAt: string
+}
+
+/** How one backup can be restored: always as a new ledger; in its ledger's place when that ledger is on this computer. */
+export interface RestorePlan {
+  backup: BackupInfo
+  /** A new ledger: a free name, in the ledger's folder (or the documents folder). */
+  asNew: { folder: string, name: string }
+  inPlace:
+    | {
+      /** The ledger file the backup takes the name of. */
+      path: string
+      name: string
+      /** It is the open ledger: it closes, and opens again as it was in the backup. */
+      isOpen: boolean
+      /** A free name to keep the current file under, when there is a current file. Nothing is ever deleted. */
+      keepAs?: string
+    }
+    | { unavailable: string }
+}
+
+export type RestoreRequest =
+  | { backup: string, mode: 'new', folder: string, name: string }
+  /** `keepAs`: the name the current file is kept under (without the extension); required when there is one. */
+  | { backup: string, mode: 'inPlace', keepAs?: string }
+
+/** A step of a restore, and how far a copy has got (0 to 1) when that is known. */
+export interface RestoreProgress {
+  step: string
+  done?: number
+}
 
 export interface RenameSubLedgerDialogInput {
   id: string

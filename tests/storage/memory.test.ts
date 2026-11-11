@@ -8,6 +8,7 @@ describeStorageEngine('memory', async () => {
   let engine = new KitStorageEngine(driver)
   return {
     engine,
+    pathFor: name => `/snapshots/${name}.db`,
     async restart() {
       await engine.closeAll()
       engine = new KitStorageEngine(driver)

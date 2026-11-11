@@ -21,6 +21,22 @@ export function validateLedgerName(name: string): string | undefined {
   return undefined
 }
 
+/** Names Windows reserves for devices, whatever the extension: a file can't have them. */
+const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
+
+/**
+ * Why a name can't be a ledger file's name (without its extension), or undefined when it can: a ledger name that is
+ * also a file name on every platform, so no reserved name and no trailing dot or space. Names are trimmed first.
+ */
+export function validateLedgerFileName(name: string): string | undefined {
+  const problem = validateLedgerName(name)
+  if (problem) return problem
+  const trimmed = name.trim()
+  if (RESERVED.test(trimmed)) return `“${trimmed}” is a name Windows keeps for itself. Choose another.`
+  if (trimmed.endsWith('.')) return 'A file name can’t end with a dot.'
+  return undefined
+}
+
 /** The key names are compared by: trimmed and lower case, so "Business" and " business" clash. */
 export const nameKey = (name: string) => name.trim().toLocaleLowerCase()
 

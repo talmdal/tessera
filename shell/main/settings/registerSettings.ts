@@ -3,8 +3,8 @@ import type { IpcMessage, Logger, PluginContext, PluginRuntime } from '@tessera/
 import { MENUS_EXTENSION_POINT, MenuContribution, TOOLS_MENU } from '../../../shared/menus/types'
 import { SHELL_CONTRIBUTOR_ID } from '../../../shared/plugins/manifest'
 import {
-  SETTINGS_CHANGED, SETTINGS_COMMIT, SETTINGS_GET, SETTINGS_OPEN, SETTINGS_OPEN_COMMAND,
-  SettingsCatalogue, SettingsChanged, SettingsCommitRequest, SettingsOpen, SettingsPageInfo
+  SETTINGS_CHANGED, SETTINGS_CHOOSE_FOLDER, SETTINGS_COMMIT, SETTINGS_GET, SETTINGS_OPEN, SETTINGS_OPEN_COMMAND,
+  SettingsCatalogue, SettingsChanged, SettingsChooseFolder, SettingsCommitRequest, SettingsOpen, SettingsPageInfo
 } from '../../../shared/settings/types'
 import { SHELL_GROUP_ORDER } from '../menus/coreMenus'
 
@@ -20,6 +20,8 @@ export interface SettingsHostOptions {
   /** The window the dialog opens in: the focused one, else the first. Undefined when there is none. */
   targetWindow(): number | undefined
   log: Pick<Logger, 'info' | 'warn'>
+  /** The platform's folder dialog, for a `folder` field's Browse…; without it, Browse… answers undefined. */
+  chooseFolder?(windowId: number | undefined, options: SettingsChooseFolder): Promise<string | undefined>
 }
 
 /**
@@ -55,6 +57,14 @@ export function registerSettings(
   })
 
   shell.ipc.register(SETTINGS_GET, () => catalogue())
+
+  shell.ipc.register(SETTINGS_CHOOSE_FOLDER, async (msg: IpcMessage<SettingsChooseFolder>) => {
+    const { defaultPath, title } = msg.data ?? {}
+    return options.chooseFolder?.(msg.sender?.windowId, {
+      ...(typeof defaultPath === 'string' && defaultPath !== '' && { defaultPath }),
+      ...(typeof title === 'string' && title !== '' && { title })
+    })
+  })
 
   shell.ipc.register(SETTINGS_COMMIT, (msg: IpcMessage<SettingsCommitRequest>) => {
     const changes = msg.data?.changes

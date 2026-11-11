@@ -67,6 +67,17 @@ describe('shell.files', () => {
     await expect(files.showSaveDialog()).resolves.toBeUndefined()
   })
 
+  it('asks for a folder, which the user may make, modal to the focused window; undefined when cancelled', async () => {
+    const { files, platform } = setup()
+    platform.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: ['/home/me/Backups'] })
+    await expect(files.showOpenFolderDialog({ title: 'Restore To', defaultPath: '/home/me', buttonLabel: 'Choose', filters: [{ name: 'x', extensions: ['x'] }] }))
+      .resolves.toBe('/home/me/Backups')
+    const [, settings] = platform.dialog.showOpenDialog.mock.calls[0]
+    expect(settings).toEqual({ title: 'Restore To', defaultPath: '/home/me', buttonLabel: 'Choose', properties: ['openDirectory', 'createDirectory'] })
+    platform.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
+    await expect(files.showOpenFolderDialog()).resolves.toBeUndefined()
+  })
+
   it('saves with the platform asking before replacing a file, unparented when there is no window', async () => {
     const { files, platform } = setup(null)
     await expect(files.showSaveDialog({ defaultPath: '/home/me/Documents/My Finances.tessera', filters })).resolves.toBe('/home/me/New.tessera')

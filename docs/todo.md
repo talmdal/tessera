@@ -93,9 +93,11 @@ off, or delete them, as they land.
       `shell.dialogs` extension point with the renderer's dialog host, and
       `shell.files` (open and save dialogs, `exists`, the OS trash). See
       [Asking the user](plugin-creation.md#asking-the-user-dialogs-prompts-and-files).
-- [ ] **More shell services:** recent files, atomic writes, backups and file
-      locks for `shell.files`; later `shell.notifications` and a secure
-      password prompt. (Settings are done, as `context.settings`.)
+- [ ] **More shell services:** recent files, atomic writes and file locks for
+      `shell.files`; later `shell.notifications` and a secure password prompt.
+      (Settings are done, as `context.settings`. Backups aren't a `shell.files`
+      job: a copy of an open ledger needs the storage engine; see
+      [backup-restore-design.md](backup-restore-design.md).)
 
 ## Finance: ledgers and accounts
 
@@ -146,6 +148,13 @@ The storage engine it builds on is done ([storage-engine-redesign.md](storage-en
       `npm run dev`, in light and dark themes: the register's marks, buttons and
       review bar, and the Change Match dialog, have only been tested, not seen.
 - [ ] **Later:** per-file storage formats, splits, `.mny` migration.
+- [ ] **The import holds the main process for a whole statement:** 0.3 s per
+      1,000 lines against an empty account, longer against a long history
+      (measured in the backup spike). Menus and every window's IPC wait
+      meanwhile. Yield while matching.
+- [ ] **Opening a ledger blocks the main process while the storage kit loads
+      it:** 0.4 to 1 s at 100,000 transactions (measured in the backup spike).
+      Load in steps, or off the main thread.
 
 ## State and settings
 
@@ -302,6 +311,60 @@ text), a Fonts page in the Options dialog, and fonts in themes.
 - [ ] **Later:** fonts shipped inside themes, roles contributed by plugins,
       text-size shortcuts, per-mode theme fonts, a "larger headings"
       percentage.
+
+## Backup and restore
+
+Design: [backup-restore-design.md](backup-restore-design.md): File › Back Up
+Ledger… and Restore Ledger…, retention, backing up when the ledger closes, a
+Backups page, and one long ledger operation at a time.
+
+- [x] **Phase 0, spike:** snapshot methods, timings, the trash, locked files,
+      side files, an import on quit, the quit budget; confirmed in Electron 45
+      on Windows. Results in
+      [backup-restore-design.md](backup-restore-design.md#phase-0-results).
+- [x] **Phase 1, snapshots in the storage engines:** `Database.snapshot` and
+      `StorageEngine.readMeta` on the memory, SQLite and Loki engines; Open
+      checks a ledger from its meta. No visible change. Results in
+      [backup-restore-design.md](backup-restore-design.md#phase-1-results).
+- [x] **The three open points, settled:** a user quit is two passes (Retry,
+      Quit Anyway, Cancel), with the backup on quit in the first; where there is
+      no trash, expired backups are deleted.
+- [x] **Phase 2:** File › Back Up Ledger…, retention in the default backup
+      folder (the trash, or deleted where there is none), one ledger operation
+      at a time (the import takes it), the ledger's id. Results in
+      [backup-restore-design.md](backup-restore-design.md#phase-2-results).
+- [ ] **Check phase 2 in Electron, the rest:** the status bar's result;
+      Close, Open and Import greyed out during an import; a large ledger's
+      percentage; the trash on a network share and a USB drive (Windows).
+- [x] **Check phase 2 in Electron (Windows), first part:** Back Up Ledger…,
+      the save dialog in Documents › Tessera Backups, the backup written and
+      synced by OneDrive (the reviewer's screenshots).
+- [x] **Phase 3:** File › Restore Ledger… and the Restore dialog (the
+      backups in the default folder, Browse…), as a new ledger or in place of
+      its ledger with the current file kept under a name the user chooses:
+      never replaced or deleted. Results in
+      [backup-restore-design.md](backup-restore-design.md#phase-3-results).
+- [x] **Check phase 3 in Electron (Windows), first part:** a restore in place
+      of the open ledger, the current file kept beside it (the reviewer's
+      screenshots).
+- [ ] **Check phase 3 in Electron, the rest:** open the kept file; restore as
+      new; a pre-upgrade `.backup-….tessera`; a ledger damaged by hand, from
+      the start view; a large ledger's steps; the rename with a second copy of
+      Tessera or OneDrive holding the file.
+- [x] **Phase 4:** the Backups page (the default folder, backing up on close,
+      retention), the `folder` field kind; backing up as the ledger closes,
+      in pass 1 of a user quit and within 3 s on an OS shutdown; the two-pass
+      quit (Retry, Quit Anyway, Cancel; dialogs cancelled before pass 2);
+      "Last backup failed" in the status bar; a message when a restore
+      completes. Results in
+      [backup-restore-design.md](backup-restore-design.md#phase-4-results).
+- [ ] **Check phase 4 in Electron:** the Backups page and Browse…; Close
+      Ledger after a change leaves a backup, and again without one doesn't;
+      File › Exit and closing the window after a change; a quit during an
+      import (Retry, Quit Anyway, Cancel); the backup drive unplugged (the
+      reason on quit, "Last backup failed" at the next start); an OS shutdown.
+- [ ] **Later:** Show in Folder, compression, reminders, pre-upgrade backups
+      in the backup folder.
 
 ## Localisation
 

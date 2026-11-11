@@ -23,6 +23,7 @@ describeStorageEngine('loki', async () => {
   let engine = engineFor(directory)
   return {
     engine,
+    pathFor: name => path.join(directory, 'snapshots', `${name}.loki.json`),
     async restart() {
       await engine.closeAll()
       engine = engineFor(directory)
@@ -153,5 +154,36 @@ describe('loki files', () => {
       state.failing = false
       await engine.closeAll()
     })
+  })
+})
+
+describe('loki snapshots', () => {
+  it('copies what is committed, including writes not saved to the file yet', async () => {
+    const directory = tempDir()
+    const engine = engineFor(directory, { saveDelay: 60_000 })
+    const db = await engine.open({ name: 'app' })
+    await db.collection('c').insert({ id: 'a', value: 1 })
+    const live = path.join(directory, 'app.loki.json')
+    expect(fs.existsSync(live)).toBe(false)   // buffered: not on disk yet
+
+    const copy = path.join(directory, 'backups', 'app copy.loki.json')
+    await db.snapshot({ path: copy }, { meta: { 'backup.kind': 'manual' } })
+
+    expect(fs.readdirSync(path.dirname(copy))).toEqual(['app copy.loki.json'])
+    expect(await engine.readMeta({ path: copy })).toEqual({ 'backup.kind': 'manual' })
+    const opened = await engine.open({ path: copy }, { readOnly: true })
+    expect(await opened.collection('c').get('a')).toMatchObject({ id: 'a', value: 1 })
+    expect(await db.meta.get('backup.kind')).toBeUndefined()
+    await engine.closeAll()
+  })
+
+  it('reads meta as {} from a JSON file no Tessera database wrote, and IO from one that isn\'t JSON', async () => {
+    const directory = tempDir()
+    const engine = engineFor(directory)
+    fs.writeFileSync(path.join(directory, 'other.json'), '{"hello":"world"}')
+    fs.writeFileSync(path.join(directory, 'notes.txt'), 'not json')
+    expect(await engine.readMeta({ path: path.join(directory, 'other.json') })).toEqual({})
+    await expect(engine.readMeta({ path: path.join(directory, 'notes.txt') })).rejects.toMatchObject({ code: 'IO' })
+    await engine.closeAll()
   })
 })

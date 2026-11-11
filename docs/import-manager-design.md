@@ -95,6 +95,7 @@ Gaps, and how the design handles each:
 | The account dialog can't be opened with values filled in | **Prerequisite:** `AccountDialogInput` gains `initial` in create mode, so "Create a new account…" reuses the accounts plugin's own form and rules |
 | No declared extension points (todo.md) | The import plugin validates `import.formats` contributions itself and logs `[import]` warnings, as `accounts` does for reconcile actions |
 | Menus are built once, and items can't be hidden | *File › Import…* is always present, and disabled while no format is installed (`import.hasFormats`) |
+| An import and a backup could overlap (found while designing backups) | An import is the ledger's operation (`LedgerSession.beginOperation('Importing statements')`) for its whole run, dialogs included: no backup, Close or Open runs meanwhile, and *File › Import…* is also disabled while another operation, such as a backup, runs (`ledger.isBusy`). See [backup-restore-design.md](backup-restore-design.md#one-thing-at-a-time) |
 | No settings framework ([settings-design.md](settings-design.md) is proposed only) | The matching tolerances are constants in one file for now; a settings page comes later |
 
 ---

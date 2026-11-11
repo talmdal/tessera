@@ -47,6 +47,13 @@ export function createElectronFiles(platform: FilesPlatform): ShellFiles {
       return canceled || !filePath ? undefined : filePath
     },
 
+    async showOpenFolderDialog(options = {}) {
+      const { filters: _ignored, ...rest } = options
+      const { canceled, filePaths } = await withParent(options, platform.dialog.showOpenDialog.bind(platform.dialog),
+        { ...dialogOptions(rest), properties: ['openDirectory', 'createDirectory'] })
+      return canceled || filePaths.length === 0 ? undefined : filePaths[0]
+    },
+
     async exists(path: string) {
       try {
         await fs.promises.access(path)

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest'
 import type { ComponentType } from 'react'
 import type { DialogProps, ThemeSnapshot } from '@tessera/types'
-import { DIALOG_CLOSE, DIALOG_OPEN, DialogOpen, PROMPT_DIALOG, PROMPT_DIALOG_MODULE } from '../../shared/dialogs/types'
+import { DIALOG_CLOSE, DIALOG_DISMISS, DIALOG_OPEN, DialogOpen, PROMPT_DIALOG, PROMPT_DIALOG_MODULE } from '../../shared/dialogs/types'
 import { DEFAULT_THEME, THEME_GET } from '../../shared/theme/types'
 import { DialogHost } from '../../shell/renderer/dialogs/DialogHost'
 import { ShellThemeProvider } from '../../shell/renderer/theme/ShellThemeProvider'
@@ -76,6 +76,17 @@ describe('the dialog host', () => {
 
     const title = within(await dialog()).getByRole('heading', { name: 'Rename Sub-Ledger' })
     expect([getComputedStyle(title).paddingTop, getComputedStyle(title).paddingBottom]).toEqual(['8px', '8px'])
+  })
+
+  it('takes a dialog down when the main process cancels it (a quit), without answering', async () => {
+    const { open, closes, emit } = setup()
+    const request = await open()
+    await dialog()
+    await act(async () => { emit(DIALOG_DISMISS, { windowId: 2, requestId: request.requestId }) })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()       // another window's
+    await act(async () => { emit(DIALOG_DISMISS, { windowId: 1, requestId: request.requestId }) })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(closes()).toEqual([])
   })
 
   it('shows only the dialogs sent to its own window', async () => {

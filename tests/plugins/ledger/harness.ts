@@ -1,7 +1,7 @@
 // Test doubles for the ledger plugin: a memory storage engine with a fake disk over it, and fake shell services.
 import path from 'node:path'
 import { vi } from 'vitest'
-import type { AppState, ShellFiles, ShellPrompts } from '@tessera/types'
+import type { AppState, FileDialogOptions, ShellFiles, ShellPrompts } from '@tessera/types'
 import { KitStorageEngine, memoryDriver } from '@tessera/storage-kit'
 import type { Migrator, SchemaContribution } from '@tessera/ledger-api'
 import { LEDGER_SCHEMA_POINT } from '@tessera/ledger-api'
@@ -31,14 +31,23 @@ export function memoryAppState(): AppState & { values: Map<string, unknown> } {
   }
 }
 
+/** An error as Node's file system gives it. */
+export const errno = (code: string, message = code) => Object.assign(new Error(`${code}: ${message}`), { code })
+
 /**
  * The memory driver's databases are the "files". `foreign` holds files that exist but aren't databases, with what
- * their first bytes look like; `sides` holds side files (`-wal`…) that exist.
+ * their first bytes look like; `sides` holds side files (`-wal`…) that exist. `hooks` make an operation fail: throw
+ * from one (an `errno(...)`) to act as the file system would.
  */
 export function memoryDisk(driver: ReturnType<typeof memoryDriver>) {
   const foreign = new Map<string, FileKind>()
   const sides = new Set<string>()
   const copies: [string, string][] = []
+  const folders = new Set<string>()
+  const hooks: { rename?(from: string, to: string): void, mkdir?(folder: string): void, remove?(file: string): void, copy?(from: string, to: string): void } = {}
+  /** When each file last changed, for `stat`; the epoch when not set. */
+  const modified = new Map<string, Date>()
+  const all = () => [...driver.databases.keys(), ...foreign.keys(), ...sides]
   const disk: LedgerDisk = {
     exists: async f => driver.databases.has(f) || foreign.has(f) || sides.has(f),
     sniff: async f => foreign.get(f) ?? 'unknown',
@@ -47,9 +56,46 @@ export function memoryDisk(driver: ReturnType<typeof memoryDriver>) {
       copies.push([from, to])
       const files = driver.databases.get(from)
       if (files) driver.databases.set(to, structuredClone(files))
+    },
+    list: async folder => all().filter(f => path.dirname(f) === folder).sort(),
+    rename: async (from, to) => {
+      hooks.rename?.(from, to)
+      const files = driver.databases.get(from)
+      const kind = foreign.get(from)
+      const side = sides.has(from)
+      if (!files && kind === undefined && !side) throw errno('ENOENT', `no such file, rename '${from}'`)
+      if (files) { driver.databases.delete(from); driver.databases.set(to, files) }
+      if (kind !== undefined) { foreign.delete(from); foreign.set(to, kind) }
+      if (side) { sides.delete(from); sides.add(to) }
+    },
+    remove: async f => {
+      hooks.remove?.(f)
+      driver.databases.delete(f)
+      foreign.delete(f)
+      sides.delete(f)
+    },
+    mkdir: async folder => { hooks.mkdir?.(folder); folders.add(folder) },
+    realpath: async f => path.resolve(f),
+    copy: async (from, to, onProgress) => {
+      hooks.copy?.(from, to)
+      if (driver.databases.has(to) || foreign.has(to) || sides.has(to)) throw errno('EEXIST', `file already exists, open '${to}'`)
+      const files = driver.databases.get(from)
+      const kind = foreign.get(from)
+      if (!files && kind === undefined) throw errno('ENOENT', `no such file, open '${from}'`)
+      onProgress?.(0.5)
+      if (files) driver.databases.set(to, structuredClone(files))
+      if (kind !== undefined) foreign.set(to, kind)
+      onProgress?.(1)
+    },
+    isFolder: async folder => folders.has(folder) || all().some(f => path.dirname(f) === folder),
+    stat: async f => {
+      const files = driver.databases.get(f)
+      if (!files && !foreign.has(f)) throw errno('ENOENT', `no such file, stat '${f}'`)
+      const size = files ? JSON.stringify([...files.collections].map(([n, c]) => [n, [...c.docs.values()]])).length : 10
+      return { size, modified: modified.get(f) ?? new Date(0) }
     }
   }
-  return { disk, foreign, sides, copies }
+  return { disk, foreign, sides, copies, folders, hooks, modified }
 }
 
 export function fakeFiles(driver: ReturnType<typeof memoryDriver>, disk: ReturnType<typeof memoryDisk>) {
@@ -57,7 +103,8 @@ export function fakeFiles(driver: ReturnType<typeof memoryDriver>, disk: ReturnT
   const files = {
     showOpenDialog: vi.fn(async (): Promise<string | undefined> => undefined),
     showOpenFilesDialog: vi.fn(async (): Promise<string[]> => []),
-    showSaveDialog: vi.fn(async (): Promise<string | undefined> => undefined),
+    showOpenFolderDialog: vi.fn(async (_options?: FileDialogOptions): Promise<string | undefined> => undefined),
+    showSaveDialog: vi.fn(async (_options?: FileDialogOptions): Promise<string | undefined> => undefined),
     exists: vi.fn(async (f: string) => disk.disk.exists(f)),
     trash: vi.fn(async (f: string) => {
       trashed.push(f)

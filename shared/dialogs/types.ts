@@ -13,6 +13,17 @@ export const DIALOG_OPEN = shell('dialog.open')
 /** Request, renderer → main: `DialogClose`. Accepted only from the window the dialog was sent to. */
 export const DIALOG_CLOSE = shell('dialog.close')
 
+/**
+ * Push event, main → renderer: `DialogDismiss`. The dialog was cancelled from the main process (the app is quitting):
+ * the window takes it down without answering.
+ */
+export const DIALOG_DISMISS = shell('dialog.dismiss')
+
+export interface DialogDismiss {
+  windowId: number
+  requestId: string
+}
+
 /** A valid dialog contribution, with what the renderer needs to load it. */
 export interface DialogDescriptor {
   id: string

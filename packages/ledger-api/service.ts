@@ -56,6 +56,18 @@ export interface LedgerSession {
    */
   registerNavigator(contributor: string): Disposable
 
+  // ---- One long operation at a time
+
+  /**
+   * Marks the ledger busy with a long operation (an import, a backup, a restore) until the returned handle is
+   * disposed. Throws BUSY while another operation runs, so only one runs at a time. While one runs, the file commands
+   * (New, Open, Close, Delete) are disabled and their methods throw BUSY; reading and editing the ledger carry on.
+   * `label` is for the user: "Importing statements". Session-wide: it works with no ledger open.
+   */
+  beginOperation(label: string): Disposable
+  /** The running operation's label, or undefined. */
+  readonly operation: string | undefined
+
   /** Runs, awaited, before the database closes, while it is still writable. */
   onWillClose(listener: (ledger: LedgerInfo) => void | Promise<void>): Disposable
   readonly onDidChange: Event<LedgerChange>

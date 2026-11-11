@@ -1,5 +1,6 @@
 import type {
-  ChangeEvent, Collection, CollectionSchema, Database, DatabaseMeta, Disposable, Json, JsonObject, OpenOptions, Transaction
+  ChangeEvent, Collection, CollectionSchema, Database, DatabaseMeta, Disposable, Json, JsonObject, OpenOptions, SnapshotOptions,
+  Transaction
 } from '@tessera/types'
 import type { LoadedDatabase, StorageBackend, StorageChange } from './backend'
 import { Change, CollectionState, toIndexSpec } from './state'
@@ -64,6 +65,8 @@ export class KitDatabase implements Database {
   private readonly listeners = new Set<(event: ChangeEvent) => void>()
   private readonly commitLock = new Mutex()
   private readonly txLock = new Mutex()
+  /** Snapshots being written: `close()` waits for them, so a backend never closes under one. */
+  private readonly snapshots = new Set<Promise<unknown>>()
   private closed = false
 
   private constructor(private readonly backend: StorageBackend, private readonly options: KitDatabaseOptions) {
@@ -320,6 +323,42 @@ export class KitDatabase implements Database {
     })
   }
 
+  /** @internal The current meta, for `KitStorageEngine.readMeta` on an open database. */
+  metaCopy(): Record<string, Json> {
+    this.assertOpen()
+    return JSON.parse(JSON.stringify(Object.fromEntries(this.metaValues))) as Record<string, Json>
+  }
+
+  // ---- snapshots
+
+  /**
+   * No lock: a backend copies one committed state, because each batch reaches it whole, so writes carry on while a
+   * snapshot is written (see docs/backup-restore-design.md, Phase 0 results).
+   */
+  snapshot(to: { path: string }, options: SnapshotOptions = {}): Promise<void> {
+    const running = (async () => {
+      this.assertOpen()
+      const file = (to as Partial<{ path: unknown }> | undefined)?.path
+      if (typeof file !== 'string' || file === '') throw new StorageError('INVALID_ARGUMENT', 'a snapshot needs a non-empty path')
+      if (options.meta !== undefined && (typeof options.meta !== 'object' || options.meta === null || Array.isArray(options.meta))) {
+        throw new StorageError('INVALID_ARGUMENT', 'snapshot meta must be an object')
+      }
+      const meta = options.meta === undefined ? undefined : JSON.parse(JSON.stringify(options.meta)) as Record<string, Json>
+      const { signal, onProgress } = options
+      if (signal?.aborted) throw new StorageError('ABORTED', `the snapshot of database "${this.name}" was abandoned`)
+      try {
+        await this.backend.snapshot(file, { ...(meta && { meta }), ...(signal && { signal }), ...(onProgress && { onProgress }) })
+      } catch (err) {
+        if (err instanceof StorageError) throw err
+        if (signal?.aborted) throw new StorageError('ABORTED', `the snapshot of database "${this.name}" was abandoned`, { cause: err })
+        throw ioError(`could not snapshot database "${this.name}" to ${file}`, err)
+      }
+    })()
+    this.snapshots.add(running)
+    void running.then(() => this.snapshots.delete(running), () => this.snapshots.delete(running))
+    return running
+  }
+
   // ---- lifecycle
 
   async flush() {
@@ -332,6 +371,8 @@ export class KitDatabase implements Database {
     if (this.closed) return
     await this.txLock.idle()
     await this.commitLock.idle()
+    // A snapshot started while waiting is waited for too; `closed` is set with no await after the last check
+    while (this.snapshots.size > 0) await Promise.allSettled([...this.snapshots])
     this.closed = true
     this.listeners.clear()
     try {

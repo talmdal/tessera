@@ -2,6 +2,7 @@
 // never in a ledger. Stored as `ledger.recent` and `ledger.last`.
 import type { PluginState } from '@tessera/types'
 import type { RecentLedger } from '@tessera/ledger-api'
+import { samePath } from './paths'
 
 /** Keys in the ledger's `context.state`. */
 export const RECENT_KEY = 'recent'
@@ -9,9 +10,6 @@ export const LAST_KEY = 'last'
 /** How many are kept when no limit is given; the user's limit comes from the ledger's settings. */
 export const RECENT_LIMIT = 10
 
-/** Paths compare as the platform does: Windows and macOS file systems are usually case-insensitive. */
-const samePath = (a: string, b: string) =>
-  process.platform === 'win32' || process.platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b
 
 function valid(entry: unknown): entry is RecentLedger {
   const e = entry as Partial<RecentLedger> | null
@@ -31,12 +29,16 @@ export class RecentLedgers {
    */
   async list(): Promise<RecentLedger[]> {
     const stored = await this.state.get<unknown>(RECENT_KEY)
-    return Array.isArray(stored) ? stored.filter(valid).slice(0, this.limit()).map(({ path, name, openedAt }) => ({ path, name, openedAt })) : []
+    return Array.isArray(stored)
+      ? stored.filter(valid).slice(0, this.limit()).map(({ path, name, openedAt, id }) =>
+        ({ path, name, openedAt, ...(typeof id === 'string' && id !== '' && { id }) }))
+      : []
   }
 
-  async add(path: string, name: string): Promise<void> {
+  async add(path: string, name: string, id?: string): Promise<void> {
     const rest = (await this.list()).filter(entry => !samePath(entry.path, path))
-    await this.state.set(RECENT_KEY, [{ path, name, openedAt: this.now().toISOString() }, ...rest].slice(0, this.limit()))
+    const entry: RecentLedger = { path, name, openedAt: this.now().toISOString(), ...(id !== undefined && { id }) }
+    await this.state.set(RECENT_KEY, [entry, ...rest].slice(0, this.limit()))
     await this.state.set(LAST_KEY, path)
   }
 

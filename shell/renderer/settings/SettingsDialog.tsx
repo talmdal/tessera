@@ -9,8 +9,8 @@ import {
 } from '@tessera/ui'
 import { searchPages } from '../../../shared/settings/search'
 import {
-  SETTINGS_CHANGED, SETTINGS_COMMIT, SETTINGS_GET, SETTINGS_OPEN, SettingsCatalogue, SettingsChanged, SettingsCommitRequest, SettingsOpen,
-  SettingsPageInfo
+  SETTINGS_CHANGED, SETTINGS_CHOOSE_FOLDER, SETTINGS_COMMIT, SETTINGS_GET, SETTINGS_OPEN, SettingsCatalogue, SettingsChanged,
+  SettingsChooseFolder, SettingsCommitRequest, SettingsOpen, SettingsPageInfo
 } from '../../../shared/settings/types'
 import { clone, deepEqual, getAtPath, isPlainObject, jsonProblem, setAtPath } from '../../../shared/settings/values'
 import { Loading } from '../Loading'
@@ -92,6 +92,8 @@ function SettingsEditor({ opened, bridge, loader, builtIns, onClose }: {
 }) {
   const titleId = useId()
   const { pages } = opened.catalogue
+  // A `folder` field's Browse…: the platform's folder dialog, in the main process
+  const chooseFolder = useCallback((request: SettingsChooseFolder) => bridge.invoke<string | undefined>(SETTINGS_CHOOSE_FOLDER, request), [bridge])
   const [model, setModel] = useState<Model>(() => ({
     stored: byId(opened.catalogue.namespaces),
     drafts: Object.fromEntries(opened.catalogue.namespaces.map(n => [n.id, clone(n.value)]))
@@ -227,7 +229,7 @@ function SettingsEditor({ opened, bridge, loader, builtIns, onClose }: {
                     <PageFrame key={p.id} page={p} hidden={p.id !== selected} errors={id === undefined ? [] : errors[id] ?? []}
                       readOnly={snapshot?.readOnly} subpages={pages.filter(child => child.parent === p.id)} onSelect={select}>
                       {id !== undefined && snapshot && model.drafts[id] && (
-                        <PageContent page={p} loader={loader} builtIns={builtIns} props={{
+                        <PageContent page={p} loader={loader} builtIns={builtIns} chooseFolder={chooseFolder} props={{
                           value: model.drafts[id],
                           defaults: snapshot.defaults,
                           onChange: handlers[p.id].onChange,
@@ -364,9 +366,10 @@ function PageFrame({ page, hidden, errors, readOnly, subpages, onSelect, childre
 }
 
 /** The page's form or component, each in its own error boundary and loading placeholder. */
-function PageContent({ page, loader, builtIns, props }: {
+function PageContent({ page, loader, builtIns, chooseFolder, props }: {
   page: SettingsPageInfo
   loader: ViewLoader
+  chooseFolder(request: SettingsChooseFolder): Promise<string | undefined>
   builtIns: Readonly<Record<string, SettingsPageComponent>>
   props: SettingsPageProps
 }) {
@@ -379,7 +382,7 @@ function PageContent({ page, loader, builtIns, props }: {
     return lazy(async () => ({ default: await loader.load({ id: page.id, pluginId: page.pluginId, module: page.module!, remoteEntry }) }))
   }, [page, loader, builtIns])
 
-  if (page.fields) return <FieldsPage {...props} fields={page.fields} />
+  if (page.fields) return <FieldsPage {...props} fields={page.fields} chooseFolder={chooseFolder} />
   if (!Content) return null
   return (
     <PageBoundary pageId={page.id}>

@@ -87,7 +87,7 @@ export async function activate(context: PluginContext, options: ActivateOptions 
         await prompts.message({ kind: 'error', message: 'Nothing was imported.', detail: err.message })
       }
     }, {
-      enablement: `${LEDGER_CONTEXT_KEYS.isOpen} && !${LEDGER_CONTEXT_KEYS.isReadOnly} && ${IMPORT_CONTEXT_KEYS.hasFormats} && !${IMPORT_CONTEXT_KEYS.isRunning}`
+      enablement: `${LEDGER_CONTEXT_KEYS.isOpen} && !${LEDGER_CONTEXT_KEYS.isReadOnly} && ${IMPORT_CONTEXT_KEYS.hasFormats} && !${IMPORT_CONTEXT_KEYS.isRunning} && !${LEDGER_CONTEXT_KEYS.isBusy}`
     }),
     // Review, from the register's buttons and review bar. Each answers a result: a failure shows in the register
     context.commands.register(IMPORT_COMMANDS.accept, (args: unknown) => review.accept(args as AcceptArgs), { enablement: reviewing }),

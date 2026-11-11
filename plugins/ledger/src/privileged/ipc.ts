@@ -48,6 +48,8 @@ export class LedgerPublisher {
     keys.set(LEDGER_CONTEXT_KEYS.isReadOnly, ledger?.readOnly ?? false)
     keys.set(LEDGER_CONTEXT_KEYS.name, ledger?.name)
     keys.set(LEDGER_CONTEXT_KEYS.hasNavigator, this.session.hasNavigator)
+    keys.set(LEDGER_CONTEXT_KEYS.isBusy, this.session.operation !== undefined)
+    keys.set(LEDGER_CONTEXT_KEYS.operation, this.session.operation)
     this.context.events.emit(local(LEDGER_EVENTS.state), this.state())
   }
 

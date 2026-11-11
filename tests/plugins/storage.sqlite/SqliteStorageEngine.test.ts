@@ -23,6 +23,7 @@ describeStorageEngine('sqlite', async () => {
   let engine = engineFor(directory)
   return {
     engine,
+    pathFor: name => path.join(directory, 'snapshots', `${name}.sqlite`),
     async restart() {
       await engine.closeAll()
       engine = engineFor(directory)
@@ -89,5 +90,129 @@ describe('sqlite files', () => {
 
   it('reports itself as write-through', () => {
     expect(engineFor(tempDir()).capabilities().durability).toBe('write-through')
+  })
+})
+
+describe('sqlite snapshots', () => {
+  const SIDE = ['-wal', '-shm', '-journal']
+  const sideFilesOf = (file: string) => SIDE.filter(suffix => fs.existsSync(file + suffix))
+
+  /** A database big enough to be copied in several steps (100 pages of 4 KB each). */
+  async function bigDatabase(directory: string) {
+    const engine = engineFor(directory)
+    const db = await engine.open({ path: path.join(directory, 'Home.tessera') })
+    await db.collection('c').insertMany(Array.from({ length: 2000 }, (_, i) => ({ id: `d${i}`, text: 'x'.repeat(500) })))
+    return { engine, db }
+  }
+
+  it('writes one self-contained file: no WAL, checked, and reading it leaves nothing beside it', async () => {
+    const directory = tempDir()
+    const engine = engineFor(directory)
+    const db = await engine.open({ name: 'app' })
+    await db.collection('c').insert({ id: 'a' })
+    const copy = path.join(directory, 'backups', 'app copy.tesserabkp')
+
+    await db.snapshot({ path: copy }, { meta: { 'backup.kind': 'auto' } })
+
+    expect(fs.readdirSync(path.dirname(copy))).toEqual(['app copy.tesserabkp'])
+    const raw = new DatabaseSync(copy, { readOnly: true })
+    expect(raw.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    expect(raw.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
+    expect(raw.prepare("SELECT value FROM tessera_meta WHERE key = 'backup.kind'").get()).toEqual({ value: '"auto"' })
+    raw.close()
+    await engine.readMeta({ path: copy })
+    expect(sideFilesOf(copy)).toEqual([])
+    await engine.closeAll()
+  })
+
+  it('is why a backup is a snapshot: a plain copy of an open database\'s file can lose what was written', async () => {
+    const directory = tempDir()
+    const engine = engineFor(directory)
+    const file = path.join(directory, 'Home.tessera')
+    const db = await engine.open({ path: file })
+    await db.collection('c').insert({ id: 'kept' })
+
+    // What a file copy would take: the main file alone (the writes are in Home.tessera-wal)
+    const naive = path.join(directory, 'naive.tessera')
+    fs.copyFileSync(file, naive)
+    const raw = new DatabaseSync(naive, { readOnly: true })
+    const found = (() => { try { return raw.prepare("SELECT count(*) AS n FROM tessera_documents WHERE id = 'kept'").get() } catch { return { n: 0 } } })()
+    raw.close()
+    expect(found).toEqual({ n: 0 })
+
+    const snapshot = path.join(directory, 'snapshot.tessera')
+    await db.snapshot({ path: snapshot })
+    const copy = await engine.open({ path: snapshot }, { readOnly: true })
+    expect(await copy.collection('c').get('kept')).toMatchObject({ id: 'kept' })
+    await engine.closeAll()
+  })
+
+  it('leaves nothing when abandoned half-way, and the database carries on', async () => {
+    const directory = tempDir()
+    const { engine, db } = await bigDatabase(directory)
+    const copy = path.join(directory, 'half.tesserabkp')
+    const controller = new AbortController()
+    const seen: number[] = []
+
+    const err = await db.snapshot({ path: copy }, {
+      signal: controller.signal,
+      onProgress: done => { seen.push(done); if (done > 0) controller.abort() }
+    }).catch(e => e)
+
+    expect(err).toMatchObject({ code: 'ABORTED' })
+    expect(seen.some(done => done > 0 && done < 0.9)).toBe(true)
+    expect([copy, ...SIDE.map(s => copy + s)].filter(f => fs.existsSync(f))).toEqual([])
+    await db.collection('c').insert({ id: 'after' })
+    expect(await db.collection('c').count()).toBe(2001)
+    await engine.closeAll()
+  })
+
+  it('closes only once a snapshot copied in several steps has finished', async () => {
+    const directory = tempDir()
+    const { engine, db } = await bigDatabase(directory)
+    const copy = path.join(directory, 'while-closing.tesserabkp')
+    let steps = 0
+
+    let finished = false
+    const snapshot = db.snapshot({ path: copy }, { onProgress: () => { steps++ } })
+    void snapshot.then(() => { finished = true })
+    await db.close()
+
+    // What quitting relies on: once the database has closed, its snapshot is complete
+    expect(finished).toBe(true)
+    await snapshot
+    expect(steps).toBeGreaterThan(2)
+    const opened = await engine.open({ path: copy }, { readOnly: true })
+    expect(await opened.collection('c').count()).toBe(2000)
+    await engine.closeAll()
+  })
+
+  it('never replaces a file, even one that isn\'t a database', async () => {
+    const directory = tempDir()
+    const engine = engineFor(directory)
+    const db = await engine.open({ name: 'app' })
+    const target = path.join(directory, 'notes.txt')
+    fs.writeFileSync(target, 'keep me')
+    await expect(db.snapshot({ path: target })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(fs.readFileSync(target, 'utf8')).toBe('keep me')
+    await engine.closeAll()
+  })
+
+  it('reads meta without writing: {} for a SQLite file no Tessera database wrote, IO for a file that isn\'t one', async () => {
+    const directory = tempDir()
+    const engine = engineFor(directory)
+    const photos = path.join(directory, 'photos.db')
+    const other = new DatabaseSync(photos)
+    other.exec("CREATE TABLE photo (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO photo (name) VALUES ('cat')")
+    other.close()
+    const before = fs.readFileSync(photos)
+    const notes = path.join(directory, 'notes.txt')
+    fs.writeFileSync(notes, 'hello, this is not a database at all')
+
+    expect(await engine.readMeta({ path: photos })).toEqual({})
+    expect(fs.readFileSync(photos).equals(before)).toBe(true)
+    expect(fs.readdirSync(directory).sort()).toEqual(['notes.txt', 'photos.db'])
+    await expect(engine.readMeta({ path: notes })).rejects.toMatchObject({ code: 'IO' })
+    await engine.closeAll()
   })
 })

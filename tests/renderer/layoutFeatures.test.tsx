@@ -53,6 +53,19 @@ describe('bar items', () => {
     expect(screen.getByText('Vault: ()')).toBeInTheDocument()
   })
 
+  it('replaces {key} in a tooltip too, following the key live', async () => {
+    const { bridge } = await renderFrame(layoutOf({ bars: { bottom: { items: ['warn', 'link'] } } }), [], {}, {
+      items: [text('warn', { tooltip: 'Problem: {p.problem}' }), text('link', { command: 'p.open', tooltip: 'Open {p.problem}' })],
+      keys: { 'p.problem': 'the disk is full' }
+    })
+
+    expect(await screen.findByTitle('Problem: the disk is full')).toBeInTheDocument()
+    expect(screen.getByTitle('Open the disk is full')).toBeInTheDocument()
+
+    await bridge.emit(CONTEXT_KEYS_CHANGED, { 'p.problem': 'the drive is unplugged' })
+    expect(screen.getByTitle('Problem: the drive is unplugged')).toBeInTheDocument()
+  })
+
   it('makes text with a command clickable, and leaves plain text as plain text', async () => {
     const user = userEvent.setup()
     const { bridge } = await renderFrame(layoutOf({ bars: { bottom: { items: ['plain', 'link'] } } }), [], {}, {

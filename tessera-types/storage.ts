@@ -159,6 +159,16 @@ export interface DatabaseMeta {
   delete(key: string): Promise<void>
 }
 
+/** Options of `Database.snapshot`. */
+export interface SnapshotOptions {
+  /** Meta entries written into the copy only: the database itself is not changed. */
+  meta?: Record<string, Json>
+  /** Abandons the snapshot. Nothing is left at the target, and the promise rejects with ABORTED. */
+  signal?: AbortSignal
+  /** Called now and then with the fraction done, from 0 to 1, by engines that can tell; always with 1 at the end. */
+  onProgress?(done: number): void
+}
+
 export interface Database {
   readonly name: string
   readonly readOnly: boolean
@@ -178,6 +188,15 @@ export interface Database {
   readonly meta: DatabaseMeta
   /** Makes everything written so far durable. A failure is an IO error and the data stays dirty. */
   flush(): Promise<void>
+  /**
+   * Writes a consistent, self-contained copy of the database to `to.path`, a file that must not exist yet
+   * (INVALID_ARGUMENT if it does). The database stays open, and writes carry on meanwhile: the copy is one committed
+   * state of the database, from some moment between the call and the promise resolving. The copy is checked before
+   * the promise resolves, and on any failure (an abort included) nothing is left at `to.path`. A read-only database
+   * can be copied too. `close()` waits for a snapshot that is running.
+   */
+  snapshot(to: { path: string }, options?: SnapshotOptions): Promise<void>
+  /** Waits for running snapshots, then closes. */
   close(): Promise<void>
 }
 
@@ -215,6 +234,13 @@ export interface StorageEngine {
   open(target: DatabaseTarget, options?: OpenOptions): Promise<Database>
   /** Names of the databases kept under the engine's own directory. */
   list(): Promise<string[]>
+  /**
+   * A database's meta, read without loading its documents and without writing anything: cheap enough to read the
+   * meta of many files (a folder of backups, say). For a database open in this engine, its current meta. A database
+   * with no meta at all (a file the engine could read that no Tessera database ever wrote to) gives `{}`. Rejects
+   * with NOT_FOUND for a missing database, and IO for a file the engine can't read.
+   */
+  readMeta(target: DatabaseTarget): Promise<Record<string, Json>>
   drop(target: DatabaseTarget): Promise<void>
   /** A new time-ordered unique id (ULID). */
   newId(): string
@@ -227,6 +253,8 @@ export type StorageErrorCode =
   | 'NOT_OPEN' | 'READ_ONLY' | 'CONFLICT' | 'DUPLICATE_ID' | 'UNIQUE_VIOLATION'
   | 'UNKNOWN_COLLECTION' | 'UNSUPPORTED_QUERY' | 'INVALID_DOCUMENT' | 'INVALID_UPDATE'
   | 'NOT_FOUND' | 'INVALID_ARGUMENT' | 'IO'
+  /** An operation that takes an AbortSignal (`snapshot`) was abandoned through it. */
+  | 'ABORTED'
 
 /** Every error the engine throws carries one of these codes. */
 export interface StorageErrorLike extends Error {

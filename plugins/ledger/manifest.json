@@ -9,7 +9,8 @@
       "./StartView": "src/renderer/StartView.tsx",
       "./LedgerTree": "src/renderer/LedgerTree.tsx",
       "./NewLedgerDialog": "src/renderer/NewLedgerDialog.tsx",
-      "./RenameDialog": "src/renderer/RenameDialog.tsx"
+      "./RenameDialog": "src/renderer/RenameDialog.tsx",
+      "./RestoreDialog": "src/renderer/RestoreDialog.tsx"
     }
   },
   "services": {

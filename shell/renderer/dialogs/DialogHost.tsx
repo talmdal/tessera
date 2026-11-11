@@ -2,7 +2,7 @@
 import { Component, ErrorInfo, ReactNode, Suspense, lazy, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { DialogProps, TesseraBridge } from '@tessera/types'
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle } from '@tessera/ui'
-import { DIALOG_CLOSE, DIALOG_OPEN, DialogClose, DialogOpen } from '../../../shared/dialogs/types'
+import { DIALOG_CLOSE, DIALOG_DISMISS, DIALOG_OPEN, DialogClose, DialogDismiss, DialogOpen } from '../../../shared/dialogs/types'
 import { Loading } from '../Loading'
 import { useWindowTheme } from '../theme/ShellThemeProvider'
 import type { ViewLoader } from '../views/ports'
@@ -28,6 +28,12 @@ export function DialogHost({ bridge, loader, builtIns = BUILT_IN_DIALOGS }: {
     if (request.windowId !== windowId) return
     // The main process sends a request again when the page may have missed it; one already queued is kept as is.
     setQueue(current => current.some(r => r.requestId === request.requestId) ? current : [...current, request])
+  }), [bridge, windowId])
+
+  // Cancelled from the main process (the app is quitting): taken down, with no answer to send
+  useEffect(() => bridge.on<DialogDismiss>(DIALOG_DISMISS, ({ windowId: target, requestId }) => {
+    if (target !== windowId) return
+    setQueue(current => current.filter(r => r.requestId !== requestId))
   }), [bridge, windowId])
 
   const finish = useCallback((request: DialogOpen, outcome: Outcome) => {
