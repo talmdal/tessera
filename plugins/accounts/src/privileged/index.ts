@@ -68,6 +68,8 @@ export async function activate(context: PluginContext, options: ActivateOptions 
     context.services.provide(ACCOUNTS_PLUGIN_ID, ACCOUNTS_MIGRATOR_SERVICE, accountsMigrator),
     context.services.provide(ACCOUNTS_PLUGIN_ID, ACCOUNTS_SERVICE, publicService(service)),
     session.participate(ACCOUNTS_PLUGIN_ID, service.participant),
+    // File › Archive Ledger… removes settled transactions, carrying their total into opening balances
+    session.participateInArchive(ACCOUNTS_PLUGIN_ID, service.archiver),
     // The navigator shows the ledger tree with accounts in it, so the ledger's own panel steps aside
     session.registerNavigator(ACCOUNTS_PLUGIN_ID),
     service.onDidChange(async change => {

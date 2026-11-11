@@ -64,6 +64,12 @@ export interface ImportCounts {
   duplicates: number
   /** Left out with a warning (a bad date or amount, a zero amount). */
   invalid: number
+  /**
+   * Lines dated before the account's last archival date that would have been added: left out, because that period
+   * is in an archive file, and they may be transactions an archive removed. (Such a line can still be proposed as a
+   * match for a transaction that stayed.) Absent when none, and in batches recorded before archiving existed.
+   */
+  archived?: number
 }
 
 /** One statement's result. A file with several statements has several. */
@@ -77,6 +83,8 @@ export interface StatementReport {
   accountName?: string
   outcome: StatementOutcome
   counts: ImportCounts
+  /** The account's last archival date, when lines dated before it were left out (`counts.archived`). */
+  lastArchiveDate?: string
   /** The import's record, for the history and Undo Import. */
   batchId?: string
   error?: { code: ImportErrorCode, message: string }

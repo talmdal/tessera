@@ -4,8 +4,12 @@
 import type { PluginContext, ShellFiles, ShellPrompts, StorageEngine } from '@tessera/types'
 import { SETTINGS_OPEN_COMMAND, SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
 import {
-  LEDGER_BACKUP_SETTINGS_PAGE, LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_PLUGIN_ID, LEDGER_SESSION_SERVICE, LEDGER_VIEWS, type LedgerSession
+  LEDGER_ARCHIVE_SETTINGS_PAGE, LEDGER_BACKUP_SETTINGS_PAGE, LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_PLUGIN_ID, LEDGER_SESSION_SERVICE,
+  LEDGER_VIEWS, type LedgerSession
 } from '@tessera/ledger-api'
+import { ArchiveService } from './archive/ArchiveService'
+import { registerArchive } from './archive/command'
+import { ARCHIVE_SETTINGS, archiveSettingsContribution } from './archive/settings'
 import { Activity, type Timers } from './backup/activity'
 import { AutoBackup } from './backup/autoBackup'
 import { BackupService, problemText } from './backup/BackupService'
@@ -40,12 +44,14 @@ export function publicSession(session: LedgerSessionImpl): LedgerSession {
     moveSubLedger: (id, to, index) => session.moveSubLedger(id, to, index),
     deleteSubLedger: id => session.deleteSubLedger(id),
     participate: (contributor, participant) => session.participate(contributor, participant),
+    participateInArchive: (contributor, participant) => session.participateInArchive(contributor, participant),
     registerNavigator: contributor => session.registerNavigator(contributor),
     beginOperation: label => session.beginOperation(label),
     get operation() { return session.operation },
     onWillClose: listener => session.onWillClose(listener),
     onDidChange: session.onDidChange,
-    onDidChangeTree: session.onDidChangeTree
+    onDidChangeTree: session.onDidChangeTree,
+    onDidArchive: session.onDidArchive
   }
 }
 
@@ -65,6 +71,7 @@ export async function activate(context: PluginContext, options: ActivateOptions 
 
   const settings = context.settings.register(LEDGER_SETTINGS)
   const backupSettings = context.settings.register(BACKUP_SETTINGS)
+  const archiveSettings = context.settings.register(ARCHIVE_SETTINGS)
   // What the ledger remembers (recent ledgers, the last one open) is its state; how many to list is a setting
   const recent = new RecentLedgers(context.state, undefined, () => settings.get().recentLimit)
   const schema = new SchemaRegistry(context.extensions, context.services, context.logger)
@@ -89,6 +96,10 @@ export async function activate(context: PluginContext, options: ActivateOptions 
     ...(options.now && { now: options.now }), ...(options.retry && { retry: options.retry })
   })
 
+  const archives = new ArchiveService({
+    session, backups, disk, settings: () => archiveSettings.get(), log: context.logger, ...(options.now && { now: options.now })
+  })
+
   context.subscriptions.push(
     session.onDidChange(change => {
       if (change.type === 'opened') publisher.setError(undefined)
@@ -102,13 +113,15 @@ export async function activate(context: PluginContext, options: ActivateOptions 
     session.onDidChangeNavigator(() => publisher.publishState()),
     // The file commands are disabled, and the status bar can say why, while an import or a backup runs
     session.onDidChangeOperation(() => publisher.publishState()),
-    ...[...contributions(), settingsContribution(), backupSettingsContribution(backupFolder(BACKUP_SETTINGS.defaults, files.documentsPath()))]
+    ...[...contributions(), settingsContribution(), backupSettingsContribution(backupFolder(BACKUP_SETTINGS.defaults, files.documentsPath())), archiveSettingsContribution()]
       .map(([point, id, impl]) => context.extensions.contribute(LEDGER_PLUGIN_ID, point, id, impl)),
     // A new limit shows on the start view at once
     settings.onDidChange(({ changed }) => { if (changed.includes('recentLimit')) void publisher.publishRecent() }),
     ...registerCommands(context, session, prompts),
     registerBackupCommand(context, { session, backups, files, prompts, disk, activity }),
     ...registerRestore(context, { session, restore, prompts, activity }),
+    ...registerArchive(context, { session, archives, prompts, activity }),
+    context.commands.register(LEDGER_COMMANDS.archiveSettings, () => context.commands.execute(SETTINGS_OPEN_COMMAND, LEDGER_ARCHIVE_SETTINGS_PAGE)),
     context.commands.register(LEDGER_COMMANDS.backupSettings, () => context.commands.execute(SETTINGS_OPEN_COMMAND, LEDGER_BACKUP_SETTINGS_PAGE)),
     ...registerIpc(context, session, publisher, recent),
     context.services.provide(LEDGER_PLUGIN_ID, LEDGER_SESSION_SERVICE, publicSession(session)),

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { KitStorageEngine } from '@tessera/storage-kit'
-import { LEDGER_META, isLedgerError } from '@tessera/ledger-api'
+import { LEDGER_BACKUP_META, LEDGER_META, isLedgerError } from '@tessera/ledger-api'
 import { ExtensionRegistryImpl } from '../../../core/extensions/ExtensionRegistry'
 import { ServiceRegistryImpl } from '../../../core/services/ServiceRegistry'
 import { classify, nodeDisk } from '../../../plugins/ledger/src/privileged/disk'
@@ -229,6 +229,35 @@ describe('restoring on real files', () => {
     expect(names(kept)).toEqual(['After', 'Before', 'Only in the WAL'])
     expect(fs.readdirSync(env.dir).filter(f => f.includes('.restoring-'))).toEqual([])
     expect(fs.existsSync(env.trash)).toBe(false)
+  })
+})
+
+describe('archive files on real files', () => {
+  it('opens one read-only and leaves it byte for byte as it was, with nothing beside it', async () => {
+    const { session, at } = setup()
+    await session.create(at('Home.tessera'))
+    await session.createSubLedger({ name: 'Personal', parentId: null })
+    const archive = at('Archives/Home (archive before 2026-01-01).tesserabkp')
+    await session.withOpenLedger(db => db.snapshot({ path: archive }, { meta: {
+      [LEDGER_BACKUP_META.takenAt]: '2026-11-04T10:11:12.000Z', [LEDGER_BACKUP_META.kind]: 'archive', [LEDGER_BACKUP_META.ledgerName]: 'Home',
+      [LEDGER_BACKUP_META.ledgerPath]: at('Home.tessera'), [LEDGER_BACKUP_META.takenWith]: 'ledger test', [LEDGER_BACKUP_META.archiveBefore]: '2026-01-01'
+    } }))
+    const before = { bytes: bytes(archive), modified: fs.statSync(archive).mtimeMs }
+    const sideFiles = () => fs.readdirSync(path.dirname(archive)).filter(f => f !== path.basename(archive))
+
+    const opened = await session.open(archive)
+    expect(opened).toMatchObject({ readOnly: true, archive: { before: '2026-01-01' } })
+    expect((await session.tree()).subLedgers.map(s => s.name)).toEqual(['Personal'])
+    await expect(session.createSubLedger({ name: 'Nope', parentId: null })).rejects.toMatchObject({ code: 'READ_ONLY' })
+    expect(sideFiles()).toEqual([])
+    await session.close()
+
+    expect(bytes(archive).equals(before.bytes)).toBe(true)
+    expect(fs.statSync(archive).mtimeMs).toBe(before.modified)
+    expect(sideFiles()).toEqual([])
+    // The header says a rollback journal, not WAL; the live ledger's says WAL
+    expect(await nodeDisk().walMode(archive)).toBe(false)
+    expect(await nodeDisk().walMode(at('Home.tessera'))).toBe(true)
   })
 })
 

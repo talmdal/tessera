@@ -88,6 +88,8 @@ export async function trimFolder(deps: TrimDeps, options: { folder: string, ledg
     // A file that can't be read, or isn't a backup of this ledger, is never touched
     const meta = await deps.engine.readMeta({ path: file }).catch(() => undefined)
     if (!meta || typeof meta[LEDGER_META.format] !== 'number' || meta[LEDGER_META.id] !== options.ledgerId) continue
+    // An archive file holds what was archived, and nowhere else does: never trimmed, even if moved in here
+    if (meta[LEDGER_BACKUP_META.kind] === 'archive') continue
     const takenAt = meta[LEDGER_BACKUP_META.takenAt]
     if (typeof takenAt === 'string') records.push({ path: file, takenAt })
   }

@@ -206,7 +206,9 @@ Design: [settings-design.md](settings-design.md); guide:
       dialog's Import page
       ([import-manager-design.md](import-manager-design.md#matching-tolerances)).
 - [ ] **More field kinds** when plugins need them: a folder with Browse…, a
-      list of strings.
+      list of strings, a drop-down. The Archiving page's year start would use
+      a drop-down for the month: a `choice` draws radio buttons, and twelve is
+      too many, so it is a number for now.
 - [x] **Reading other plugins' settings, read-only** (`context.settings.read`),
       and change events that name the settings that changed (`changed`).
       Every change goes through the settings manager (decided in review).
@@ -365,6 +367,91 @@ Backups page, and one long ledger operation at a time.
       reason on quit, "Last backup failed" at the next start); an OS shutdown.
 - [ ] **Later:** Show in Folder, compression, reminders, pre-upgrade backups
       in the backup folder.
+
+## Ledger compaction (archiving)
+
+Design: [ledger-compaction-design.md](ledger-compaction-design.md): File ›
+Archive Ledger…, which keeps a copy of the ledger as an archive file, removes
+the reconciled and void transactions before a date (and closed accounts left
+with nothing), carries each account's balance into its opening balance, and
+shrinks the file.
+
+- [x] **Phase 0, spike:** how long the removal holds the main process;
+      `planArchive` and the balance check at 100,000 transactions; `VACUUM`
+      after a large removal; a read-only open really being read-only; how much
+      smaller the file gets. Results in
+      [ledger-compaction-design.md](ledger-compaction-design.md#phase-0-results):
+      the removal must delete by id (never `$in`), yield, check balances with a
+      plain sum, and commit large batches in the SQLite driver's worker (longest
+      stall 2.8 s → 0.14 s at 100,000 transactions); `VACUUM` in the worker,
+      under the commit lock, shrinks the file to the size of what is left;
+      read-only viewing changes nothing.
+- [ ] **Check Phase 0 on Windows, in Electron 45:** the removal's stall, the
+      worker commit, `VACUUM` beside the kit's connection, read-only viewing
+      (in Phase 4's smoke test).
+- [x] **Phase 1:** the archive participant contract and the accounts rules
+      (no visible change): `participateInArchive` and the ledger's one
+      storage transaction, `ledger.archives`; `lastArchiveDate` and
+      `archived` on accounts; the rule, the carry, closed accounts with
+      nothing left, the warning, and the check that no balance changed.
+      Results in
+      [ledger-compaction-design.md](ledger-compaction-design.md#phase-1-results).
+- [x] **Phase 2:** imports follow the archive: the import's records of
+      archived transactions pruned where an import can no longer add them
+      again; a statement line dated before an account's last archival date
+      never added (it can still be matched to a transaction that stayed), and
+      counted in the summary. Results in
+      [ledger-compaction-design.md](ledger-compaction-design.md#phase-2-results).
+- [x] **Decided:** a transaction can't be dated before its account's last
+      archival date (refused, however it is entered; one that stayed from
+      before the date can still be edited). Archive files keep `.tesserabkp`.
+      See [ledger-compaction-design.md](ledger-compaction-design.md#entering-transactions-after-an-archive).
+- [x] **Phase 3:** opening an archive file read-only (File › Open Ledger…),
+      never backed up, deleted or listed as recent; Restore lists and restores
+      archive files; retention never trims them; `npm run sample:archive` makes
+      a sample ledger and archive to try. Results in
+      [ledger-compaction-design.md](ledger-compaction-design.md#phase-3-results).
+- [ ] **Check Phase 3 in Electron:** `npm run sample:archive`, open the archive
+      (status item, edits refused, Back Up and Delete greyed out), open the
+      ledger, restore the archive in place, restart (not reopened). See the
+      results' smoke test.
+- [x] **Phase 4:** File › Archive Ledger…, its dialog, and the Archiving page
+      (Tools › Options… › Ledger › Archiving); the register's first row dated
+      the last archival date, with a tooltip, and a note in the account
+      dialog; dates in messages in the user's format (`displayDate`). Results
+      in [ledger-compaction-design.md](ledger-compaction-design.md#phase-4-results).
+- [ ] **Check Phase 4 in Electron (Windows):** archive the sample again before
+      1 Oct 2026 and compare balances; the register's first row and tooltip;
+      open the new archive file; restore it in place; the Archiving page's
+      suggestion; re-import a statement after archiving. See the results'
+      [smoke test](ledger-compaction-design.md#smoke-test-for-phase-4).
+- [x] **After Phase 4:** transactions refused before the last archival date;
+      the register, the Accounts navigator and the Ledger panel offer nothing
+      that changes a read-only ledger (the register's context menu and editing
+      were still active in an archive file).
+      [Changes](ledger-compaction-design.md#after-phase-4-entering-transactions-and-read-only-views).
+- [ ] **Check in Electron (Windows):** in an archive file, right-click a
+      register row (no menu), double-click it (a note, no editor), the
+      navigator's menu greyed out; in the ledger, a new transaction dated before
+      the last archival date refused on its date field.
+- [x] **Phase 5, compaction:** `Database.compact` (SQLite `VACUUM` in the
+      driver's worker, after checking for room), run as the archive's last
+      step; the message gives the file's new size. Results in
+      [ledger-compaction-design.md](ledger-compaction-design.md#phase-5-results).
+- [ ] **Check Phase 5 in Electron (Windows):** the "Compacting" step and the
+      message's sizes against Explorer, with no `-wal` left once closed.
+- [ ] **Phase 5, large commits in the worker:** commit a batch of 5,000
+      changes or more through the SQLite driver's worker, so archiving 100,000
+      transactions doesn't hold the window for 0.7 to 0.9 s (it would be about
+      50 ms). Not started; see the design's Phase 5.
+- [ ] **Later: the year start per ledger.** The Archiving page's year start
+      (and years kept) is an application setting for now. A household ledger
+      follows the calendar and a business's its fiscal year, so it belongs to
+      the ledger once settings have a per-ledger scope
+      ([settings-design.md](settings-design.md#the-idea-layers-of-overrides)).
+- [ ] **Later:** Change… for the archive file's folder; viewing any backup
+      read-only from the Restore dialog; opening an older archive through an
+      upgraded temporary copy. See the design's Phase 6.
 
 ## Localisation
 

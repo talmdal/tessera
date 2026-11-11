@@ -47,10 +47,37 @@ try {
 parentPort.postMessage(answer)
 `
 
-function finishSnapshot(file: string, meta: [string, string][]): Promise<void> {
+/**
+ * Compaction, in a worker thread with its own connection, because `VACUUM` is synchronous and rewrites the whole file
+ * (0.5 to 0.7 s at 100,000 transactions; the spike, docs/ledger-compaction-design.md, Phase 0 results). In WAL mode
+ * the rewritten database passes through the `-wal`, so a checkpoint then empties it back into the file. The kit's own
+ * connection is idle meanwhile (the kit holds its commit lock), and works on afterwards.
+ */
+const COMPACT = `
+const { parentPort, workerData } = require('node:worker_threads')
+const { DatabaseSync } = require('node:sqlite')
+let answer
+try {
+  const db = new DatabaseSync(workerData.file)
+  try {
+    db.exec('PRAGMA busy_timeout = 5000')
+    db.exec('VACUUM')
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    answer = { ok: true }
+  } finally {
+    db.close()
+  }
+} catch (err) {
+  answer = { ok: false, message: err && err.message ? err.message : String(err) }
+}
+parentPort.postMessage(answer)
+`
+
+/** Runs `code` in a worker thread with `workerData`; it posts `{ ok, message? }` once. `what` names it in a failure. */
+function inWorker(code: string, workerData: unknown, what: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    // stderr is kept: the worker would otherwise print Node's "SQLite is experimental" warning on every snapshot
-    const worker = new Worker(FINISH_SNAPSHOT, { eval: true, workerData: { file, meta }, stderr: true })
+    // stderr is kept: the worker would otherwise print Node's "SQLite is experimental" warning every time
+    const worker = new Worker(code, { eval: true, workerData, stderr: true })
     let stderr = ''
     worker.stderr.on('data', chunk => { if (stderr.length < 2000) stderr += String(chunk) })
     let settled = false
@@ -61,10 +88,20 @@ function finishSnapshot(file: string, meta: [string, string][]): Promise<void> {
     })
     worker.once('error', err => { settled = true; reject(err) })
     worker.once('exit', code => {
-      if (!settled) reject(new Error(`the snapshot's check stopped (exit code ${code})${stderr ? `: ${stderr.trim()}` : ''}`))
+      if (!settled) reject(new Error(`${what} stopped (exit code ${code})${stderr ? `: ${stderr.trim()}` : ''}`))
     })
   })
 }
+
+const finishSnapshot = (file: string, meta: [string, string][]) => inWorker(FINISH_SNAPSHOT, { file, meta }, 'the snapshot\'s check')
+
+/**
+ * `VACUUM` needs room for a copy of what is left, and in WAL mode for that copy again in the `-wal`: about twice the
+ * live data (72 MB for a 36 MB result in the spike). Compaction is skipped rather than fill the disk.
+ */
+export const COMPACT_ROOM_FACTOR = 2
+
+const megabytes = (bytes: number) => `${Math.max(1, Math.ceil(bytes / (1024 * 1024)))} MB`
 
 /** Removes a file and its side files; a failure to remove is not reported, since the caller already has an error. */
 function removeWithSideFiles(file: string) {
@@ -76,6 +113,8 @@ function removeWithSideFiles(file: string) {
 export interface SqliteDriverOptions {
   /** Where databases opened by name live. */
   directory: string
+  /** Bytes free in a folder's file system, for compaction's check; undefined when unknown. For tests: the disk's own by default. */
+  freeSpace?: (folder: string) => Promise<number | undefined>
 }
 
 /**
@@ -87,9 +126,14 @@ export interface SqliteDriverOptions {
 class SqliteBackend implements StorageBackend {
   private readonly statements = new Map<string, StatementSync>()
 
-  private constructor(private readonly db: DatabaseSync, private readonly readOnly: boolean) {}
+  private constructor(
+    private readonly db: DatabaseSync,
+    private readonly file: string,
+    private readonly readOnly: boolean,
+    private readonly freeSpace: (folder: string) => Promise<number | undefined>
+  ) {}
 
-  static open(file: string, readOnly: boolean): SqliteBackend {
+  static open(file: string, readOnly: boolean, freeSpace = diskFreeSpace): SqliteBackend {
     if (!readOnly) fs.mkdirSync(path.dirname(file), { recursive: true })
     const db = new DatabaseSync(file, { readOnly })
     try {
@@ -103,7 +147,7 @@ class SqliteBackend implements StorageBackend {
           PRAGMA user_version = 1;
         `)
       }
-      return new SqliteBackend(db, readOnly)
+      return new SqliteBackend(db, file, readOnly, freeSpace)
     } catch (err) {
       db.close()
       throw err
@@ -211,9 +255,39 @@ class SqliteBackend implements StorageBackend {
     onProgress?.(1)
   }
 
+  /**
+   * `VACUUM` in a worker thread, after checking there is room for it. The kit calls this under its commit lock with
+   * no snapshot running, so this connection is idle throughout.
+   */
+  async compact() {
+    if (this.readOnly) throw new StorageError('READ_ONLY', 'database is read-only')
+    const pragma = (name: string) => Number((this.statement(`PRAGMA ${name}`).get() as Record<string, unknown>)[name])
+    const live = pragma('page_size') * (pragma('page_count') - pragma('freelist_count'))
+    const needed = COMPACT_ROOM_FACTOR * live
+    const free = await this.freeSpace(path.dirname(this.file))
+    if (free !== undefined && free < needed) {
+      throw new StorageError('IO', `there isn’t enough free space on the disk to compact it (about ${megabytes(needed)} is needed, and ${megabytes(free)} is free)`)
+    }
+    try {
+      await inWorker(COMPACT, { file: this.file }, 'compacting')
+    } catch (err) {
+      throw ioError(`could not compact ${this.file}`, err)
+    }
+  }
+
   async close() {
     this.statements.clear()
     this.db.close()
+  }
+}
+
+/** Bytes free for this user in the folder's file system, or undefined when the platform can't say. */
+async function diskFreeSpace(folder: string): Promise<number | undefined> {
+  try {
+    const stats = await fs.promises.statfs(folder)
+    return stats.bavail * stats.bsize
+  } catch {
+    return undefined
   }
 }
 
@@ -248,7 +322,7 @@ export function sqliteDriver(options: SqliteDriverOptions): BackendDriver {
   return {
     id: 'storage-sqlite',
     capabilities: { transactions: true, aggregate: 'emulated', regex: 'emulated', textSearch: 'emulated', durability: 'write-through' },
-    async open(target, { readOnly }) { return SqliteBackend.open(fileOf(target), readOnly) },
+    async open(target, { readOnly }) { return SqliteBackend.open(fileOf(target), readOnly, options.freeSpace) },
     async list() {
       if (!fs.existsSync(options.directory)) return []
       return fs.readdirSync(options.directory)

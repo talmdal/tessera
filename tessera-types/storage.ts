@@ -196,6 +196,14 @@ export interface Database {
    * can be copied too. `close()` waits for a snapshot that is running.
    */
   snapshot(to: { path: string }, options?: SnapshotOptions): Promise<void>
+  /**
+   * Gives back the space the database no longer uses, so its file is as small as its contents allow (after many
+   * documents were deleted, say). The database stays open, and its contents don't change. Commits wait until it has
+   * finished; it waits for snapshots already running, and a snapshot started meanwhile waits for it. Resolves at once
+   * for an engine with nothing to give back. Rejects with IO when it couldn't be done (not enough free disk space,
+   * another program holding the file), leaving the database as it was; READ_ONLY for a read-only database.
+   */
+  compact(): Promise<void>
   /** Waits for running snapshots, then closes. */
   close(): Promise<void>
 }

@@ -180,6 +180,12 @@ class LokiBackend implements StorageBackend {
     await this.save()
   }
 
+  /** Each save rewrites the whole file with what is there, so the file is already as small as it gets once saved. */
+  async compact() {
+    if (this.readOnly) throw new StorageError('READ_ONLY', 'database is read-only')
+    await this.flush()
+  }
+
   /**
    * The in-memory Loki holds every committed batch (saves to disk are buffered), and serialising it is synchronous,
    * so the copy is one committed state. The copy is rebuilt as a Loki of its own to add the meta, then saved through

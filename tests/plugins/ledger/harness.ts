@@ -42,6 +42,8 @@ export const errno = (code: string, message = code) => Object.assign(new Error(`
 export function memoryDisk(driver: ReturnType<typeof memoryDriver>) {
   const foreign = new Map<string, FileKind>()
   const sides = new Set<string>()
+  /** Files whose header says WAL mode. */
+  const wal = new Set<string>()
   const copies: [string, string][] = []
   const folders = new Set<string>()
   const hooks: { rename?(from: string, to: string): void, mkdir?(folder: string): void, remove?(file: string): void, copy?(from: string, to: string): void } = {}
@@ -51,6 +53,7 @@ export function memoryDisk(driver: ReturnType<typeof memoryDriver>) {
   const disk: LedgerDisk = {
     exists: async f => driver.databases.has(f) || foreign.has(f) || sides.has(f),
     sniff: async f => foreign.get(f) ?? 'unknown',
+    walMode: async f => wal.has(f),
     sideFiles: async f => [...sides].filter(side => side.startsWith(f) && side !== f),
     copyWithSideFiles: async (from, to) => {
       copies.push([from, to])
@@ -95,7 +98,7 @@ export function memoryDisk(driver: ReturnType<typeof memoryDriver>) {
       return { size, modified: modified.get(f) ?? new Date(0) }
     }
   }
-  return { disk, foreign, sides, copies, folders, hooks, modified }
+  return { disk, foreign, sides, copies, folders, hooks, modified, wal }
 }
 
 export function fakeFiles(driver: ReturnType<typeof memoryDriver>, disk: ReturnType<typeof memoryDisk>) {

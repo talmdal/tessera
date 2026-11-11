@@ -1,6 +1,6 @@
 // @vitest-environment node
 // The ledger and accounts plugins activated together, as the app runs them, and driven through commands and IPC.
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { KitStorageEngine, memoryDriver } from '@tessera/storage-kit'
 import { SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
 import { LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_SESSION_SERVICE, type LedgerSession } from '@tessera/ledger-api'
@@ -36,6 +36,8 @@ async function setup() {
   runtime.events.subscribe(event => events.push(event))
 
   await activateLedger(createPluginContext('ledger', runtime).context, { disk: disk.disk })
+  // Which plugins join the ledger's archives, and with what (the ledger's own run isn't on its public contract)
+  const archiveJoins = vi.spyOn(runtime.services.get<LedgerSession>(LEDGER_SESSION_SERVICE), 'participateInArchive')
   await activateAccounts(createPluginContext('accounts', runtime).context)
 
   const session = runtime.services.get<LedgerSession>(LEDGER_SESSION_SERVICE)
@@ -53,8 +55,22 @@ async function setup() {
     files.showSaveDialog.mockResolvedValueOnce(file('Home.tessera'))
     await run(LEDGER_COMMANDS.new)
   }
-  return { runtime, log, prompts, answers, reveals, events, session, accounts, run, ask, key, enabled, last, open }
+  return { runtime, log, prompts, answers, reveals, events, session, accounts, run, ask, key, enabled, last, open, archiveJoins }
 }
+
+describe('the accounts plugin: archives', () => {
+  it('takes part in the ledger\'s archives, and describes what one would remove', async () => {
+    const { archiveJoins, open, accounts } = await setup()
+    expect(archiveJoins).toHaveBeenCalledTimes(1)
+    const [contributor, participant] = archiveJoins.mock.calls[0]
+    expect(contributor).toBe('accounts')
+    await open()
+    const chq = await accounts.createAccount(chequing())
+    const old = await accounts.transactions(chq.id).create({ date: '2024-05-01', amount: -100 })
+    await accounts.transactions(chq.id).setStatus([old.id], 'reconciled', { confirm: ['reconciled'] })
+    expect(await participant.describe('2025-01-01', {})).toEqual({ count: 1, summary: '1 transaction from 1 account' })
+  })
+})
 
 describe('the accounts plugin: contributions', () => {
   it('adds an Accounts menu, a View item, its views and three dialogs, all valid', async () => {

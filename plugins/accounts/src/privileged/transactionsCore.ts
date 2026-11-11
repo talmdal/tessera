@@ -5,6 +5,7 @@
 // payee, memo and void state are mirrored to the other side; the number and the clearing status are each side's own.
 import { randomUUID } from 'node:crypto'
 import type { Doc } from '@tessera/types'
+import { displayDate } from '@tessera/ledger-api'
 import {
   AccountsError, isAccountsError, CATEGORY_NAME_MAX_LENGTH, CATEGORY_SEPARATOR, CLEARED_STATUSES, CLEARING_STATUSES, EXTERNAL_ID_MAX_LENGTH, MEMO_MAX_LENGTH,
   PAYEE_NAME_MAX_LENGTH, TRANSACTION_NUMBER_MAX_LENGTH, accountNameKey, categoryLabel, isAmount, isIsoDate,
@@ -39,7 +40,7 @@ export async function openAccount(c: Collections, id: string, field?: string): P
 
 // ---- Balances
 
-interface Sums { current: number, cleared: number, reconciled: number, count: number }
+export interface Sums { current: number, cleared: number, reconciled: number, count: number }
 
 /** Each account's transaction sums, in one pass: non-voided amounts by status, and a count of everything. */
 export async function sumsByAccount(c: Collections): Promise<Map<string, Sums>> {
@@ -53,6 +54,24 @@ export async function sumsByAccount(c: Collections): Promise<Map<string, Sums>> 
     }
   }])
   return new Map(rows.map(({ _id, ...sums }) => [_id, sums]))
+}
+
+/**
+ * The same sums as `sumsByAccount`, in one plain pass over documents already read: 19 ms instead of 0.35 s at
+ * 100,000 transactions (docs/ledger-compaction-design.md, Phase 0 results). An archive checks its balances with it.
+ */
+export function sumTransactions(transactions: Iterable<Pick<StoredTransaction, 'accountId' | 'amount' | 'status' | 'voided'>>): Map<string, Sums> {
+  const sums = new Map<string, Sums>()
+  for (const t of transactions) {
+    let s = sums.get(t.accountId)
+    if (!s) sums.set(t.accountId, s = { current: 0, cleared: 0, reconciled: 0, count: 0 })
+    s.count++
+    if (t.voided) continue
+    s.current += t.amount
+    if ((CLEARED_STATUSES as readonly string[]).includes(t.status)) s.cleared += t.amount
+    if (t.status === 'reconciled') s.reconciled += t.amount
+  }
+  return sums
 }
 
 export function balancesFor(account: Pick<Account, 'openingBalance' | 'minimumBalance'>, sums?: Sums): AccountBalances {
@@ -198,6 +217,19 @@ async function otherSide(c: Collections, transaction: Doc<StoredTransaction>): P
   return (await c.transactions.find({ transferId: transaction.transferId })).find(t => t.id !== transaction.id)
 }
 
+/**
+ * Nothing new is dated before an account's last archival date: that period's history is in the archive file, and the
+ * opening balance stands for it. `from` is the transaction's date before an edit. A transaction that stayed from
+ * before the date (it wasn't reconciled when the ledger was archived) can still be edited, its date included; one
+ * dated on or after it can't be moved before it. See docs/ledger-compaction-design.md, "Entering transactions after an
+ * archive".
+ */
+export function checkArchivePeriod(account: Pick<StoredAccount, 'name' | 'lastArchiveDate'>, date: string, from?: string, field = 'date') {
+  const start = account.lastArchiveDate
+  if (start === undefined || date >= start || (from !== undefined && from < start)) return
+  throw invalid(field, `“${account.name}” has been archived before ${displayDate(start)}, so its transactions must be dated ${displayDate(start)} or later.`)
+}
+
 /** Refuses, unless confirmed, a change that alters a reconciled balance. */
 function guardReconciled(needed: boolean, options: WriteOptions, what: Pick<StoredTransaction, 'date'>) {
   if (needed && !options.confirm?.includes('reconciled')) {
@@ -218,6 +250,8 @@ export async function createTransaction(c: Collections, accountId: string, draft
   if (fields.status === 'reconciled') throw invalid('status', 'Transactions become reconciled by reconciling the account.')
   if (fields.categoryId !== undefined) await checkCategory(c, fields.categoryId)
   const target = fields.transferAccountId === undefined ? undefined : await transferTarget(c, account, fields.transferAccountId)
+  checkArchivePeriod(account, fields.date)
+  if (target) checkArchivePeriod(target, fields.date)
   if (fields.externalId !== undefined) await ensureExternalIdFree(c, accountId, fields.externalId)
   const payeeId = fields.payee === undefined ? undefined : await payeeNamed(c, fields.payee)
 
@@ -278,6 +312,8 @@ export async function updateTransaction(
   const other = await otherSide(c, current)
   const sameTransfer = other !== undefined && fields.transferAccountId === current.transferAccountId
   const amountOrDate = fields.amount !== current.amount || fields.date !== current.date
+  checkArchivePeriod(account, fields.date, current.date)
+  if (sameTransfer && fields.date !== other.date) checkArchivePeriod(await accountOf(c, other.accountId), fields.date, other.date)
   guardReconciled(
     (current.status === 'reconciled' && (amountOrDate || fields.status !== current.status)) ||
     (fields.status === 'reconciled' && current.status !== 'reconciled') ||
@@ -307,6 +343,7 @@ export async function updateTransaction(
     }
     if (fields.transferAccountId !== undefined) {
       const target = await transferTarget(c, account, fields.transferAccountId)
+      checkArchivePeriod(target, fields.date)
       transferId = randomUUID()
       await c.transactions.insert(strip({
         accountId: target.id, date: fields.date, amount: -fields.amount, status: 'uncleared', voided: current.voided,
@@ -576,8 +613,9 @@ export async function findByExternalIds(c: Collections, accountId: string, ids: 
   return (await c.transactions.find({ accountId, externalId: { $in: wanted } }, { sort: { date: 1 } })).map(toTransaction)
 }
 
+/** One more than the highest numeric transaction number, archived ones included. */
 export async function nextNumber(c: Collections, accountId: string): Promise<string | undefined> {
-  let highest: number | undefined
+  let highest = (await c.accounts.get(accountId))?.archived?.highestNumber
   for (const { number } of await c.transactions.find({ accountId })) {
     if (number !== undefined && /^\d{1,15}$/.test(number)) highest = Math.max(highest ?? 0, Number(number))
   }

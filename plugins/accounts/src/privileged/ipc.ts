@@ -127,7 +127,10 @@ export function registerIpc(
       if (!session.current || typeof accountId !== 'string' || !(await service.get(accountId))) return null
       const snapshot = await service.transactions(accountId).register()
       // Other plugins' marks, for the rows it shows; reports asking the service for a register never see them
-      return { ...snapshot, annotations: await annotations.load(accountId, snapshot.rows.map(row => row.transaction.id)) }
+      return {
+        ...snapshot, annotations: await annotations.load(accountId, snapshot.rows.map(row => row.transaction.id)),
+        ...(session.current.readOnly && { readOnly: true })
+      }
     }),
 
     context.ipc.register(ACCOUNTS_CHANNELS.saveTransaction, async (msg: IpcMessage<SaveTransactionRequest>) => {

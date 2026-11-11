@@ -557,6 +557,16 @@ A line is a **duplicate**, counted in the summary and otherwise ignored, when it
 - already in `import.lines` for that account. This covers a line the user deleted or chose not to import: deleting
   an imported transaction doesn't make it come back on the next import.
 
+**After an archive** (File › Archive Ledger…, [ledger-compaction-design.md](ledger-compaction-design.md#imports-after-an-archive)),
+the archived transactions are gone, and so are the `import.lines` records of those dated before the archive date. So a
+line dated before its account's **last archival date** (`Account.lastArchiveDate`) is **never added**: it is counted
+in `ImportCounts.archived`, and the summary says "3 left out as dated before 1 Jan 2025 (the last archival date)". It
+can still be proposed as a match for a transaction that stayed, such as an old cheque the bank has only now cleared.
+Records of lines dated on or after the archive date are kept, so a line the bank posted after it, for a transaction
+dated before it, is still a duplicate. Accepting a match gives the transaction the bank's date **unless that would
+move it before the last archival date**, which the accounts refuse: then it keeps its own, and Accept's tooltip says
+so ([ledger-compaction-design.md](ledger-compaction-design.md#entering-transactions-after-an-archive)).
+
 The fingerprint can't tell two genuinely identical same-day transactions apart across files if one file has only
 one of them. Exports cover whole days, so this is rare, and the user can add the missing one by hand.
 
@@ -1059,6 +1069,11 @@ nothing to seed at 0 → 1.
 - Duplicates are counted in the batch, not stored as lines: the line that made them duplicates is already there.
 - **Following `accounts`:** on `accounts.onDidChange`, the plugin:
   - deletes the links, lines and batches of `deleted` accounts;
+  - and, as an **archive participant** (`ledger.session.participateInArchive`, after `accounts`), removes inside the
+    archive's own transaction the line records an import can no longer add again: dated before the archive date, in an
+    account whose last archival date now covers them, for a transaction the archive removed, or skipped. It also removes
+    the batches this leaves empty, and every record of a closed account the archive removed. See
+    [ledger-compaction-design.md](ledger-compaction-design.md#imports-after-an-archive);
   - treats as **unresolved** a pending proposal whose transaction is gone, or is now voided or reconciled, and an
     accepted match whose transaction no longer carries the line's import id (an interrupted move, above). This is
     worked out whenever the lines are read, not written, so it holds in a read-only ledger too (see

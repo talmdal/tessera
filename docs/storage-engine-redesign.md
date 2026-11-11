@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Phases 1–4 implemented (contract, shared kit as `@tessera/storage-kit`, memory engine, conformance suite, LokiJS and SQLite backends, `app-state` on the engine, tier-0 bootstrap); phase 5 (vault integration) open. Supersedes the first `StorageEngine`. `Database.snapshot` and `StorageEngine.readMeta` added 2026-11-09, for backups ([backup-restore-design.md](backup-restore-design.md)) |
+| **Status** | Phases 1–4 implemented (contract, shared kit as `@tessera/storage-kit`, memory engine, conformance suite, LokiJS and SQLite backends, `app-state` on the engine, tier-0 bootstrap); phase 5 (vault integration) open. Supersedes the first `StorageEngine`. `Database.snapshot` and `StorageEngine.readMeta` added 2026-11-09, for backups ([backup-restore-design.md](backup-restore-design.md)); `Database.compact` added 2026-11-11, to shrink a ledger after an archive ([ledger-compaction-design.md](ledger-compaction-design.md#compaction-shrinking-the-file)) |
 | **Date** | 2026-10-30, reworked 2026-11-04 (kit moved out of `core/`) |
 | **Related** | [storage-api-design.md](storage-api-design.md) (the `Store` proposal this absorbs), [vault-design.md](vault-design.md), [settings-design.md](settings-design.md) |
 | **Audience** | Authors of storage backends (LokiJS, SQLite…) and of plugins that store data (`app-state`, settings, vault, domain plugins) |
@@ -126,7 +126,7 @@ semantics as tests). In outline:
 StorageEngine   id, capabilities(), open(target, options), list(), readMeta(target), drop(target), newId(), closeAll()
 Database        collection(name), listCollections(), createCollection(schema), dropCollection(name),
                 renameCollection(from, to), transaction(work), onDidChange(listener), meta, flush(),
-                snapshot(to, options), close()
+                snapshot(to, options), compact(), close()
 Transaction     collection(name)
 Collection      get, getMany, findOne, find, findPage, count, scan
                 insert, insertMany, replace, updateOne, updateMany, deleteOne, deleteMany
@@ -182,6 +182,17 @@ say:
   and finishes the copy in a worker thread (no WAL, the meta, `quick_check`);
   Loki serialises its in-memory database and saves it through its adapter.
   Why a backup is a snapshot and not a file copy: [backup-restore-design.md](backup-restore-design.md#taking-a-backup-copy-the-file-or-something-better).
+- **`compact()`** gives back the space a database no longer uses, so its
+  file is as small as its contents allow (after an archive removed most of a
+  ledger). Its contents don't change, and it stays open. It runs under the
+  commit lock, so commits wait; it waits for snapshots already running, and
+  a snapshot started meanwhile waits for it. SQLite checks there is free
+  space for about twice what is left, then runs `VACUUM` and
+  `wal_checkpoint(TRUNCATE)` in a worker thread with its own connection;
+  Loki saves (each save rewrites the whole file); memory does nothing. It
+  rejects with IO when it can't be done (the reason names the space needed),
+  leaving the database as it was, and READ_ONLY for a read-only database.
+  Why, and the measurements: [ledger-compaction-design.md](ledger-compaction-design.md#compaction-shrinking-the-file).
 - **`readMeta(target)`** reads a database's meta without loading its
   documents or writing anything (for SQLite, one read-only query), so many
   files can be inspected cheaply. An open database answers from memory; a
@@ -457,6 +468,7 @@ interface StorageBackend {            // one per open database
   commit(changes: StorageChange[])    // one atomic batch: collection/drop/rename/put/delete/meta
   flush(): Promise<void>
   snapshot(file, { meta, signal, onProgress })  // a checked copy of what is committed, to a new file
+  compact(): Promise<void>            // the file as small as its contents allow; under the commit lock
   close(): Promise<void>
 }
 interface BackendDriver { id; capabilities; open(target, { readOnly }); list(); readMeta(target); drop(target) }
@@ -498,7 +510,10 @@ the contract. It must cover, beyond what storage-api-design lists:
   value, and only whole transactions when written to meanwhile; meta is
   added to the copy only; an existing target, an abort and a closed
   database are refused, leaving nothing behind; `close` waits for a running
-  snapshot; `readMeta` never creates a database.
+  snapshot; `readMeta` never creates a database;
+- compaction: documents, indexes and meta kept, across a restart too; a
+  commit made meanwhile waits, then lands; a snapshot started meanwhile
+  copies the compacted database; a read-only or closed database is refused.
 
 ## `app-state` on the new engine
 

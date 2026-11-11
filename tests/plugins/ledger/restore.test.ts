@@ -177,6 +177,63 @@ describe('the Restore dialog', () => {
   })
 })
 
+describe('archive files', () => {
+  const ARCHIVE = path.join(FOLDER, 'Archives', 'Home (archive before 2026-01-01).tesserabkp')
+
+  /** Home, backed up as above; then its archive file made, holding "Before" and "After"; then a sub-ledger "Later". */
+  async function archived() {
+    const env = await backedUp()
+    const db = await env.engine.open({ path: file('Home.tessera') })     // the open ledger's own database
+    await db.snapshot({ path: ARCHIVE }, { meta: {
+      // An hour after the backup, in every time zone (the test's clock is local)
+      [LEDGER_BACKUP_META.takenAt]: new Date(NOW.getTime() + 3_600_000).toISOString(), [LEDGER_BACKUP_META.kind]: 'archive', [LEDGER_BACKUP_META.ledgerName]: 'Home',
+      [LEDGER_BACKUP_META.ledgerPath]: file('Home.tessera'), [LEDGER_BACKUP_META.takenWith]: 'ledger test', [LEDGER_BACKUP_META.archiveBefore]: '2026-01-01'
+    } })
+    await env.session.createSubLedger({ name: 'Later', parentId: null })
+    return env
+  }
+
+  it('are listed from the Archives folder, saying what they hold; nothing else there is', async () => {
+    const env = await archived()
+    // An ordinary backup someone moved into the Archives folder: neither an archive nor in the default folder
+    env.driver.databases.set(path.join(FOLDER, 'Archives', 'Moved.tesserabkp'), structuredClone(env.driver.databases.get(BACKUP)!))
+
+    const { seen } = await restoreWith(env, async dialog => ({ seen: await dialog.list() }))
+
+    expect(seen?.backups.map(b => [path.basename(b.path), b.kind, b.archiveBefore, b.problem])).toEqual([
+      ['Home (archive before 2026-01-01).tesserabkp', 'archive', '2026-01-01', undefined],
+      ['Home 2026-11-09 10-14-05.tesserabkp', 'manual', undefined, undefined]
+    ])
+  })
+
+  it('restore in place of their ledger, even while open for viewing: the ledger as it was before archiving', async () => {
+    const env = await archived()
+    env.files.showOpenDialog.mockResolvedValueOnce(ARCHIVE)
+    await env.run(LEDGER_COMMANDS.open)
+    expect(env.session.current?.archive).toBeDefined()
+
+    const { ledger } = await restoreWith(env, restoring(ARCHIVE, plan => ({ backup: ARCHIVE, mode: 'inPlace', keepAs: (plan.inPlace as { keepAs: string }).keepAs })))
+
+    expect(ledger).toMatchObject({ path: file('Home.tessera'), id: env.home.id })
+    expect(ledger?.archive).toBeUndefined()
+    expect(env.key(K.isArchive)).toBe(false)
+    expect(await subLedgersIn(env, file('Home.tessera'))).toEqual(['After', 'Before'])
+    expect(Object.keys(meta(env, file('Home.tessera'))).filter(k => k.startsWith('backup.'))).toEqual([])
+    // What was added since is in the kept file; the archive file is as it was
+    expect(await subLedgersIn(env, file(`${KEPT}.tessera`))).toEqual(['After', 'Before', 'Later'])
+    expect(meta(env, ARCHIVE)[LEDGER_BACKUP_META.kind]).toBe('archive')
+  })
+
+  it('restore as a new ledger, a writable ledger of its own', async () => {
+    const env = await archived()
+    const { ledger } = await restoreWith(env, restoring(ARCHIVE, plan => ({ backup: ARCHIVE, mode: 'new', folder: plan.asNew.folder, name: plan.asNew.name })))
+    expect(ledger).toMatchObject({ readOnly: false })
+    expect(ledger?.archive).toBeUndefined()
+    expect(ledger?.id).not.toBe(env.home.id)
+    expect(await subLedgersIn(env, ledger!.path)).toEqual(['After', 'Before'])
+  })
+})
+
 describe('restoring as a new ledger', () => {
   it('opens a ledger of its own, with the backup\'s contents and a new id, leaving the current one as it was', async () => {
     const env = await backedUp()

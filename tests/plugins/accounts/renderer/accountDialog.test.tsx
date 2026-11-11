@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ThemeSnapshot } from '@tessera/types'
-import { ACCOUNTS_CHANNELS, type Account, type AccountDialogInput, type Chart } from '@tessera/accounts-api'
+import { ACCOUNTS_CHANNELS, formatAmount, type Account, type AccountDialogInput, type Chart } from '@tessera/accounts-api'
 import { DEFAULT_THEME, THEME_GET } from '../../../../shared/theme/types'
 import { ShellThemeProvider } from '../../../../shell/renderer/theme/ShellThemeProvider'
 import AccountDialog, { toInput } from '../../../../plugins/accounts/src/renderer/AccountDialog'
@@ -84,6 +84,40 @@ describe('the account dialog: minimum balance', () => {
   })
 })
 
+describe('the account dialog: an archived account', () => {
+  const date = (iso: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`))
+  const archived: Account = {
+    id: 'a', rev: 3, name: 'Chequing', type: 'chequing', subLedgerId: null, currency: 'CAD', openingDate: '2023-01-01', openingBalance: 250000,
+    order: 0, closed: false, lastArchiveDate: '2025-01-01', archived: { count: 1204, originalOpeningBalance: 100000 }
+  }
+
+  it('keeps Opened as the day the account opened, and says the opening balance is the last archival date\'s', () => {
+    showDialog({ ...base, mode: 'edit', account: archived })
+    expect(screen.getByLabelText('Opened')).toHaveValue('2023-01-01')
+    expect(screen.getByRole('textbox', { name: 'Opening balance' })).toHaveValue('2500.00')
+    expect(screen.getByText(`On ${date('2025-01-01')}, the last archival date. The account opened with ${formatAmount(100000, 'CAD')}.`)).toBeInTheDocument()
+  })
+
+  it('says what a liability opened owing', () => {
+    showDialog({ ...base, mode: 'edit', account: { ...archived, type: 'creditCard', openingBalance: -30000, archived: { count: 12, originalOpeningBalance: -50000 } } })
+    expect(screen.getByText(`On ${date('2025-01-01')}, the last archival date. The account opened owing ${formatAmount(50000, 'CAD')}.`)).toBeInTheDocument()
+  })
+
+  it('says nothing of archiving for an account never archived', () => {
+    showDialog({ ...base, mode: 'edit', account: { ...archived, lastArchiveDate: undefined, archived: undefined } })
+    expect(screen.queryByText(/the last archival date/)).toBeNull()
+  })
+
+  it('saves without the archive\'s fields, which only an archive sets', async () => {
+    const { calls } = showDialog({ ...base, mode: 'edit', account: archived })
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    const sent = calls(ACCOUNTS_CHANNELS.saveAccount)[0]
+    expect(sent).toMatchObject({ id: 'a', expectedRev: 3, input: { openingDate: '2023-01-01', openingBalance: 250000 } })
+    expect(sent.input).not.toHaveProperty('lastArchiveDate')
+    expect(sent.input).not.toHaveProperty('archived')
+  })
+})
+
 describe('the account dialog: starting from what an importer knows', () => {
   const subLedgers = [{ id: 'p', parentId: null, name: 'Personal', order: 0, totals: {} }]
   const textbox = (name: string) => screen.getByRole('textbox', { name })
@@ -156,8 +190,11 @@ describe('the navigator, with registers and minimum balances', () => {
       { account: account({ id: 'c', name: 'Chequing', order: 1 }), balances: { current: 0, available: 0, cleared: 0, reconciled: 0, transactionCount: 0 } }
     ]
   }
-  const setup = () => {
-    const remote = bridge({ [ACCOUNTS_CHANNELS.chart]: () => chart, [ACCOUNTS_CHANNELS.selection]: () => ({ kind: 'ledger' }), [ACCOUNTS_CHANNELS.select]: () => undefined })
+  const setup = (shown: Chart = chart) => {
+    const remote = bridge({
+      [ACCOUNTS_CHANNELS.chart]: () => shown, [ACCOUNTS_CHANNELS.selection]: () => ({ kind: 'ledger' }), [ACCOUNTS_CHANNELS.select]: () => undefined,
+      [ACCOUNTS_CHANNELS.reconcileActions]: () => [{ id: 'accounts.reconcile.statement', label: 'Reconcile with Statement…', scope: 'account', command: 'accounts.reconcile.statement', enabled: true }]
+    })
     render(<Navigator />)
     return { ...remote, executed: () => remote.bridge.invoke.mock.calls.filter((c: unknown[]) => c[0] === 'shell:commands.execute').map((c: any[]) => c[1]) }
   }
@@ -168,6 +205,35 @@ describe('the navigator, with registers and minimum balances', () => {
     expect(savings).toHaveTextContent(/avail\..*2,000\.00/)
     expect(savings.getAttribute('title')).toMatch(/balance .*3,000\.00, minimum .*1,000\.00, showing what is above it/)
     expect(screen.getByRole('treeitem', { name: 'Chequing' })).not.toHaveTextContent('avail.')
+  })
+
+  it('offers nothing that changes a ledger open read-only, in its menu, its toolbar or its keys', async () => {
+    const { executed } = setup({ ...chart, ledger: { name: 'Home (archive before 2026-01-01)', readOnly: true } })
+    const savings = await screen.findByRole('treeitem', { name: 'Savings' })
+    await userEvent.click(savings)
+    for (const name of ['New account', 'New sub-ledger', 'Edit account', 'Delete account']) expect(screen.getByRole('button', { name })).toBeDisabled()
+    await userEvent.pointer({ keys: '[MouseRight]', target: savings })
+    const menu = await screen.findByRole('menu')
+    for (const name of ['New Account…', 'New Sub-Ledger…', 'Edit Account…', 'Close Account…', 'Move To…', 'Delete Account…']) {
+      expect(within(menu).getByRole('menuitem', { name }), name).toHaveAttribute('aria-disabled', 'true')
+    }
+    // Looking is still fine: the register opens, and closed accounts can be shown; nor is reconciling offered
+    expect(within(menu).getByRole('menuitem', { name: 'Open Register' })).not.toHaveAttribute('aria-disabled')
+    expect(within(menu).queryByRole('menuitem', { name: 'Reconcile with Statement…' })).toBeNull()
+    await userEvent.keyboard('{Escape}')
+    savings.focus()
+    await userEvent.keyboard('{F2}{Delete}{Insert}')
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(executed().filter((c: { id: string }) => c.id !== 'accounts.register.show')).toEqual([])
+  })
+
+  it('offers the same items, enabled, in a ledger that can change', async () => {
+    setup()
+    const savings = await screen.findByRole('treeitem', { name: 'Savings' })
+    await userEvent.pointer({ keys: '[MouseRight]', target: savings })
+    const menu = await screen.findByRole('menu')
+    for (const name of ['New Account…', 'Edit Account…', 'Delete Account…']) expect(within(menu).getByRole('menuitem', { name })).not.toHaveAttribute('aria-disabled')
+    expect(await within(menu).findByRole('menuitem', { name: 'Reconcile with Statement…' })).toBeInTheDocument()
   })
 
   it('opens an account\'s register with one click or Enter, and edits it with F2', async () => {

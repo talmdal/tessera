@@ -296,7 +296,10 @@ export class Importer {
     return false
   }
 
-  /** One statement into its account: convert, leave out lines imported before, add the rest. */
+  /**
+   * One statement into its account: convert, leave out lines imported before, propose matches, and add the rest,
+   * except lines dated before the account's last archival date, which are never added.
+   */
   private async importStatement(statement: ParsedStatement, account: Account, origin: Origin, statementIndex: number): Promise<StatementReport> {
     const { accounts } = this.deps
     const base = { source: origin.source, statementIndex, accountId: account.id, accountName: account.name }
@@ -321,11 +324,21 @@ export class Importer {
     const tuning = this.deps.tuning?.() ?? BALANCED
     const proposals = await this.propose(account, fresh, payees, aliases, tuning)
     const proposedLines = new Set(proposals.map(p => p.line))
-    const added = fresh.filter((_, i) => !proposedLines.has(i))
+    // A line dated before the account's last archival date is never added: that period is in an archive file, and the
+    // line may be a transaction an archive removed, whose record went with it. It can still be proposed as a match for
+    // a transaction that stayed (an old cheque the bank has only now cleared): a proposal adds nothing until accepted.
+    // See docs/ledger-compaction-design.md, "Imports after an archive".
+    const cutoff = account.lastArchiveDate
+    const unmatched = fresh.filter((_, i) => !proposedLines.has(i))
+    const added = cutoff === undefined ? unmatched : unmatched.filter(line => line.bank.date >= cutoff)
+    const leftOut = unmatched.length - added.length
+    const archivedReport = leftOut > 0 ? { lastArchiveDate: cutoff } : {}
+    if (leftOut > 0) counts.archived = leftOut
     const matched = proposals.map(p => ({ line: fresh[p.line], proposedId: p.transactionId, score: p.score }))
     counts.added = added.length
     counts.matched = matched.filter(m => m.score >= tuning.matchedAt).length
     counts.possible = matched.length - counts.matched
+    if (added.length === 0 && matched.length === 0) return { ...base, outcome: 'imported', counts, ...archivedReport, warnings: converted.warnings }
 
     const drafts = new Drafts({ payees, categories, liability: isLiability(account.type), aliases })
     const balance = statement.balance ? toMinor(statement.balance.amount, account.currency) : undefined
@@ -339,7 +352,7 @@ export class Importer {
     }, this.now().toISOString())
     await this.deps.aliases.used(drafts.usedAliases).catch(err => this.deps.log.warn(`[import] Could not count payee alias uses: ${(err as Error)?.message ?? err}`))
     this.deps.changed([account.id])
-    return { ...base, outcome: 'imported', counts, batchId, warnings: converted.warnings }
+    return { ...base, outcome: 'imported', counts, ...archivedReport, batchId, warnings: converted.warnings }
   }
 
   /**

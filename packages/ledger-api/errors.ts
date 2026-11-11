@@ -28,6 +28,8 @@ export type LedgerErrorCode =
   | 'BACKUP_FAILED'
   /** A backup could not be restored; the message says why, and the ledgers were left as they were. */
   | 'RESTORE_FAILED'
+  /** An archive could not be made; the message says why, and nothing was removed. */
+  | 'ARCHIVE_FAILED'
 
 export interface ResultError<C extends string = string> {
   code: C

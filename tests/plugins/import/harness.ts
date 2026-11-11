@@ -2,6 +2,7 @@
 // a memory engine, with a ledger open. Dialogs are answered by id: `answer(id, …)` queues answers, and every dialog
 // shown is recorded.
 import path from 'node:path'
+import { vi } from 'vitest'
 import { KitStorageEngine, memoryDriver } from '@tessera/storage-kit'
 import { SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
 import { LEDGER_COMMANDS } from '@tessera/ledger-api'
@@ -14,12 +15,16 @@ import { activate as activateAccounts } from '../../../plugins/accounts/src/priv
 import { activate as activateImport, type ActivateOptions } from '../../../plugins/import/src/privileged/index'
 import { activate as activateOfx } from '../../../plugins/import-ofx/src/privileged/index'
 import { activate as activateLedger } from '../../../plugins/ledger/src/privileged/index'
+import { LedgerSessionImpl } from '../../../plugins/ledger/src/privileged/LedgerSessionImpl'
 import { SAMPLES } from '../../helpers/importFile'
 import { fakeFiles, fakePrompts, file, logger, memoryAppState, memoryDisk } from '../ledger/harness'
 
 export const sample = (name: string) => path.join(SAMPLES, name)
 
 type Answer = unknown | ((input: any, options?: any) => unknown)
+
+/** The clock every plugin sees: the import's dates, and what "today" is for an archive. */
+export const NOW = () => new Date('2026-11-06T12:00:00Z')
 
 export async function setupImport(options: ActivateOptions & { ofx?: boolean } = {}) {
   const log = logger()
@@ -37,10 +42,19 @@ export async function setupImport(options: ActivateOptions & { ofx?: boolean } =
   const registers: string[] = []
   shell.commands.register('shell.layout.reveal', () => {})
 
-  await activateLedger(createPluginContext('ledger', runtime).context, { disk: disk.disk })
-  await activateAccounts(createPluginContext('accounts', runtime).context)
+  // The ledger's own session, to archive with: its public contract leaves `runArchive` out, so it is caught as the
+  // plugins join its archives, and the spy is gone before anything else runs (test files share workers)
+  const joins = vi.spyOn(LedgerSessionImpl.prototype, 'participateInArchive')
+  let ledger: LedgerSessionImpl
+  try {
+    await activateLedger(createPluginContext('ledger', runtime).context, { disk: disk.disk, now: NOW })
+    await activateAccounts(createPluginContext('accounts', runtime).context)
+    ledger = joins.mock.contexts[0] as LedgerSessionImpl
+  } finally {
+    joins.mockRestore()
+  }
   const importLog = logger()
-  await activateImport({ ...createPluginContext('import', runtime).context, logger: importLog }, { now: () => new Date('2026-11-06T12:00:00Z'), ...options })
+  await activateImport({ ...createPluginContext('import', runtime).context, logger: importLog }, { now: NOW, ...options })
   if (options.ofx !== false) await activateOfx(createPluginContext('import-ofx', runtime).context)
 
   files.showSaveDialog.mockResolvedValueOnce(file('Home.tessera'))
@@ -72,7 +86,13 @@ export async function setupImport(options: ActivateOptions & { ofx?: boolean } =
   const transactions = (accountId: string) => accounts.transactions(accountId).list()
   const account = async (name: string) => (await accounts.list()).find(a => a.name === name)!
 
-  return { runtime, log, importLog, files, prompts, appState, accounts, manager, answer, dialogs, shown, transactions, account, registers }
+  /** File › Archive Ledger…'s archive, with an archive file as made: what occurred before `before` goes. */
+  const archive = (before: string, archiveOptions?: Record<string, boolean>) => ledger.runArchive({
+    before, ...(archiveOptions && { options: archiveOptions }),
+    copy: { path: file(`Tessera Backups/Archives/Home (archive before ${before}).tesserabkp`), takenAt: NOW().toISOString() }
+  })
+
+  return { runtime, log, importLog, files, prompts, appState, accounts, manager, answer, dialogs, shown, transactions, account, registers, ledger, archive }
 }
 
 export type ImportEnv = Awaited<ReturnType<typeof setupImport>>

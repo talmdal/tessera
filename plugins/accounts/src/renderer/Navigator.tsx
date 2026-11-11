@@ -123,6 +123,8 @@ export default function Navigator() {
   if (!chart || !row) return null
 
   const focus = (key: string) => { select(key); rowRefs.current.get(key)?.focus() }
+  // A ledger open read-only (an archive file) can be looked at, not changed: what would change it is disabled
+  const readOnly = chart.ledger.readOnly === true
 
   const run = (command: string, args?: unknown) => {
     setMenu(undefined)
@@ -130,6 +132,7 @@ export default function Navigator() {
     runCommand(command, ...(args === undefined ? [] : [args])).catch(err => setError(String(err?.message ?? err)))
   }
   const edit = () => {
+    if (readOnly) return
     if (row.kind === 'account') run(C.editAccount, { id: row.id })
     else if (row.kind === 'subLedger') run(C.renameSubLedger, { id: row.id })
   }
@@ -144,6 +147,7 @@ export default function Navigator() {
       .catch(err => setError(String(err?.message ?? err)))
   }
   const remove = () => {
+    if (readOnly) return
     if (row.kind === 'account') run(C.deleteAccount, { id: row.id })
     else if (row.kind === 'subLedger') run(C.deleteSubLedger, { id: row.id })
   }
@@ -173,7 +177,7 @@ export default function Navigator() {
         case 'Enter': if (row.kind === 'account') openRegister(); else edit(); return true
         case 'F2': edit(); return true
         case 'Delete': remove(); return true
-        case 'Insert': run(C.newAccount); return true
+        case 'Insert': if (!readOnly) run(C.newAccount); return true
         case 'ContextMenu': openMenuAt(rowRefs.current.get(row.key)); return true
         default:
           if (event.key === 'F10' && event.shiftKey) { openMenuAt(rowRefs.current.get(row.key)); return true }
@@ -185,7 +189,7 @@ export default function Navigator() {
 
   const loadActions = (target: Row) => {
     setActions([])
-    if (target.kind !== 'account' || target.closed) return
+    if (target.kind !== 'account' || target.closed || readOnly) return
     window.api.invoke<ResolvedReconcileAction[]>(ACCOUNTS_CHANNELS.reconcileActions, { accountId: target.id, scope: 'account' })
       .then(found => setActions(found ?? []), () => setActions([]))
   }
@@ -205,16 +209,16 @@ export default function Navigator() {
       {/* Wraps rather than pushing its first buttons out of the bar when they don't fit (large text, a narrow bar) */}
       <Toolbar variant="dense" disableGutters sx={{ px: 1, gap: 0.5, minHeight: 36, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <Tooltip title="New account (Insert)">
-          <IconButton size="small" aria-label="New account" onClick={() => run(C.newAccount)}><Icon name="Add" /></IconButton>
+          <span><IconButton size="small" aria-label="New account" onClick={() => run(C.newAccount)} disabled={readOnly}><Icon name="Add" /></IconButton></span>
         </Tooltip>
         <Tooltip title="New sub-ledger">
-          <IconButton size="small" aria-label="New sub-ledger" onClick={() => run(C.newSubLedger)}><Icon name="Folder" /></IconButton>
+          <span><IconButton size="small" aria-label="New sub-ledger" onClick={() => run(C.newSubLedger)} disabled={readOnly}><Icon name="Folder" /></IconButton></span>
         </Tooltip>
         <Tooltip title={isSub ? 'Rename (F2)' : 'Edit (F2)'}>
-          <span><IconButton size="small" aria-label={isSub ? 'Rename sub-ledger' : 'Edit account'} onClick={edit} disabled={!(isSub || (isAccount && !row.closed))}><Icon name="Edit" /></IconButton></span>
+          <span><IconButton size="small" aria-label={isSub ? 'Rename sub-ledger' : 'Edit account'} onClick={edit} disabled={readOnly || !(isSub || (isAccount && !row.closed))}><Icon name="Edit" /></IconButton></span>
         </Tooltip>
         <Tooltip title="Delete (Delete)">
-          <span><IconButton size="small" aria-label={isSub ? 'Delete sub-ledger' : 'Delete account'} onClick={remove} disabled={!(isSub || isAccount)}><Icon name="Delete" /></IconButton></span>
+          <span><IconButton size="small" aria-label={isSub ? 'Delete sub-ledger' : 'Delete account'} onClick={remove} disabled={readOnly || !(isSub || isAccount)}><Icon name="Delete" /></IconButton></span>
         </Tooltip>
         <Tooltip title="More">
           <IconButton size="small" aria-label="More actions" aria-haspopup="menu" onClick={event => { loadActions(row); setMenu({ anchor: event.currentTarget }) }}><Icon name="MoreVert" /></IconButton>
@@ -282,8 +286,8 @@ export default function Navigator() {
         onClose={() => setMenu(undefined)}
         {...(menu?.position ? { anchorReference: 'anchorPosition' as const, anchorPosition: menu.position } : { anchorEl: menu?.anchor })}
       >
-        <MenuItem onClick={() => run(C.newAccount)}><ListItemIcon><Icon name="Add" fontSize="small" /></ListItemIcon><ListItemText>New Account…</ListItemText></MenuItem>
-        <MenuItem onClick={() => run(C.newSubLedger)}><ListItemIcon><Icon name="Folder" fontSize="small" /></ListItemIcon><ListItemText>New Sub-Ledger…</ListItemText></MenuItem>
+        <MenuItem disabled={readOnly} onClick={() => run(C.newAccount)}><ListItemIcon><Icon name="Add" fontSize="small" /></ListItemIcon><ListItemText>New Account…</ListItemText></MenuItem>
+        <MenuItem disabled={readOnly} onClick={() => run(C.newSubLedger)}><ListItemIcon><Icon name="Folder" fontSize="small" /></ListItemIcon><ListItemText>New Sub-Ledger…</ListItemText></MenuItem>
         <Divider />
         {isAccount && <MenuItem onClick={() => openRegister()}><ListItemIcon><Icon name="List" fontSize="small" /></ListItemIcon><ListItemText>Open Register</ListItemText></MenuItem>}
         {isAccount && !row.closed && actions.map(action => (
@@ -292,12 +296,12 @@ export default function Navigator() {
             <ListItemText>{action.label}</ListItemText>
           </MenuItem>
         ))}
-        {isAccount && !row.closed && <MenuItem onClick={edit}><ListItemIcon><Icon name="Edit" fontSize="small" /></ListItemIcon><ListItemText>Edit Account…</ListItemText></MenuItem>}
-        {isAccount && !row.closed && <MenuItem onClick={() => run(C.closeAccount, { id: row.id })}><ListItemIcon><Icon name="Block" fontSize="small" /></ListItemIcon><ListItemText>Close Account…</ListItemText></MenuItem>}
-        {isAccount && row.closed && <MenuItem onClick={() => run(C.reopenAccount, { id: row.id })}><ListItemIcon><Icon name="Check" fontSize="small" /></ListItemIcon><ListItemText>Reopen Account</ListItemText></MenuItem>}
-        {isSub && <MenuItem onClick={edit}><ListItemIcon><Icon name="Edit" fontSize="small" /></ListItemIcon><ListItemText>Rename Sub-Ledger…</ListItemText></MenuItem>}
-        {(isAccount || isSub) && <MenuItem onClick={() => run(C.move, { kind: row.kind, id: row.id })}><ListItemIcon><Icon name="ChevronRight" fontSize="small" /></ListItemIcon><ListItemText>Move To…</ListItemText></MenuItem>}
-        {(isAccount || isSub) && <MenuItem onClick={remove}><ListItemIcon><Icon name="Delete" fontSize="small" /></ListItemIcon><ListItemText>{isSub ? 'Delete Sub-Ledger…' : 'Delete Account…'}</ListItemText></MenuItem>}
+        {isAccount && !row.closed && <MenuItem disabled={readOnly} onClick={edit}><ListItemIcon><Icon name="Edit" fontSize="small" /></ListItemIcon><ListItemText>Edit Account…</ListItemText></MenuItem>}
+        {isAccount && !row.closed && <MenuItem disabled={readOnly} onClick={() => run(C.closeAccount, { id: row.id })}><ListItemIcon><Icon name="Block" fontSize="small" /></ListItemIcon><ListItemText>Close Account…</ListItemText></MenuItem>}
+        {isAccount && row.closed && <MenuItem disabled={readOnly} onClick={() => run(C.reopenAccount, { id: row.id })}><ListItemIcon><Icon name="Check" fontSize="small" /></ListItemIcon><ListItemText>Reopen Account</ListItemText></MenuItem>}
+        {isSub && <MenuItem disabled={readOnly} onClick={edit}><ListItemIcon><Icon name="Edit" fontSize="small" /></ListItemIcon><ListItemText>Rename Sub-Ledger…</ListItemText></MenuItem>}
+        {(isAccount || isSub) && <MenuItem disabled={readOnly} onClick={() => run(C.move, { kind: row.kind, id: row.id })}><ListItemIcon><Icon name="ChevronRight" fontSize="small" /></ListItemIcon><ListItemText>Move To…</ListItemText></MenuItem>}
+        {(isAccount || isSub) && <MenuItem disabled={readOnly} onClick={remove}><ListItemIcon><Icon name="Delete" fontSize="small" /></ListItemIcon><ListItemText>{isSub ? 'Delete Sub-Ledger…' : 'Delete Account…'}</ListItemText></MenuItem>}
         {(isAccount || isSub) && <Divider />}
         <MenuItem onClick={() => { setShowClosed(value => !value); setMenu(undefined) }} role="menuitemcheckbox" aria-checked={showClosed}>
           <ListItemIcon><Checkbox size="small" checked={showClosed} tabIndex={-1} disableRipple sx={{ p: 0 }} /></ListItemIcon>

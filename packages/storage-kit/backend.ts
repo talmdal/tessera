@@ -33,6 +33,11 @@ export interface StorageBackend {
    * `options.signal` aborts, reject with StorageError ABORTED. Call `onProgress` with 1 at the end.
    */
   snapshot(file: string, options: SnapshotOptions): Promise<void>
+  /**
+   * Make the stored file as small as its contents allow, without changing them. Called under the commit lock, with no
+   * snapshot running. Throw (a StorageError IO, with a reason) if it can't be done; nothing may change then.
+   */
+  compact(): Promise<void>
   /** Flush and release the file. */
   close(): Promise<void>
 }

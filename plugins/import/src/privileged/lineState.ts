@@ -87,3 +87,12 @@ export function matchStateOf(view: LineView): MatchState | undefined {
 /** The transaction a view shows the line on, if any. */
 export const transactionOf = (view: LineView): Transaction | undefined =>
   view.state === 'new' || view.state === 'proposed' || view.state === 'accepted' ? view.transaction : undefined
+
+/**
+ * The date a transaction takes when a bank line is matched to it: the bank's, unless that would move it before the
+ * account's last archival date (`start`), which the accounts refuse. Then it keeps its own: the bank posted it a day or
+ * two before the cut, and the user entered it after.
+ */
+export function matchedDate(line: Pick<Line, 'bank'>, t: Pick<Transaction, 'date'>, start: string | undefined): string {
+  return start !== undefined && line.bank.date < start && t.date >= start ? t.date : line.bank.date
+}

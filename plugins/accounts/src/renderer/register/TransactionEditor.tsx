@@ -107,7 +107,8 @@ export function TransactionEditor(props: EditorProps) {
           <TextField {...dense} type="date" value={draft.date} error={problems.date !== undefined}
             onChange={event => set('date', event.target.value)} onKeyDown={dateKeys}
             inputRef={(element: HTMLInputElement | null) => { refs.current.date = element }}
-            slotProps={{ htmlInput: { 'aria-label': 'Date' } }} />
+            // A new transaction can't be dated before the account's last archival date: the calendar starts there
+            slotProps={{ htmlInput: { 'aria-label': 'Date', ...(isNew && account.lastArchiveDate !== undefined && { min: account.lastArchiveDate }) } }} />
         </TableCell>
         <TableCell sx={cell}>
           <Autocomplete

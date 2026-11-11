@@ -36,7 +36,7 @@ describe('@tessera/ledger-api', () => {
   })
 
   it('keeps its own collection and meta keys in its namespace', () => {
-    expect(ledger.LEDGER_COLLECTIONS.subLedgers.startsWith('ledger.')).toBe(true)
+    for (const name of Object.values(ledger.LEDGER_COLLECTIONS)) expect(name.startsWith('ledger.'), name).toBe(true)
     expect(ledger.LEDGER_META.schemaVersion('accounts')).toBe('ledger.schema.accounts')
     expect(ledger.LEDGER_META.format.startsWith('ledger.')).toBe(true)
   })
@@ -62,6 +62,8 @@ describe('@tessera/accounts-api', () => {
     for (const id of [accounts.ACCOUNTS_SERVICE, accounts.ACCOUNTS_MIGRATOR_SERVICE]) expect(id).toMatch(SERVICE_ID_PATTERN)
     for (const name of Object.values(accounts.ACCOUNTS_COLLECTIONS)) expect(name.startsWith('accounts.')).toBe(true)
     expect(accounts.RECONCILE_ACTIONS_POINT.startsWith('accounts.')).toBe(true)
+    // Archive options are contribution ids, named after the plugin
+    for (const id of Object.values(accounts.ACCOUNTS_ARCHIVE_OPTIONS)) expect(id.startsWith('accounts.'), id).toBe(true)
   })
 
   it('classifies every account type, and labels its two amount columns', () => {

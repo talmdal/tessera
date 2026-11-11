@@ -40,6 +40,19 @@ platform.
   folder, backing up on close and retention. One long operation at a time:
   while an import, a backup or a restore runs, the ledger's file commands
   wait, and quitting asks first ([design](docs/backup-restore-design.md)).
+- **Archiving** (the `ledger` plugin, with the accounts and import plugins
+  taking part): *File › Archive Ledger…* keeps a copy of the open ledger as an
+  archive file (in *Tessera Backups/Archives*, never trimmed), then removes the
+  reconciled and void transactions before a date the user chooses, and closed
+  accounts left with nothing. Each account's balance is carried into its
+  opening balance, so every balance stays the same, and the register's first
+  row is dated the last archival date; nothing can be entered before it. The
+  ledger's file is then compacted, and the message says how much smaller it
+  is. The dialog shows what will go and warns about what isn't reconciled.
+  *File › Open Ledger…* opens an archive file read-only, and nothing in it can
+  be changed; *Restore Ledger…* restores one. Tools › Options… › Ledger ›
+  Archiving sets the date the dialog suggests
+  ([design](docs/ledger-compaction-design.md)).
 - **Accounts** (the `accounts` plugin): chequing, savings, credit card,
   mortgage, investment and other accounts, in the ledger or any sub-ledger.
   An *Accounts* menu and an *Accounts* navigator in the left bar (which
@@ -265,6 +278,7 @@ try.
 |---|---|
 | `npm run dev` | Build main, preload and bundled plugins, start the renderer dev server, launch Electron |
 | `npm run build:plugins` | Build `plugins/<id>/` into `modules/<id>/` |
+| `npm run sample:archive -- [folder] [--replace]` | Make a sample ledger and its archive file to try archives by hand (default folder `samples/archive`, not kept in git) |
 | `npm test` | Run the test suite once (Vitest) |
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:ui` | Vitest UI |
@@ -350,6 +364,17 @@ samples/statements/   Sample bank statements to import by hand, with walkthrough
   and one long operation at a time; phases 0 to 4 are done (the spike,
   snapshots in the engines, Back Up with retention, Restore, the Backups page
   with backing up on close and the two-pass quit)
+- [docs/ledger-compaction-design.md](docs/ledger-compaction-design.md):
+  archiving a ledger (ledger compaction): File › Archive Ledger… keeps a copy
+  as an archive file, removes the settled transactions before a date (and
+  closed accounts left with nothing), carries their total into each account's
+  opening balance so every balance stays the same, and shrinks the file; phases
+  0 to 4 are done (the spike, the archive contract with the accounts rules,
+  imports following the archive, opening an archive file read-only, and the
+  Archive Ledger command with its dialog and the Archiving page;
+  `npm run sample:archive` makes a sample to try), and so is phase 5's
+  compaction (shrinking the file); committing large batches off the main
+  thread is still to do
 - [docs/todo.md](docs/todo.md): known gaps and planned work
 
 ## License

@@ -374,6 +374,12 @@ export interface LedgerSession {
 
   /** A plugin that places items in sub-ledgers. Dispose to stop participating. */
   participate(contributor: string, participant: SubLedgerParticipant): Disposable
+  /**
+   * Archiving (see ledger-compaction-design.md): a plugin whose data an archive removes. Participants run in the order
+   * they joined, in one storage transaction with the ledger's record of the archive.
+   */
+  participateInArchive(contributor: string, participant: ArchiveParticipant): Disposable
+  readonly onDidArchive: Event<LedgerArchived>
 
   /**
    * One long operation at a time (added for backups): marks the ledger busy until disposed; BUSY while another
@@ -536,7 +542,11 @@ Delete are disabled while a backup or an import runs. **Restore Ledger…**
 (`ledger.restore`), after it, restores a backup as a new ledger, or in place
 of its ledger with the current file kept under another name; it works with no
 ledger open, and the start view offers it too. Designed in
-[backup-restore-design.md](backup-restore-design.md).
+[backup-restore-design.md](backup-restore-design.md). **Archive Ledger…**
+(`ledger.archive`), after Restore, keeps a copy of the open ledger as an
+archive file, then removes the reconciled and void transactions before a date
+the user chooses, carrying their total into each account's opening balance.
+Designed in [ledger-compaction-design.md](ledger-compaction-design.md).
 
 **Sub-ledger commands.** These take the sub-ledger's id as an argument, so
 any view can offer them. The Accounts menu and the navigator pass the
@@ -648,8 +658,8 @@ export interface Account {
   institution?: string
   /** As entered, unencrypted (ledger encryption is not in the first release); shown masked (•••• 1234). */
   accountNumber?: string
-  openingDate: string          // 'YYYY-MM-DD'
-  openingBalance: number       // minor units
+  openingDate: string          // 'YYYY-MM-DD'; when the account opened: archiving never changes it
+  openingBalance: number       // minor units; the opening balance of the current period (see below)
   creditLimit?: number         // minor units; credit cards and lines of credit
   minimumBalance?: number      // minor units; asset accounts: the balance the bank requires it to keep
   showAvailableBalance?: boolean  // show the balance above the minimum instead of the actual one
@@ -658,6 +668,8 @@ export interface Account {
   order: number
   notes?: string
   lastReconciled?: { date: string, balance: number, reconciliationId: string }
+  lastArchiveDate?: string     // set only by archiving: the start of the current period
+  archived?: { count: number, originalOpeningBalance: number, highestNumber?: number }
 }
 ```
 
@@ -713,6 +725,26 @@ Other rules:
 - **Opening balance** is a field, not a transaction. The register shows it as
   a fixed first row, and the reconciled balance starts from it. For a
   liability it is entered as the amount owed and stored negative.
+- **Archiving** (File › Archive Ledger…, designed in
+  [ledger-compaction-design.md](ledger-compaction-design.md)) removes the
+  reconciled and void transactions before a date, and carries their total into
+  the opening balance, which then is **the opening balance of the current
+  period**. The period starts on the account's **last archival date**
+  (`lastArchiveDate`), which only archiving sets; the opening date stays the
+  date the account opened. `archived` keeps the count, the balance the account
+  opened with, and the highest cheque number archived (so the next number
+  suggested still follows it). Every balance is the same afterwards, and an
+  archive checks that before it commits. Closed accounts left with nothing and
+  a zero balance are removed, unless the user keeps them. Afterwards **no
+  transaction can be dated before the account's last archival date**: a new
+  one, either side of a transfer, a statement's charge or an edit moving one
+  there is refused. One that stayed from before the date (it wasn't
+  reconciled) can still be edited
+  ([ledger-compaction-design.md](ledger-compaction-design.md#entering-transactions-after-an-archive)).
+- **A ledger open read-only** (an archive file) shows everything and changes
+  nothing: the chart and the register say so (`Chart.ledger.readOnly`,
+  `RegisterView.readOnly`), and the register, the navigator and their menus
+  offer nothing that would change it.
 - **Close Account** sets `closed` and `closedOn`. A closed account is
   read-only: no new transactions, no edits, and transfers into it are
   refused. It is hidden in the navigator unless *Show closed accounts* is on,
@@ -1133,7 +1165,10 @@ Columns: **status**, **Num**, **Date**, **Payee**, **Category**, the two
 amount columns for the account's type, and **Balance**. A transfer shows
 "Transfer to: Savings" or "Transfer from: Savings" as its category. The memo
 appears as a tooltip on the payee cell. Voided rows are struck through and
-show the balance unchanged. The opening balance is a fixed first row. Rows
+show the balance unchanged. The opening balance is a fixed first row, dated
+the opening date, or the last archival date once the account has been
+archived; its tooltip then says what was archived and what the account opened
+with. Rows
 are sorted by date, then entry order. Amount columns show unsigned amounts;
 the Balance column is signed, with negative balances in red, as in Money
 (see [Accounts](#accounts)).

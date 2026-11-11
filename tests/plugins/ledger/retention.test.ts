@@ -108,6 +108,21 @@ describe('trimFolder', () => {
     expect(result).toEqual({ trashed: [at('Home 50.tesserabkp'), at('Home 40.tesserabkp')], deleted: [], failed: [] })
   })
 
+  it('never removes an archive file, even one moved into the folder: it holds what was archived, and nothing else does', async () => {
+    const env = setup()
+    const today = daysAgo(0, 'Home today.tesserabkp')
+    env.of('L1', today)
+    for (const d of [1, 2, 3, 4]) env.of('L1', daysAgo(d))
+    const archive = at('Home (archive before 2025-01-01).tesserabkp')
+    env.backup(archive, { [LEDGER_META.format]: 1, [LEDGER_META.id]: 'L1', [LEDGER_BACKUP_META.takenAt]: daysAgo(400).takenAt, [LEDGER_BACKUP_META.kind]: 'archive' })
+    env.of('L1', daysAgo(500, 'Home 500.tesserabkp'))
+
+    const result = await trimFolder(env.deps, options(today.path))
+
+    expect(result.trashed).toEqual([at('Home 500.tesserabkp')])
+    expect(env.driver.databases.has(archive)).toBe(true)
+  })
+
   it('deletes a backup the trash refuses (no trash there), and leaves one it can\'t delete either', async () => {
     const env = setup()
     const today = daysAgo(0, 'Home today.tesserabkp')

@@ -2,6 +2,7 @@
 // there, what was imported before, what was left out and why; and a way to the register, to review them.
 import type { DialogProps } from '@tessera/types'
 import type { ImportReport, StatementReport, SummaryDialogResult } from '@tessera/import-api'
+import { displayDate } from '@tessera/ledger-api'
 import { Alert, Box, Button, DialogActions, DialogContent, Icon, Stack, Typography } from '@tessera/ui'
 import { count } from './display'
 
@@ -15,6 +16,17 @@ export function describe(result: StatementReport): string {
     case 'imported': {
       const matched = counts.matched + counts.possible
       const possible = counts.possible > 0 ? ` (${counts.possible.toLocaleString()} possible)` : ''
+      // Lines dated before the account's last archival date are never added (that period is in an archive file)
+      const archived = counts.archived ?? 0
+      const archivedPart = `${archived.toLocaleString()} left out as dated before ${result.lastArchiveDate ? displayDate(result.lastArchiveDate) : 'the account’s last archival date'} (the last archival date)`
+      if (counts.added === 0 && matched === 0 && archived > 0) {
+        const details = [
+          ...(counts.duplicates > 0 ? [`${counts.duplicates.toLocaleString()} already imported`] : []),
+          archivedPart,
+          ...(counts.invalid > 0 ? [`${counts.invalid.toLocaleString()} left out`] : [])
+        ]
+        return `Nothing new for ${where}: ${details.join(', ')}.`
+      }
       const parts = counts.added > 0
         ? [`${count(counts.added, 'transaction')} added to ${where}`]
         : matched > 0
@@ -22,6 +34,7 @@ export function describe(result: StatementReport): string {
           : [counts.duplicates > 0 ? `Nothing new for ${where}: all ${count(counts.duplicates, 'transaction')} were already imported` : `Nothing to add to ${where}`]
       if (counts.added > 0 && matched > 0) parts.push(`${matched.toLocaleString()} matched to ones already there${possible}`)
       if ((counts.added > 0 || matched > 0) && counts.duplicates > 0) parts.push(`${counts.duplicates.toLocaleString()} already imported`)
+      if (archived > 0) parts.push(archivedPart)
       if (counts.invalid > 0) parts.push(`${counts.invalid.toLocaleString()} left out`)
       return `${parts.join(', ')}.`
     }

@@ -10,6 +10,12 @@ export interface LedgerDisk {
   exists(file: string): Promise<boolean>
   /** Reads the first bytes only; never changes the file. */
   sniff(file: string): Promise<FileKind>
+  /**
+   * Whether a SQLite file is in WAL mode, from its header (bytes 18 and 19 are 2 for WAL, 1 for a rollback journal),
+   * without opening it. Opened read-only, a file in WAL mode leaves `-wal` and `-shm` files beside it. False for
+   * anything that isn't a SQLite file.
+   */
+  walMode(file: string): Promise<boolean>
   /** Files a storage engine keeps beside a database (`-wal`, `-shm`, `-journal`, `~`) that exist now. */
   sideFiles(file: string): Promise<string[]>
   /** Copies a file and its side files, each to the same name with `to` in place of `file`. */
@@ -62,6 +68,17 @@ export function nodeDisk(): LedgerDisk {
         const head = Buffer.alloc(64)
         const { bytesRead } = await handle.read(head, 0, head.length, 0)
         return classify(head.subarray(0, bytesRead))
+      } finally {
+        await handle.close()
+      }
+    },
+
+    async walMode(file) {
+      const handle = await fs.promises.open(file, 'r')
+      try {
+        const head = Buffer.alloc(20)
+        const { bytesRead } = await handle.read(head, 0, head.length, 0)
+        return classify(head.subarray(0, bytesRead)) === 'sqlite' && bytesRead === 20 && head[18] === 2
       } finally {
         await handle.close()
       }

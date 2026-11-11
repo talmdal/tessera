@@ -2,7 +2,7 @@
 // them as the user types). Pure functions.
 import { isCurrencyCode } from './money'
 import { MAX_AMOUNT } from './money'
-import { ACCOUNT_CLASS, ACCOUNT_TYPES, type AccountType } from './model'
+import { ACCOUNT_CLASS, ACCOUNT_TYPES, type Account, type AccountType } from './model'
 
 export const ACCOUNT_NAME_MAX_LENGTH = 100
 export const ACCOUNT_TEXT_MAX_LENGTH = 100
@@ -30,6 +30,13 @@ export const CREDIT_LIMIT_TYPES: readonly AccountType[] = ['creditCard', 'lineOf
 export const isAccountType = (value: unknown): value is AccountType => (ACCOUNT_TYPES as readonly unknown[]).includes(value)
 
 export const isLiability = (type: AccountType) => ACCOUNT_CLASS[type] === 'liability'
+
+/**
+ * When the account's current period starts, which the register's first row (the opening balance) is dated: its last
+ * archival date once it has been archived (or the opening date, if that is later), else the date it opened.
+ */
+export const periodStart = (account: Pick<Account, 'openingDate' | 'lastArchiveDate'>): string =>
+  account.lastArchiveDate !== undefined && account.lastArchiveDate > account.openingDate ? account.lastArchiveDate : account.openingDate
 
 const CONTROL = /[\u0000-\u001f\u007f]/
 

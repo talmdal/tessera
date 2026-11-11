@@ -48,6 +48,23 @@ describe('loki files', () => {
     await engine.closeAll()
   })
 
+  it('compacts by saving at once: each save rewrites the whole file with what is there', async () => {
+    const directory = tempDir()
+    const engine = engineFor(directory, { saveDelay: 60_000 })
+    const db = await engine.open({ name: 'app' })
+    await db.collection('c').insertMany(Array.from({ length: 50 }, (_, i) => ({ id: `d${i}`, payload: 'x'.repeat(200) })))
+    await db.flush()
+    const file = path.join(directory, 'app.loki.json')
+    const full = fs.statSync(file).size
+    await db.collection('c').deleteMany({ id: { $ne: 'd0' } })
+
+    await db.compact()
+
+    expect(fs.statSync(file).size).toBeLessThan(full / 4)
+    expect(fs.readFileSync(file, 'utf8')).not.toContain('"d1"')
+    await engine.closeAll()
+  })
+
   it('writes at once on flush, and keeps Loki\'s own fields off the document', async () => {
     const directory = tempDir()
     const engine = engineFor(directory, { saveDelay: 60_000 })

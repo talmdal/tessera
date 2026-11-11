@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  LedgerError, childrenOf, descendantIds, flattenTree, isLedgerError, nameKey, pathOf, toResult, uniqueName,
+  LedgerError, childrenOf, descendantIds, displayDate, displaySize, flattenTree, isLedgerError, nameKey, pathOf, toResult, uniqueName,
   validateLedgerName, type SubLedger
 } from '@tessera/ledger-api'
 
@@ -29,6 +29,36 @@ describe('ledger names', () => {
     expect(nameKey(' Business ')).toBe(nameKey('business'))
     expect(uniqueName('Shop', new Set())).toBe('Shop')
     expect(uniqueName('Shop', new Set(['shop', 'shop (2)']))).toBe('Shop (3)')
+  })
+})
+
+describe('file sizes for people', () => {
+  it('are in KB below a megabyte, never 0, and in MB with one decimal above', () => {
+    expect(displaySize(0)).toBe('1 KB')
+    expect(displaySize(600 * 1024)).toBe('600 KB')
+    expect(displaySize(1024 * 1024 - 1)).toBe('1024 KB')
+    expect(displaySize(7.6 * 1024 * 1024)).toBe('7.6 MB')
+  })
+})
+
+describe('dates for people', () => {
+  it('show a calendar date in the locale, as the same day in every time zone', () => {
+    const zone = process.env.TZ
+    const shown = new Set<string>()
+    try {
+      // UTC+14 and UTC-11: a local midnight would be the day before in one of them
+      for (const tz of ['Pacific/Kiritimati', 'UTC', 'Pacific/Pago_Pago']) {
+        process.env.TZ = tz
+        const date = displayDate('2026-01-01')
+        expect(date, tz).toMatch(/2026/)
+        expect(date, tz).not.toMatch(/2025|31|Dec/)
+        shown.add(date)
+      }
+      expect(shown.size).toBe(1)
+    } finally {
+      if (zone === undefined) delete process.env.TZ
+      else process.env.TZ = zone
+    }
   })
 })
 

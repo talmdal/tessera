@@ -2,15 +2,18 @@
 import path from 'node:path'
 import type { Database, Disposable, Event, Json, Logger, ShellFiles, ShellPrompts, StorageEngine } from '@tessera/types'
 import {
-  LEDGER_API_VERSION, LEDGER_BACKUP_META, LEDGER_FILE_EXTENSION, LEDGER_FILE_FILTER, LEDGER_FORMAT_VERSION, LEDGER_META, LedgerError, isLedgerError,
-  type LedgerChange, type LedgerInfo, type LedgerSession, type LedgerTree, type SubLedger, type SubLedgerParticipant
+  LEDGER_API_VERSION, LEDGER_ARCHIVE_FILTER, LEDGER_BACKUP_META, LEDGER_FILE_EXTENSION, LEDGER_FILE_FILTER, LEDGER_FORMAT_VERSION, LEDGER_META, LedgerError, isLedgerError,
+  type LedgerArchiveInfo,
+  type ArchiveOutcome, type ArchiveParticipant, type ArchiveRecord, type LedgerArchived, type LedgerChange, type LedgerInfo,
+  type LedgerSession, type LedgerTree, type SubLedger, type SubLedgerParticipant
 } from '@tessera/ledger-api'
+import { ArchiveParticipants, ParticipantFailure, archiveRecords, type ArchivePart } from './archive/participants'
 import type { FileKind, LedgerDisk } from './disk'
 import { planMigrations, runMigrations, schemaVersions } from './migrations'
 import type { RecentLedgers } from './RecentLedgers'
 import type { SchemaRegistry } from './SchemaRegistry'
 import { scopedDatabase } from './scopedDatabase'
-import { SubLedgers } from './SubLedgers'
+import { SubLedgers, translate } from './SubLedgers'
 
 export interface LedgerSessionDeps {
   engine: StorageEngine
@@ -47,6 +50,43 @@ class Emitter<T> {
       try { listener(value) } catch (err) { this.log.error(`[ledger] A ${this.name} listener failed`, err) }
     }
   }
+}
+
+/** What `runArchive` is asked to do. */
+export interface ArchiveRequestInput {
+  /** YYYY-MM-DD, not after today: what occurred before this date may be archived. */
+  before: string
+  /** The user's choice for each option the participants offered; an option not given takes its default. */
+  options?: Record<string, boolean>
+  /** The archive file, already made and checked: nothing is removed without one. */
+  copy: { path: string, takenAt: string }
+  /**
+   * The ledger's change count (`changeCount`) when the copy began. If anything was committed since, the archive is
+   * refused with CONFLICT, since the copy might not hold it.
+   */
+  unchangedSince?: number
+}
+
+const pad = (n: number) => String(n).padStart(2, '0')
+/** A date as YYYY-MM-DD, in local time: what "today" means to the user. */
+export const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+/** A real calendar date written YYYY-MM-DD. */
+export function isIsoDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+}
+
+/**
+ * What an archive file is, from its meta: a backup of kind `archive` with its archive date. Undefined for anything
+ * else, other backups included.
+ */
+export function archiveOf(meta: Readonly<Record<string, Json>>, file: string): LedgerArchiveInfo | undefined {
+  const takenAt = meta[LEDGER_BACKUP_META.takenAt]
+  const before = meta[LEDGER_BACKUP_META.archiveBefore]
+  if (meta[LEDGER_BACKUP_META.kind] !== 'archive' || typeof takenAt !== 'string' || !isIsoDate(before)) return undefined
+  const name = meta[LEDGER_BACKUP_META.ledgerName]
+  return { before, takenAt, ledgerName: typeof name === 'string' && name !== '' ? name : ledgerName(file) }
 }
 
 /** `/a/b/Home Finances.tessera` → `Home Finances`. */
@@ -96,6 +136,10 @@ export class LedgerSessionImpl implements LedgerSession {
   private watching: Disposable | undefined
   private closeHook: CloseHook | undefined
   private readonly subLedgers: SubLedgers
+  private readonly archivers: ArchiveParticipants
+  private readonly archivedEvents: Emitter<LedgerArchived>
+  /** Advances on every committed change to the open ledger: an archive checks that none came after its copy began. */
+  private changeCounter = 0
 
   readonly onDidChange: Event<LedgerChange>
   readonly onDidChangeTree: Event<LedgerTree>
@@ -103,6 +147,7 @@ export class LedgerSessionImpl implements LedgerSession {
   readonly onDidChangeNavigator: Event<boolean>
   /** The running operation's label each time one begins or ends (undefined: none). */
   readonly onDidChangeOperation: Event<string | undefined>
+  readonly onDidArchive: Event<LedgerArchived>
 
   constructor(private readonly deps: LedgerSessionDeps) {
     this.changes = new Emitter(deps.log, 'change')
@@ -114,6 +159,9 @@ export class LedgerSessionImpl implements LedgerSession {
     this.onDidChangeOperation = this.operationChanges.event
     this.onDidChangeNavigator = this.navigatorChanges.event
     this.subLedgers = new SubLedgers(() => this.openDatabase(), () => [...this.participants])
+    this.archivers = new ArchiveParticipants(deps.log)
+    this.archivedEvents = new Emitter(deps.log, 'archive')
+    this.onDidArchive = this.archivedEvents.event
   }
 
   get current(): LedgerInfo | undefined {
@@ -259,7 +307,7 @@ export class LedgerSessionImpl implements LedgerSession {
         target = await this.deps.files.showOpenDialog({
           title: 'Open Ledger',
           defaultPath: await this.defaultFolder(),
-          filters: [LEDGER_FILE_FILTER, { name: 'All files', extensions: ['*'] }],
+          filters: [LEDGER_FILE_FILTER, LEDGER_ARCHIVE_FILTER, { name: 'All files', extensions: ['*'] }],
           buttonLabel: 'Open'
         })
         if (target === undefined) return undefined
@@ -277,7 +325,9 @@ export class LedgerSessionImpl implements LedgerSession {
    * `allowBackup` lets a restored copy, which still has its backup's meta, through to `prepare`.
    */
   private async openFile(target: string, options: { allowBackup?: boolean, prepare?: (db: Database) => Promise<void> } = {}): Promise<LedgerInfo> {
-    const { versions } = await this.inspect(target, { allowBackup: options.allowBackup ?? false })
+    const { versions, archive } = await this.inspect(target, { allowBackup: options.allowBackup ?? false })
+    // An archive file opens read-only, to be looked at. (A restore reads one with allowBackup, as a backup to copy.)
+    if (archive && !options.allowBackup) return this.openArchive(target, versions, archive)
     const contributions = this.deps.schema.contributions()
     const plan = planMigrations(contributions, versions, ledgerName(target))
     let backup: string | undefined
@@ -310,6 +360,43 @@ export class LedgerSessionImpl implements LedgerSession {
   }
 
   /**
+   * Opens an archive file read-only, for viewing: nothing is ever written to it. It can't be migrated, so a plugin
+   * whose data in it is older than the plugin refuses it, with the way forward (restoring it as a new ledger); a
+   * plugin with no data in it (installed since) reads as empty. It takes no id (it shares its ledger's, and isn't that
+   * ledger), doesn't join the recent list, and isn't reopened at the next start. See docs/ledger-compaction-design.md,
+   * "Opening the archive file".
+   */
+  private async openArchive(target: string, versions: Record<string, number>, archive: LedgerArchiveInfo): Promise<LedgerInfo> {
+    // "Home (archive before 2026-01-01)": the file's name without its .tesserabkp
+    const name = path.basename(target, path.extname(target))
+    const plan = planMigrations(this.deps.schema.contributions(), versions, name)
+    if (plan.steps.some(step => step.from > 0)) {
+      throw new LedgerError('UNSUPPORTED_FILE',
+        `“${name}” was made by an earlier version of Tessera, so it can’t be opened as it is. To open it, restore it as a new ledger with File › Restore Ledger….`)
+    }
+    if (await this.deps.disk.walMode(target).catch(() => false)) {
+      // Only another program could have switched it: opened read-only, SQLite leaves two empty files beside it
+      this.deps.log.warn(`[ledger] The archive ${target} is in WAL mode: another program changed it. Opening it leaves -wal and -shm files beside it`)
+    }
+    let db: Database
+    try {
+      db = await this.deps.engine.open({ path: target }, { schema: this.deps.schema.collections(), readOnly: true })
+    } catch (err) {
+      this.deps.log.warn(`[ledger] Could not open ${target}: ${describeError(err)}`)
+      throw new LedgerError('UNSUPPORTED_FILE', `“${path.basename(target)}” is not a Tessera archive, or it is damaged.`)
+    }
+    await this.closeOpen({ forget: false, why: 'switch' })
+    this.db = db
+    this.changed = false
+    this.info = { path: target, name, readOnly: true, archive }
+    const ledger = this.current!
+    this.deps.log.info(`[ledger] Opened the archive ${target} read-only`)
+    this.changes.fire({ type: 'opened', ledger, created: false })
+    await this.publishTree()
+    return ledger
+  }
+
+  /**
    * For the ledger's own jobs that close and open ledgers while they hold the operation (a restore): runs `work` in
    * the file-operation queue with the session's own steps, which don't wait for the operation, since the caller holds
    * it. Nothing else opens or closes a ledger meanwhile.
@@ -338,6 +425,9 @@ export class LedgerSessionImpl implements LedgerSession {
     return this.idle(() => this.serial(async () => {
       const target = file === undefined ? this.info?.path : path.resolve(file)
       if (target === undefined) return false
+      if (this.info?.archive && this.info.path === target) {
+        throw new LedgerError('READ_ONLY', 'An archive file can’t be deleted from Tessera. Close it, and delete it in your file manager if you mean to.')
+      }
       const name = ledgerName(target)
       const trash = this.deps.trashName ?? defaultTrashName()
 
@@ -364,7 +454,7 @@ export class LedgerSessionImpl implements LedgerSession {
    * contributors' versions; throws UNSUPPORTED_FILE or FILE_NOT_FOUND with the reason. A backup is refused unless
    * `allowBackup` (a restore reads backups this way).
    */
-  async inspect(file: string, { allowBackup = false }: { allowBackup?: boolean } = {}): Promise<{ meta: Record<string, Json>, versions: Record<string, number> }> {
+  async inspect(file: string, { allowBackup = false }: { allowBackup?: boolean } = {}): Promise<{ meta: Record<string, Json>, versions: Record<string, number>, archive?: LedgerArchiveInfo }> {
     const name = path.basename(file)
     if (!(await this.deps.disk.exists(file))) throw new LedgerError('FILE_NOT_FOUND', `“${name}” can’t be found. It may have been moved or deleted.`)
 
@@ -387,14 +477,16 @@ export class LedgerSessionImpl implements LedgerSession {
     const format = meta[LEDGER_META.format]
     if (typeof format !== 'number') throw new LedgerError('UNSUPPORTED_FILE', `“${name}” is not a Tessera ledger.`)
     if (format > LEDGER_FORMAT_VERSION) throw new LedgerError('UNSUPPORTED_FILE', `“${name}” was saved by a newer version of Tessera. Update Tessera to open it.`)
-    // Opened as a ledger, a backup would be written to (upgraded, then edited) and stop being the copy it was
-    if (!allowBackup && meta[LEDGER_BACKUP_META.takenAt] !== undefined) {
+    const archive = archiveOf(meta, file)
+    // Opened as a ledger, a backup would be written to (upgraded, then edited) and stop being the copy it was. An
+    // archive is opened read-only instead, so it is let through
+    if (!allowBackup && !archive && meta[LEDGER_BACKUP_META.takenAt] !== undefined) {
       throw new LedgerError('UNSUPPORTED_FILE', `“${name}” is a backup, not a ledger. Use File › Restore Ledger… to restore it.`)
     }
     const versions = schemaVersions(meta, this.deps.schema.contributions())
     // A file newer than a contributor's plugin is refused here too, so a restore can say so before copying anything
     planMigrations(this.deps.schema.contributions(), versions, ledgerName(file))
-    return { meta, versions }
+    return { meta, versions, ...(archive && { archive }) }
   }
 
   /** Copies the file (and its side files) beside it, before a migration changes it. */
@@ -419,7 +511,11 @@ export class LedgerSessionImpl implements LedgerSession {
     const id = await this.identify(db, file)
     this.db = db
     this.changed = upgraded
-    this.watching = db.onDidChange(() => { if (this.db === db) this.changed = true })
+    this.watching = db.onDidChange(() => {
+      if (this.db !== db) return
+      this.changed = true
+      this.changeCounter++
+    })
     this.info = { path: file, name: ledgerName(file), readOnly: db.readOnly, ...(id !== undefined && { id }) }
     const ledger = this.current!
     try {
@@ -518,6 +614,93 @@ export class LedgerSessionImpl implements LedgerSession {
     if (this.participants.has(contributor)) throw new Error(`"${contributor}" already takes part in sub-ledgers`)
     this.participants.set(contributor, participant)
     return { dispose: () => { if (this.participants.get(contributor) === participant) this.participants.delete(contributor) } }
+  }
+
+  // ---- Archiving
+
+  participateInArchive(contributor: string, participant: ArchiveParticipant): Disposable {
+    return this.archivers.add(contributor, participant)
+  }
+
+  /** How many changes have been committed to the open ledger: note it before copying, and give it to `runArchive`. */
+  get changeCount(): number {
+    return this.changeCounter
+  }
+
+  private checkedArchiveDate(before: unknown): string {
+    if (!isIsoDate(before)) throw new LedgerError('INVALID', 'Enter the date to archive before.', 'before')
+    if (before > localDate(this.now())) throw new LedgerError('INVALID', 'The date to archive before can’t be after today.', 'before')
+    return before
+  }
+
+  private checkedOptions(options: unknown): Record<string, boolean> {
+    if (options === undefined) return {}
+    if (typeof options !== 'object' || options === null || Array.isArray(options) || Object.values(options).some(v => typeof v !== 'boolean')) {
+      throw new LedgerError('INVALID', 'The archive’s options must each be on or off.', 'options')
+    }
+    return { ...options as Record<string, boolean> }
+  }
+
+  /** What each participant would remove from the open ledger, for the Archive dialog. Reads only. */
+  async describeArchive(before: string, options?: Record<string, boolean>): Promise<ArchivePart[]> {
+    this.openDatabase()
+    return this.archivers.describe(this.checkedArchiveDate(before), this.checkedOptions(options))
+  }
+
+  /** The open ledger's archives, newest first. */
+  async archiveRecords(): Promise<ArchiveRecord[]> {
+    try {
+      return await archiveRecords(this.openDatabase())
+    } catch (err) { throw translate(err) }
+  }
+
+  /**
+   * Archives the open ledger: every participant's `archive`, then the record, in one storage transaction, in the
+   * file-operation queue so the ledger can't close meanwhile. For the ledger's own Archive command, which holds the
+   * ledger operation and has made the archive file first. Nothing removed at all is refused (INVALID); the ledger
+   * changed since the copy began, or during the archive, is CONFLICT; anything a participant throws, a ledger error
+   * included, is ARCHIVE_FAILED with its message. In every case nothing was removed.
+   */
+  runArchive(input: ArchiveRequestInput): Promise<ArchiveOutcome> {
+    return this.serial(async () => {
+      const db = this.openDatabase()
+      const ledger = this.current!
+      if (db.readOnly) throw new LedgerError('READ_ONLY', 'This ledger is open read-only.')
+      const before = this.checkedArchiveDate(input?.before)
+      const options = this.checkedOptions(input.options)
+      const copy = input.copy
+      if (typeof copy?.path !== 'string' || copy.path === '' || typeof copy.takenAt !== 'string') {
+        throw new LedgerError('INVALID', 'An archive needs its archive file.', 'copy')
+      }
+      const { unchangedSince } = input
+      let outcome: ArchiveOutcome
+      try {
+        outcome = await this.archivers.run(db, {
+          before, options, copy: { path: copy.path, takenAt: copy.takenAt }, archivedAt: this.now().toISOString(),
+          check: () => {
+            if (unchangedSince !== undefined && this.changeCounter !== unchangedSince) {
+              throw new LedgerError('CONFLICT', `“${ledger.name}” changed while it was being copied. Try again.`)
+            }
+          }
+        })
+      } catch (err) {
+        // Whatever a participant threw, a ledger error included, is its failure; the session's own refusals pass on
+        if (err instanceof ParticipantFailure) {
+          this.deps.log.error(`[ledger] Archiving ${ledger.path} before ${before} failed in "${err.contributor}"; nothing was removed`, err.cause)
+          throw new LedgerError('ARCHIVE_FAILED', `Nothing was archived. ${err.message}`)
+        }
+        if (isLedgerError(err)) throw err
+        // The kit refused the commit: something outside the transaction changed the same collections meanwhile
+        if ((err as { code?: unknown } | null)?.code === 'CONFLICT') {
+          throw new LedgerError('CONFLICT', `“${ledger.name}” changed while it was being archived. Try again.`)
+        }
+        this.deps.log.error(`[ledger] Archiving ${ledger.path} before ${before} failed; nothing was removed`, err)
+        throw new LedgerError('ARCHIVE_FAILED', `Nothing was archived. ${describeError(err)}`)
+      }
+      this.deps.log.info(`[ledger] Archived ${ledger.path} before ${before}: ${outcome.summaries.join('; ')}`)
+      this.archivedEvents.fire({ before, copy: outcome.copy.path })
+      return outcome
+    })
   }
 
   get hasNavigator(): boolean {

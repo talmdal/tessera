@@ -3,6 +3,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { Account } from '@tessera/accounts-api'
+import { displayDate } from '@tessera/ledger-api'
 import type { AccountChoice, AccountDialogInput, ImportReport, StatementReport } from '@tessera/import-api'
 import AccountDialog from '../../../../plugins/import/src/renderer/AccountDialog'
 import FormatDialog from '../../../../plugins/import/src/renderer/FormatDialog'
@@ -129,6 +130,19 @@ describe('the summary', () => {
       .toBe('11 transactions added to “Chequing”, 6 matched to ones already there (2 possible).')
     expect(describeResult(result({ counts: { lines: 5, added: 0, matched: 1, possible: 0, duplicates: 4, invalid: 0 } })))
       .toBe('1 transaction in “Chequing” matched to ones already there, 4 already imported.')
+  })
+
+  it('says how many lines were left out as dated before the account\'s last archival date', () => {
+    const counts = { lines: 17, added: 12, matched: 0, possible: 0, duplicates: 2, invalid: 0, archived: 3 }
+    expect(describeResult(result({ counts, lastArchiveDate: '2025-01-01' })))
+      .toBe(`12 transactions added to “Chequing”, 2 already imported, 3 left out as dated before ${displayDate('2025-01-01')} (the last archival date).`)
+    expect(describeResult(result({ counts: { ...counts, added: 0, duplicates: 0, archived: 17 }, lastArchiveDate: '2025-01-01' })))
+      .toBe(`Nothing new for “Chequing”: 17 left out as dated before ${displayDate('2025-01-01')} (the last archival date).`)
+    expect(describeResult(result({ counts: { ...counts, added: 0, duplicates: 5, archived: 5, invalid: 1 }, lastArchiveDate: '2025-01-01' })))
+      .toBe(`Nothing new for “Chequing”: 5 already imported, 5 left out as dated before ${displayDate('2025-01-01')} (the last archival date), 1 left out.`)
+    // Matched, with some left out
+    expect(describeResult(result({ counts: { ...counts, added: 0, matched: 1, duplicates: 0, archived: 1 }, lastArchiveDate: '2025-01-01' })))
+      .toBe(`1 transaction in “Chequing” matched to ones already there, 1 left out as dated before ${displayDate('2025-01-01')} (the last archival date).`)
   })
 
   it('offers the register when there are matches to review, even with nothing added', async () => {

@@ -305,7 +305,7 @@ describe('the recent list', () => {
 })
 
 describe('what a contributor can reach', () => {
-  it('is its own collections and meta keys only, and never closing or copying the ledger', async () => {
+  it('is its own collections and meta keys only, and never closing, copying or compacting the ledger', async () => {
     const { session, contribute, created } = setupSession()
     contribute(contributor('accounts', 1))
     await created()
@@ -319,6 +319,7 @@ describe('what a contributor can reach', () => {
     await expect(db.close()).rejects.toThrow('The ledger closes its database')
     // A copy would hold every contributor's data: backups are the ledger's job
     await expect(db.snapshot({ path: file('copy.tesserabkp') })).rejects.toThrow('the ledger makes its backups')
+    await expect(db.compact()).rejects.toThrow('the ledger compacts it after an archive')
     await db.transaction(async tx => { expect(() => tx.collection('ledger.subledgers')).toThrow() })
   })
 

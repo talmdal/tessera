@@ -547,7 +547,9 @@ this for a plugin; the plugin guide would say it plainly, and `scopes` is opt-in
 3. **The Options dialog:** the switcher, override marks and "Use the application value", drafts per layer, the wire
    contract, and the new props for a plugin's own page.
 4. **First user:** the import's matching preset per ledger (moved to an `import.matching` namespace, keeping what
-   users chose), safe from a stranger's file since it names a preset.
+   users chose), safe from a stranger's file since it names a preset. The next candidate is `ledger.archive`, the
+   year start that Archive Ledger… suggests its date from: a household follows the calendar, a small business its
+   fiscal year ([ledger-compaction-design.md](ledger-compaction-design.md#the-archiving-page)).
 5. **Later, if needed:** resource scopes (sub-ledger, account), per-key opt-in, and a settings field kind for lists.
 
 ## What's next
@@ -556,5 +558,6 @@ this for a plugin; the plugin guide would say it plainly, and `scopes` is opt-in
   [Proposal: scopes](#proposal-scopes-per-ledger-settings).
 - **Live apply** (deferred): settings that take effect as the user edits (the theme, say), with Cancel reverting.
   It needs a preview hook beyond the draft model.
-- **More field kinds** as plugins need them: a folder with Browse…, a list of strings.
+- **More field kinds** as plugins need them: a folder with Browse…, a list of strings, and a drop-down (a `choice`
+  is drawn as radio buttons, too many for the twelve months of the Archiving page's year start).
 - **A macOS application menu** with "Preferences…" running `shell.settings.open`.

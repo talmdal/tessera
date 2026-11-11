@@ -1,7 +1,7 @@
 // The ledger's views talk to it here: requests, and the state they follow through push events.
 import type { Disposable, IpcMessage, PluginContext } from '@tessera/types'
 import {
-  LEDGER_CHANNELS, LEDGER_CONTEXT_KEYS, LEDGER_EVENTS, LEDGER_PLUGIN_ID, toResult,
+  LEDGER_CHANNELS, LEDGER_CONTEXT_KEYS, LEDGER_EVENTS, LEDGER_PLUGIN_ID, displayDate, toResult,
   type LedgerState, type LedgerTree, type RecentLedger
 } from '@tessera/ledger-api'
 import type { LedgerDisk } from './disk'
@@ -50,6 +50,9 @@ export class LedgerPublisher {
     keys.set(LEDGER_CONTEXT_KEYS.hasNavigator, this.session.hasNavigator)
     keys.set(LEDGER_CONTEXT_KEYS.isBusy, this.session.operation !== undefined)
     keys.set(LEDGER_CONTEXT_KEYS.operation, this.session.operation)
+    // An archive file open for viewing: what it is, for the status bar; and a key for enablement
+    keys.set(LEDGER_CONTEXT_KEYS.isArchive, ledger?.archive !== undefined)
+    keys.set(LEDGER_CONTEXT_KEYS.archive, ledger?.archive && `Archive of “${ledger.archive.ledgerName}”, before ${displayDate(ledger.archive.before)} · read-only`)
     this.context.events.emit(local(LEDGER_EVENTS.state), this.state())
   }
 

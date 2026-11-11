@@ -160,3 +160,6 @@ package-lock.json
 .history
 
 *.diff
+
+# Made by npm run sample:archive
+/samples/archive/
