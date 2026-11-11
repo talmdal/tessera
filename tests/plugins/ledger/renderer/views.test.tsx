@@ -90,8 +90,8 @@ describe('the start view', () => {
 })
 
 describe('the ledger tree', () => {
-  const setup = (commands: Record<string, (args: unknown[]) => unknown> = {}) => {
-    const b = bridge({ [LEDGER_CHANNELS.tree]: () => TREE }, commands)
+  const setup = (commands: Record<string, (args: unknown[]) => unknown> = {}, tree: Tree = TREE) => {
+    const b = bridge({ [LEDGER_CHANNELS.tree]: () => tree }, commands)
     render(<LedgerTree />)
     return b
   }
@@ -129,6 +129,17 @@ describe('the ledger tree', () => {
       { id: LEDGER_COMMANDS.renameSubLedger, args: [{ id: 'p' }] },
       { id: LEDGER_COMMANDS.deleteSubLedger, args: [{ id: 'p' }] }
     ])
+  })
+
+  it('offers nothing that changes a ledger open read-only, by button or key', async () => {
+    const b = setup({}, { ...TREE, ledger: { ...TREE.ledger, readOnly: true } })
+    await screen.findByRole('tree')
+    await userEvent.click(item('Personal'))
+    for (const name of ['New sub-ledger', 'Rename sub-ledger', 'Delete sub-ledger']) expect(screen.getByRole('button', { name })).toBeDisabled()
+    item('Personal').focus()
+    await userEvent.keyboard('{F2}{Delete}{Insert}')
+    await userEvent.dblClick(item('Personal'))
+    expect(b.executed()).toEqual([])
   })
 
   it('collapses and expands with the arrow keys', async () => {

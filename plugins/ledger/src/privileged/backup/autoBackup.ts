@@ -32,6 +32,9 @@ export class AutoBackup {
   private get timers() { return this.deps.timers ?? realTimers }
 
   private async needed(ledger: LedgerInfo): Promise<boolean> {
+    // An archive open for viewing is never backed up: it can't change, and a backup of it would carry its ledger's id
+    // with a new date, which retention and Restore would take for the ledger's newest backup
+    if (ledger.archive) return false
     if (!this.deps.settings().onClose) return false
     return this.deps.backups.needsBackup(ledger, this.deps.session.changedSinceBackup)
   }

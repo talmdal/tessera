@@ -9,7 +9,8 @@ import {
   isCurrencyCode, isIsoDate, isLiability, parseAmount, todayIso, validateAccountName,
   type Account, type AccountDialogInput, type AccountInput, type AccountType, type AccountsResult, type SaveAccountRequest
 } from '@tessera/accounts-api'
-import { Alert, Autocomplete, Button, Checkbox, DialogActions, DialogContent, FormControlLabel, MenuItem, Stack, TextField } from '@tessera/ui'
+import { Alert, Autocomplete, Button, Checkbox, DialogActions, DialogContent, FormControlLabel, MenuItem, Stack, TextField, Typography } from '@tessera/ui'
+import { openingFieldNote } from './display'
 
 /** The select's value for the ledger itself (sub-ledgers use their ids). */
 export const IN_LEDGER = '(ledger)'
@@ -144,6 +145,7 @@ export default function AccountDialog({ input, close, setBusy }: DialogProps<Acc
   const problem = (field: Field) =>
     server?.field === field ? server.message : (touched[field] || submitted) ? problems[field] : undefined
   const liability = isLiability(form.type)
+  const archivedNote = input.mode === 'edit' ? openingFieldNote(input.account) : undefined
   const hasLimit = CREDIT_LIMIT_TYPES.includes(form.type)
   const hasMinimum = MINIMUM_BALANCE_TYPES.includes(form.type)
 
@@ -222,6 +224,8 @@ export default function AccountDialog({ input, close, setBusy }: DialogProps<Acc
               renderInput={params => <TextField {...params} margin="none" label="Currency" {...text('currency')} />}
             />
           </Stack>
+          {/* Once archived, the opening balance is the current period's: say so, and what the account opened with */}
+          {archivedNote && <Typography variant="caption" color="text.secondary" data-note="archived">{archivedNote}</Typography>}
 
           {hasLimit && (
             <TextField size="small" label="Credit limit" value={form.creditLimit}

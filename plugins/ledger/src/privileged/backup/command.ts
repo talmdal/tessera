@@ -90,5 +90,5 @@ export function registerBackupCommand(context: Pick<PluginContext, 'commands' | 
     } finally {
       operation.dispose()
     }
-  }, { enablement: `${K.isOpen} && !${K.isBusy}` })
+  }, { enablement: `${K.isOpen} && !${K.isBusy} && !${K.isArchive}` })
 }

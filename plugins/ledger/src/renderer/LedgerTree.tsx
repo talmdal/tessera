@@ -48,20 +48,22 @@ export default function LedgerTree() {
 
   const focus = (id: string) => { setSelected(id); rowRefs.current.get(id)?.focus() }
   const isSub = selected !== ROOT
+  // A ledger open read-only (an archive file) can be looked at, not changed
+  const readOnly = tree.ledger.readOnly
 
   const attempt = (work: () => Promise<unknown>) => {
     setError(undefined)
     work().catch(err => setError(String(err?.message ?? err)))
   }
-  const newSubLedger = () => attempt(async () => {
+  const newSubLedger = () => { if (!readOnly) attempt(async () => {
     const result = await runCommand<NewLedgerDialogResult | undefined>(LEDGER_COMMANDS.new, { parentId: isSub ? selected : null })
     if (result?.kind === 'subLedger') {
       setCollapsed(current => { const next = new Set(current); next.delete(selected); return next })
       setSelected(result.id)
     }
-  })
-  const rename = () => { if (isSub) attempt(() => runCommand(LEDGER_COMMANDS.renameSubLedger, { id: selected })) }
-  const remove = () => { if (isSub) attempt(() => runCommand(LEDGER_COMMANDS.deleteSubLedger, { id: selected })) }
+  }) }
+  const rename = () => { if (isSub && !readOnly) attempt(() => runCommand(LEDGER_COMMANDS.renameSubLedger, { id: selected })) }
+  const remove = () => { if (isSub && !readOnly) attempt(() => runCommand(LEDGER_COMMANDS.deleteSubLedger, { id: selected })) }
 
   const toggle = (id: string, open?: boolean) => setCollapsed(current => {
     const next = new Set(current)
@@ -101,13 +103,13 @@ export default function LedgerTree() {
       {/* The ledger's name is the tree's first row, so the toolbar holds only the actions */}
       <Toolbar variant="dense" disableGutters sx={{ px: 1, gap: 0.5, minHeight: 36, justifyContent: 'flex-end' }}>
         <Tooltip title="New sub-ledger (Insert)">
-          <IconButton size="small" aria-label="New sub-ledger" onClick={newSubLedger}><Icon name="Add" /></IconButton>
+          <span><IconButton size="small" aria-label="New sub-ledger" onClick={newSubLedger} disabled={readOnly}><Icon name="Add" /></IconButton></span>
         </Tooltip>
         <Tooltip title="Rename (F2)">
-          <span><IconButton size="small" aria-label="Rename sub-ledger" onClick={rename} disabled={!isSub}><Icon name="Edit" /></IconButton></span>
+          <span><IconButton size="small" aria-label="Rename sub-ledger" onClick={rename} disabled={readOnly || !isSub}><Icon name="Edit" /></IconButton></span>
         </Tooltip>
         <Tooltip title="Delete (Delete)">
-          <span><IconButton size="small" aria-label="Delete sub-ledger" onClick={remove} disabled={!isSub}><Icon name="Delete" /></IconButton></span>
+          <span><IconButton size="small" aria-label="Delete sub-ledger" onClick={remove} disabled={readOnly || !isSub}><Icon name="Delete" /></IconButton></span>
         </Tooltip>
       </Toolbar>
       {error && <Typography role="alert" color="error" variant="body2" sx={{ px: 1 }}>{error}</Typography>}

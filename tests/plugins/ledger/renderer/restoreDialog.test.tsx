@@ -5,7 +5,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  LEDGER_CHANNELS, LEDGER_EVENTS, type BackupInfo, type RestorePlan, type RestoreRequest
+  LEDGER_CHANNELS, LEDGER_EVENTS, displayDate, type BackupInfo, type RestorePlan, type RestoreRequest
 } from '@tessera/ledger-api'
 import RestoreDialog, { when } from '../../../../plugins/ledger/src/renderer/RestoreDialog'
 import { createFakeRemote } from '../../../helpers/fakeBridge'
@@ -60,6 +60,16 @@ async function replaceText(field: HTMLElement, text: string) {
 }
 
 describe('the Restore dialog', () => {
+  it('says what an archive file holds: everything before its archive date', async () => {
+    const archive: BackupInfo = { path: `${FOLDER}/Archives/Home (archive before 2026-01-01).tesserabkp`, ledgerName: 'Home', ledgerId: 'L1', takenAt: '2026-11-10T17:00:00.000Z', kind: 'archive', archiveBefore: '2026-01-01', size: 600 * 1024 }
+    setup({ backups: [archive, HOME], plans: { [archive.path]: planFor(archive), [HOME.path]: planFor(HOME) } })
+    await screen.findByText(`In “${FOLDER}”, newest first.`, {}, LOADED)
+    expect(rows()[0].textContent).toBe(`“Home” — ${when(archive.takenAt)}Archive file: everything before ${displayDate('2026-01-01')} · 600 KB`)
+    // The date alone, whatever the time zone: 1 January, not 31 December
+    expect(displayDate('2026-01-01')).toMatch(/2026/)
+    expect(displayDate('2026-01-01')).not.toMatch(/2025|31/)
+  })
+
   it('lists the backups in the backup folder, newest first, with when, how and how big, and chooses the newest', async () => {
     setup({ backups: [HOME, OLD, BAD] })           // out of order: the dialog keeps its list newest first
     await screen.findByText(`In “${FOLDER}”, newest first.`, {}, LOADED)

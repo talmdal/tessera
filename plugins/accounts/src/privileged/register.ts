@@ -38,8 +38,9 @@ export class RegisterState {
     const keys = this.context.contextKeys
     keys.set(ACCOUNTS_CONTEXT_KEYS.registerAccount, account?.id)
     keys.set(ACCOUNTS_CONTEXT_KEYS.registerEditable, account !== undefined && !account.closed && this.session.current?.readOnly === false)
-    // Reconciling: the register's account has a reconciliation under way (a paused one doesn't count)
-    const reconciliation = account ? (await this.accounts.reconciliation.get(account.id).catch(() => undefined))?.reconciliation : undefined
+    // Reconciling: the register's account has a reconciliation under way (a paused one doesn't count, nor one in a
+    // ledger open read-only, which can't go on)
+    const reconciliation = account && this.session.current?.readOnly === false ? (await this.accounts.reconciliation.get(account.id).catch(() => undefined))?.reconciliation : undefined
     const active = reconciliation !== undefined && !reconciliation.paused
     keys.set(ACCOUNTS_CONTEXT_KEYS.reconciling, active ? account!.id : undefined)
     keys.set(ACCOUNTS_CONTEXT_KEYS.reconciler, active ? reconciliation!.reconcilerId : undefined)

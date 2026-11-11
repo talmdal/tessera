@@ -58,8 +58,13 @@ export interface Account {
   institution?: string
   /** As entered (ledgers are not encrypted in the first release); shown masked, •••• 1234. */
   accountNumber?: string
+  /** When the account opened. A historical fact: archiving never changes it. */
   openingDate: string
-  /** Minor units, signed like every balance: a liability's opening balance is negative. */
+  /**
+   * Minor units, signed like every balance: a liability's opening balance is negative. The opening balance of the
+   * current period: from `lastArchiveDate` when the account has been archived (what the archived transactions added up
+   * to is carried into it), else from `openingDate`. Every balance is built from it.
+   */
   openingBalance: number
   /** Minor units; credit cards and lines of credit. */
   creditLimit?: number
@@ -77,7 +82,38 @@ export interface Account {
   order: number
   notes?: string
   lastReconciled?: { date: string, balance: number, reconciliationId: string }
+  /**
+   * The last archival date (YYYY-MM-DD): the latest archive date that removed anything from this account, and so the
+   * start of its current period. Every transaction archived from it was dated before. Unset if none ever was. Set only
+   * by archiving: `createAccount` and `updateAccount` refuse it.
+   */
+  lastArchiveDate?: string
+  /** What archiving has taken out of the account, over every archive. Set with `lastArchiveDate`. */
+  archived?: AccountArchived
   rev: number
+}
+
+/** What archiving has taken out of an account. See docs/ledger-compaction-design.md, "What the account records". */
+export interface AccountArchived {
+  /** How many transactions have been archived from the account, in all. */
+  count: number
+  /** The balance the account opened with on `openingDate`, before the first archive carried anything into it. */
+  originalOpeningBalance: number
+  /** The highest numeric transaction number archived, so the next cheque number suggested still follows it. */
+  highestNumber?: number
+}
+
+/**
+ * What the accounts plugin's archive participant shares with the participants after it (`ArchiveRequest.earlier`,
+ * under `accounts`), so they can drop what they kept about what it removed.
+ */
+export interface AccountsArchived {
+  /** The transactions removed. */
+  transactionIds: string[]
+  /** The accounts they were removed from, each with its last archival date now. */
+  accounts: { id: string, lastArchiveDate: string }[]
+  /** Closed accounts removed, with nothing left in them. */
+  removedAccountIds: string[]
 }
 
 /** Uncleared, then E (the bank reported it), C (the user cleared it), R (reconciled). Void is a separate flag. */
@@ -199,7 +235,8 @@ export type CurrencyTotals = Record<string, number>
 
 /** The ledger tree with accounts placed in it. Sub-ledgers come from `ledger.session`. */
 export interface Chart {
-  ledger: { name: string }
+  /** `readOnly`: the ledger is open read-only (an archive file), so views offer nothing that changes it. */
+  ledger: { name: string, readOnly?: boolean }
   subLedgers: { id: string, parentId: string | null, name: string, order: number, totals: CurrencyTotals }[]
   accounts: AccountSummary[]
   /** Totals of every account in the ledger. */

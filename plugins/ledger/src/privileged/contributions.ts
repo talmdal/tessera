@@ -15,6 +15,7 @@ export const MENUS = [
   { kind: 'item', id: 'ledger.file.close', label: '&Close Ledger', parent: FILE_MENU, group: 'ledger.file', command: LEDGER_COMMANDS.close },
   { kind: 'item', id: 'ledger.file.backup', label: '&Back Up Ledger…', parent: FILE_MENU, group: 'ledger.backup', command: LEDGER_COMMANDS.backup },
   { kind: 'item', id: 'ledger.file.restore', label: '&Restore Ledger…', parent: FILE_MENU, group: 'ledger.backup', command: LEDGER_COMMANDS.restore },
+  { kind: 'item', id: 'ledger.file.archive', label: '&Archive Ledger…', parent: FILE_MENU, group: 'ledger.backup', command: LEDGER_COMMANDS.archive },
   { kind: 'item', id: 'ledger.file.delete', label: '&Delete Ledger…', parent: FILE_MENU, group: 'ledger.danger', command: LEDGER_COMMANDS.delete }
 ] as const
 
@@ -28,7 +29,8 @@ export const VIEWS = [
 export const DIALOGS: DialogContribution[] = [
   { id: LEDGER_DIALOGS.newLedger, title: 'New Ledger', module: './NewLedgerDialog', size: 'sm' },
   { id: LEDGER_DIALOGS.renameSubLedger, title: 'Rename Sub-Ledger', module: './RenameDialog', size: 'xs' },
-  { id: LEDGER_DIALOGS.restore, title: 'Restore Ledger', module: './RestoreDialog', size: 'md' }
+  { id: LEDGER_DIALOGS.restore, title: 'Restore Ledger', module: './RestoreDialog', size: 'md' },
+  { id: LEDGER_DIALOGS.archive, title: 'Archive Ledger', module: './ArchiveDialog', size: 'md' }
 ]
 
 export const BAR_ITEMS = [
@@ -40,6 +42,12 @@ export const BAR_ITEMS = [
     // "Backing up “Home”… 45%", then "Backed up “Home” at 10:14" for a minute; nothing for work that is over quickly
     kind: 'text', id: 'ledger.status.activity', slot: 'shell.bottom', align: 'start', order: 1, icon: 'Save',
     text: `{${LEDGER_CONTEXT_KEYS.activity}}`, when: LEDGER_CONTEXT_KEYS.activity, tooltip: 'What the ledger is doing'
+  },
+  {
+    // While an archive file is open for viewing: what it is, so nobody takes it for the ledger itself
+    kind: 'text', id: 'ledger.status.archive', slot: 'shell.bottom', align: 'start', order: 0.5, icon: 'Info',
+    text: `{${LEDGER_CONTEXT_KEYS.archive}}`, when: LEDGER_CONTEXT_KEYS.isArchive,
+    tooltip: 'An archive file, open to look at: it can’t be changed. Close it, or open the ledger, to go back.'
   },
   {
     // Until a backup of that ledger succeeds, at the next start too; clicking it opens the Backups page

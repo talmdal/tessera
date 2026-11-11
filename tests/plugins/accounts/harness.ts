@@ -10,13 +10,23 @@ export function chequing(over: Partial<AccountInput> = {}): AccountInput {
   return { name: 'Chequing', type: 'chequing', subLedgerId: null, currency: 'CAD', openingDate: '2026-01-01', openingBalance: 100000, ...over }
 }
 
-export async function setupAccounts(options: { open?: boolean } = { open: true }) {
-  const env = setupSession()
+export interface AccountsSetup {
+  /** Default true: a ledger is created and open. */
+  open?: boolean
+  /** The session's clock (an archive can't be dated after its today). */
+  now?: () => Date
+  /** How the service lets the event loop turn during an archive. */
+  turn?: () => Promise<void>
+}
+
+export async function setupAccounts(options: AccountsSetup = {}) {
+  const env = setupSession(options.now ? { now: options.now } : {})
   env.extensions.contribute('accounts', LEDGER_SCHEMA_POINT, 'accounts', ACCOUNTS_SCHEMA)
   env.services.provide('accounts', ACCOUNTS_MIGRATOR_SERVICE, accountsMigrator)
   const log = logger()
-  const service = new AccountsServiceImpl({ session: env.session, log, today: () => '2026-11-04' })
+  const service = new AccountsServiceImpl({ session: env.session, log, today: () => '2026-11-04', ...(options.turn && { turn: options.turn }) })
   env.session.participate('accounts', service.participant)
+  env.session.participateInArchive('accounts', service.archiver)
   const changes: AccountsChange[] = []
   service.onDidChange(change => changes.push(change))
   if (options.open !== false) await env.created()

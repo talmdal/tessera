@@ -1,6 +1,6 @@
 // The `ledger.session` service and the `ledger.schema` extension point: what other plugins build on.
 import type { CollectionSchema, Database, Disposable, Event, Transaction as StorageTransaction } from '@tessera/types'
-import type { LedgerChange, LedgerInfo, LedgerTree, SubLedger } from './model'
+import type { LedgerArchived, LedgerChange, LedgerInfo, LedgerTree, SubLedger } from './model'
 
 /**
  * The `ledger.session` service: the open ledger file and its sub-ledger tree. One ledger is open at a time.
@@ -50,6 +50,14 @@ export interface LedgerSession {
   participate(contributor: string, participant: SubLedgerParticipant): Disposable
 
   /**
+   * Registers a plugin whose data an archive removes (File › Archive Ledger…). Participants run in the order they
+   * joined, which follows activation, so a plugin runs after the plugins it requires. Dispose to stop participating.
+   */
+  participateInArchive(contributor: string, participant: ArchiveParticipant): Disposable
+  /** After an archive has been committed: the archive date and the archive file. */
+  readonly onDidArchive: Event<LedgerArchived>
+
+  /**
    * Says that `contributor` shows the ledger tree in a view of its own (with its items in it), so the ledger's own
    * Ledger panel hides while any registration is held (context key `ledger.hasNavigator`). Push the disposable onto
    * your subscriptions: if your plugin goes away, the panel comes back.
@@ -84,6 +92,69 @@ export interface SubLedgerParticipant {
    * `tx` is scoped to the participant's own collections. Throwing rolls the whole delete back.
    */
   reparent(tx: StorageTransaction, from: string, to: string | null): Promise<void>
+}
+
+/**
+ * A plugin whose data an archive can remove. The ledger knows nothing about what is archived: it makes the archive
+ * file, then runs every participant's `archive` in one storage transaction, so the archive happens whole or not at
+ * all. See docs/ledger-compaction-design.md, "The participant contract".
+ */
+export interface ArchiveParticipant {
+  /**
+   * What archiving before `before` would remove from this plugin's data, for the Archive dialog. Reads only, and may
+   * leave out what depends on other participants' choices. Undefined when there is nothing to say.
+   */
+  describe(before: string, options: Readonly<Record<string, boolean>>): Promise<ArchiveDescription | undefined>
+  /**
+   * Inside the archiving storage transaction, after the archive file has been made: removes what is no longer needed
+   * from before `request.before`, and adjusts what stays so nothing the user sees changes. `tx` is limited to the
+   * participant's own collections. Throwing rolls the whole archive back, for every participant. What it returns in
+   * `shared` is given to the participants after it, in `request.earlier`.
+   */
+  archive(tx: StorageTransaction, request: ArchiveRequest): Promise<ArchiveResult>
+  /** After the archive has been committed: announce changes, refresh views. Not called if it rolled back. */
+  committed?(): void
+}
+
+export interface ArchiveRequest {
+  /** YYYY-MM-DD: what occurred before this date may be archived. */
+  before: string
+  /** The user's choice for every option the participants offered (`ArchiveDescription.options`), by option id. */
+  options: Readonly<Record<string, boolean>>
+  /** What the participants before this one shared, by contributor id, in the order they ran. */
+  earlier: ReadonlyMap<string, unknown>
+}
+
+export interface ArchiveDescription {
+  /** How many records this removes, or would remove. An archive needs at least one, among all the participants. */
+  count: number
+  /** One line for the user: "1,204 transactions from 6 accounts". */
+  summary: string
+  /** Why something stays: "“Old Visa” is closed, but stays: its balance isn’t zero." Shown under the summary. */
+  notes?: string[]
+  /** What the user may want to deal with before archiving, shown as a warning. It doesn't stop the archive. */
+  warnings?: ArchiveWarning[]
+  /** Choices the participant offers, shown as check boxes; their values come back in `ArchiveRequest.options`. */
+  options?: ArchiveOption[]
+}
+
+export interface ArchiveWarning {
+  message: string
+  /** Short lines under the message: "Chequing 9 · Visa 4". */
+  details?: string[]
+}
+
+export interface ArchiveOption {
+  /** `<contributor>.<name>`, like every contribution id. */
+  id: string
+  /** "Remove closed accounts with nothing left: “Old Visa”, “ING Savings”". */
+  label: string
+  default: boolean
+}
+
+/** What a participant's `archive` did, and what it passes to the participants after it. */
+export interface ArchiveResult extends ArchiveDescription {
+  shared?: unknown
 }
 
 /** A `ledger.schema` contribution: what a domain plugin stores in every ledger. */

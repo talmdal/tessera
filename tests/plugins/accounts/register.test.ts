@@ -48,7 +48,7 @@ async function setup() {
   const key = (k: string) => runtime.contextKeys.get(k)
   const settle = () => new Promise(resolve => setTimeout(resolve, 0))
   const named = (name: string) => events.filter(e => e.name === name).map(e => e.data)
-  return { runtime, log, prompts, answers, reveals, events, accounts, chq, sav, ask, run, key, settle, named }
+  return { runtime, log, prompts, answers, reveals, events, accounts, chq, sav, ask, run, key, settle, named, driver, files }
 }
 
 describe('opening a register', () => {
@@ -296,6 +296,25 @@ describe('reconciling with a statement', () => {
       .toMatchObject({ ok: false, error: { code: 'INVALID', field: 'ids' } })
     expect(await ask(ACCOUNTS_CHANNELS.patchTransaction, { accountId: chq.id, id: metro.id }))
       .toMatchObject({ ok: false, error: { code: 'INVALID' } })
+  })
+
+  it('isn\'t under way in a ledger open read-only, even an archive file saved in the middle of one', async () => {
+    const { run, prompts, chq, key, driver, files } = await reconciling()
+    prompts.show.mockResolvedValueOnce({ statementDate: '2026-10-31', startingBalance: 100000, statementBalance: 86975 })
+    await run(C.reconcileStatement)
+    expect(key(K.reconciling)).toBe(chq.id)
+    // An archive file of the ledger as it is now, with its reconciliation under way, opened to look at
+    const archive = file('Archives/Home (archive before 2026-10-01).tesserabkp')
+    const live = driver.databases.get(file('Home.tessera'))!
+    driver.databases.set(archive, {
+      collections: live.collections,
+      meta: new Map([...live.meta, ['backup.takenAt', '2026-11-04T12:00:00.000Z'], ['backup.kind', 'archive'], ['backup.archiveBefore', '2026-10-01']] as never)
+    })
+    files.showOpenDialog.mockResolvedValueOnce(archive)
+    await run(LEDGER_COMMANDS.open)
+    await run(C.openRegister, { id: chq.id })
+
+    expect([key(K.registerAccount), key(K.registerEditable), key(K.reconciling), key(K.reconciler)]).toEqual([chq.id, false, undefined, undefined])
   })
 
   it('won\'t reconcile a closed account', async () => {

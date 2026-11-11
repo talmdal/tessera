@@ -1281,6 +1281,16 @@ Follow the ledger with `session.onDidChange` (`opened`, `closed`) and flush anyt
 `session.onWillClose`, which runs while the ledger can still be written. Menus follow the context keys
 `ledger.isOpen`, `ledger.isReadOnly` and `ledger.name`.
 
+**A ledger can open read-only.** An archive file (File › Archive Ledger…'s copy) opens read-only for viewing, with
+`session.current.readOnly` true and `session.current.archive` set, and `ledger.isReadOnly` and `ledger.isArchive` as
+context keys. Every write to it fails with `READ_ONLY`. So a plugin that writes when a ledger opens (tidying up after
+an interrupted job, say) checks `session.current?.readOnly` first, as the import plugin does, and a command that
+writes has `!ledger.isReadOnly` in its enablement. **Views must follow it too:** a disabled command doesn't grey out a
+view's own buttons, context menu or keys. Give the view the flag with what it loads (the ledger's tree has
+`ledger.readOnly`; the accounts plugin adds `readOnly` to its chart and register view) and disable what would change
+anything, as the register, the Accounts navigator and the Ledger panel do. The contributor's database refuses
+`snapshot` and `compact`: copying and compacting the ledger are the ledger's job.
+
 **Long jobs take the ledger's operation.** A job that runs for a while and shouldn't overlap a backup, an import or
 the ledger closing (a year-end close, a sync) wraps itself in `session.beginOperation(label)`:
 
@@ -1310,6 +1320,53 @@ context.subscriptions.push(session.participate('budget', {
   }
 }))
 ```
+
+**4. If you keep data about transactions, take part in archives.** *File › Archive Ledger…* keeps a copy of the
+ledger as an archive file, then removes the settled transactions before a date the user chooses. The `accounts`
+plugin carries their total into each account's opening balance, so no balance changes. A plugin that keeps anything
+about transactions (a budget's actuals, a report's cache, an importer's records) removes what it kept about the
+removed ones, in the same storage transaction:
+
+```ts
+import { type ArchiveParticipant } from '@tessera/ledger-api'
+import { ACCOUNTS_PLUGIN_ID, type AccountsArchived } from '@tessera/accounts-api'
+
+context.subscriptions.push(session.participateInArchive('budget', {
+  // For the Archive dialog: reads only. Say nothing (undefined) when you remove nothing
+  describe: async before => undefined,
+  archive: async (tx, { before, earlier }) => {
+    const archived = earlier.get(ACCOUNTS_PLUGIN_ID) as AccountsArchived | undefined
+    const gone = new Set(archived?.transactionIds ?? [])
+    const actuals = tx.collection('budget.actuals')
+    let count = 0
+    for (const actual of await actuals.find()) {
+      if (gone.has(actual.transactionId)) { await actuals.deleteOne({ id: actual.id }); count++ }
+    }
+    return { count, summary: `${count} budget actuals` }
+  },
+  committed: () => refreshMyViews()           // only once the archive is committed; never after a rollback
+} satisfies ArchiveParticipant))
+```
+
+- **Participants run in the order they joined, which follows activation.** A plugin that requires `accounts.service`
+  runs after `accounts`, and finds what it removed in `earlier`: the transactions, the accounts they came from
+  with their new `lastArchiveDate`, and the closed accounts it removed (`AccountsArchived`).
+- **`tx` reaches only your collections,** as in a sub-ledger delete. Throwing rolls back the whole archive, every
+  participant's part of it, and the user is told nothing was archived. Return `count` and `summary`. Anything in
+  `shared` is passed to the participants after you.
+- **An archive can be large.** Delete by id (`deleteOne({ id })`), never with `$in` over a long list of ids: the
+  storage kit compares every document with every id in the list. In a long loop, let the event loop turn now and then
+  (`await new Promise(resolve => setImmediate(resolve))`), as `accounts` does every 2,000 writes, so the window stays
+  responsive.
+- **A plugin that keeps transaction ids and doesn't take part** keeps its data, but its references to archived
+  transactions go stale, just as they would after the user deleted those transactions.
+- **What `describe` returns is what the Archive dialog shows:** the `summary` in "… will be archived.", your
+  `notes` under it, each `warning` (with its `details`) in a warning box, and each `option` as a check box, whose
+  choice comes back in `options` by its id (start ids with your plugin's id). The `summary` your `archive` returns is
+  listed in the message afterwards. Give dates in these texts with `displayDate(date)` from `@tessera/ledger-api`
+  ("1 Jan 2026", in the user's format); keep YYYY-MM-DD for file names and logs.
+
+The design is [ledger-compaction-design.md](ledger-compaction-design.md#the-participant-contract).
 
 **Errors.** The session throws a `LedgerError` with a `code` (`NO_LEDGER`, `DUPLICATE_NAME`, `CYCLE`,
 `UNSUPPORTED_FILE`…). Test for it with `isLedgerError(err)`, not `instanceof`: each plugin bundles its own copy of

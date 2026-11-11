@@ -13,7 +13,9 @@ export const LEDGER_OWN_COLLECTIONS: CollectionSchema[] = [
       // Sibling names are unique ignoring case; top-level sub-ledgers store parentId: null, which counts as a value
       { name: 'uniqueName', fields: ['parentId', 'nameKey'], unique: true }
     ]
-  }
+  },
+  // One record per archive (File › Archive Ledger…), written in the archive's own storage transaction
+  { name: LEDGER_COLLECTIONS.archives, indexes: [{ name: 'byArchivedAt', fields: ['archivedAt'] }] }
 ]
 
 const SERVICE_ID = /^[A-Za-z][\w-]*(\.[\w-]+)+$/

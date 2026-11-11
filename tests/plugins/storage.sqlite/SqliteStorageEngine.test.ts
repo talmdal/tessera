@@ -216,3 +216,83 @@ describe('sqlite snapshots', () => {
     await engine.closeAll()
   })
 })
+
+describe('sqlite compaction', () => {
+  const PAYLOAD = 'x'.repeat(1000)
+  /** A database of 3,000 documents of about 1 KB, then 90% of them deleted: most of the file is free pages. */
+  async function mostlyDeleted(engine: KitStorageEngine) {
+    const db = await engine.open({ name: 'big' })
+    const docs = db.collection('docs')
+    await db.transaction(async tx => {
+      await tx.collection('docs').insertMany(Array.from({ length: 3000 }, (_, i) => ({ id: `d${String(i).padStart(4, '0')}`, i, payload: PAYLOAD })))
+    })
+    await db.transaction(async tx => {
+      for (let i = 0; i < 3000; i++) if (i % 10 !== 0) await tx.collection('docs').deleteOne({ id: `d${String(i).padStart(4, '0')}` })
+    })
+    return { db, docs }
+  }
+  const size = (file: string) => fs.existsSync(file) ? fs.statSync(file).size : 0
+
+  it('shrinks the file to the size of a fresh copy of what is left, and empties the -wal', async () => {
+    const directory = tempDir()
+    const engine = engineFor(directory)
+    const { db, docs } = await mostlyDeleted(engine)
+    const file = path.join(directory, 'big.sqlite')
+    const before = size(file) + size(file + '-wal')
+    // What a new database holding only what is left takes
+    const ideal = path.join(directory, 'ideal.sqlite')
+    const reader = new DatabaseSync(file, { readOnly: true })
+    reader.exec(`VACUUM INTO '${ideal}'`)
+    reader.close()
+
+    await db.compact()
+
+    expect(size(file)).toBe(size(ideal))
+    expect(size(file + '-wal')).toBe(0)
+    expect(size(file)).toBeLessThan(before / 4)
+    // The kit's own connection carries on, and what it writes is there for the next reader
+    await docs.insert({ id: 'after', payload: 'new' })
+    await engine.closeAll()
+    const check = new DatabaseSync(file, { readOnly: true })
+    expect((check.prepare('SELECT COUNT(*) AS n FROM tessera_documents').get() as { n: number }).n).toBe(301)
+    expect((check.prepare('PRAGMA integrity_check').get() as { integrity_check: string }).integrity_check).toBe('ok')
+    check.close()
+  })
+
+  it('needs room for twice what is left: is skipped with less, saying how much, and leaves the file as it was', async () => {
+    const directory = tempDir()
+    const asked: string[] = []
+    let free = 0
+    const engine = new KitStorageEngine(sqliteDriver({ directory, freeSpace: async folder => { asked.push(folder); return free } }))
+    const { db, docs } = await mostlyDeleted(engine)
+    const file = path.join(directory, 'big.sqlite')
+    // What is left, in pages in use, as another connection sees it
+    const reader = new DatabaseSync(file, { readOnly: true })
+    const pragma = (name: string) => Number((reader.prepare(`PRAGMA ${name}`).get() as Record<string, unknown>)[name])
+    const live = pragma('page_size') * (pragma('page_count') - pragma('freelist_count'))
+    reader.close()
+    const before = size(file)
+
+    free = 2 * live - 1
+    const err = await db.compact().then(() => undefined, e => e as { code: string, message: string })
+
+    expect(err).toMatchObject({ code: 'IO', message: expect.stringMatching(/^there isn’t enough free space on the disk to compact it \(about \d+ MB is needed, and \d+ MB is free\)$/) })
+    expect(asked).toEqual([directory])
+    expect(size(file)).toBe(before)
+    expect(await docs.count()).toBe(300)
+    await docs.insert({ id: 'still', payload: 'writable' })
+
+    free = 2 * live + 64 * 1024       // room enough, with the page the insert may have added
+    await db.compact()
+    expect(size(file)).toBeLessThan(before)
+    await engine.closeAll()
+  })
+
+  it('goes ahead when the free space can\'t be known', async () => {
+    const directory = tempDir()
+    const engine = new KitStorageEngine(sqliteDriver({ directory, freeSpace: async () => undefined }))
+    const { db } = await mostlyDeleted(engine)
+    await expect(db.compact()).resolves.toBeUndefined()
+    await engine.closeAll()
+  })
+})

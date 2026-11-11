@@ -2,6 +2,17 @@
 // session, the dialogs and other plugins (the accounts navigator) apply exactly the same rules.
 import type { SubLedger } from './model'
 
+/**
+ * A calendar date (YYYY-MM-DD) as people read it, in their own locale: "Jan 1, 2026", "1 Jan 2026". It is the same
+ * day in every time zone. Messages and dialogs show dates this way; file names and logs keep YYYY-MM-DD.
+ */
+export const displayDate = (date: string): string =>
+  new Date(`${date}T00:00:00Z`).toLocaleDateString([], { dateStyle: 'medium', timeZone: 'UTC' })
+
+/** A file's size as people read it: "600 KB", "7.6 MB". */
+export const displaySize = (bytes: number): string =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+
 /** The longest a sub-ledger's name may be. */
 export const LEDGER_NAME_MAX_LENGTH = 100
 

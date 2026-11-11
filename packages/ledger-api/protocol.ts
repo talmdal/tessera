@@ -1,7 +1,8 @@
 // Every name the ledger plugin publishes: ids, commands, context keys, IPC channels, events, views and dialogs.
 // Both halves of the plugin, other plugins and the tests use these constants, never the strings.
 import { channelFor } from '@tessera/types'
-import type { LedgerInfo, LedgerTree } from './model'
+import type { ArchiveOutcome, LedgerInfo, LedgerTree } from './model'
+import type { ArchiveDescription } from './service'
 
 export const LEDGER_PLUGIN_ID = 'ledger'
 
@@ -17,7 +18,7 @@ export const LEDGER_FILE_EXTENSION = '.tessera'
 /** The filter for open and save dialogs. */
 export const LEDGER_FILE_FILTER = { name: 'Tessera ledger', extensions: [LEDGER_FILE_EXTENSION.slice(1)] }
 
-/** Version of the ledger's own format (its meta keys and `ledger.subledgers`). */
+/** Version of the ledger's own format (its meta keys, `ledger.subledgers` and `ledger.archives`). */
 export const LEDGER_FORMAT_VERSION = 1
 
 /** Keys in the database's `meta`. */
@@ -51,17 +52,29 @@ export const LEDGER_BACKUP_FILTER = { name: 'Tessera backup', extensions: [LEDGE
 export const LEDGER_BACKUP_META = {
   /** ISO 8601, UTC. */
   takenAt: 'backup.takenAt',
-  /** `'manual'` (File › Back Up Ledger…) or `'auto'` (when the ledger closed). */
+  /** A `BackupKind`. */
   kind: 'backup.kind',
   /** The ledger's name when it was backed up. */
   ledgerName: 'backup.ledgerName',
   /** The ledger's absolute path when it was backed up. */
   ledgerPath: 'backup.ledgerPath',
   /** `ledger <LEDGER_API_VERSION>`, as `ledger.createdWith`. */
-  takenWith: 'backup.takenWith'
+  takenWith: 'backup.takenWith',
+  /** On an archive file (`kind: 'archive'`): the archive date, YYYY-MM-DD. What occurred before it was archived. */
+  archiveBefore: 'backup.archiveBefore'
 } as const
 
-export type BackupKind = 'manual' | 'auto'
+/**
+ * `'manual'` (File › Back Up Ledger…), `'auto'` (when the ledger closed), or `'archive'`: the archive file File ›
+ * Archive Ledger… keeps before it removes anything. An archive is never trimmed, and opens read-only.
+ */
+export type BackupKind = 'manual' | 'auto' | 'archive'
+
+/** The filter for opening an archive file: a backup of kind `archive`, with the backup's extension. */
+export const LEDGER_ARCHIVE_FILTER = { name: 'Tessera archive', extensions: [LEDGER_BACKUP_EXTENSION.slice(1)] }
+
+/** The folder, inside the default backup folder, where archive files go. Retention never looks inside it. */
+export const LEDGER_ARCHIVES_FOLDER = 'Archives'
 
 /** The ledger's backup settings: a namespace of their own. */
 export const LEDGER_BACKUP_SETTINGS = 'ledger.backup'
@@ -71,7 +84,9 @@ export const LEDGER_BACKUP_SETTINGS_PAGE = 'ledger.backup.settings'
 
 /** The ledger's own collections, part of the ledger format rather than a schema contribution. */
 export const LEDGER_COLLECTIONS = {
-  subLedgers: 'ledger.subledgers'
+  subLedgers: 'ledger.subledgers',
+  /** `ArchiveRecord`s: one per archive, written with it. Declared, so opening a ledger creates it: no migration. */
+  archives: 'ledger.archives'
 } as const
 
 export const LEDGER_COMMANDS = {
@@ -95,6 +110,14 @@ export const LEDGER_COMMANDS = {
    * ledger, or undefined.
    */
   restore: 'ledger.restore',
+  /**
+   * File › Archive Ledger…: the Archive dialog, which keeps a copy of the ledger as an archive file, then removes the
+   * transactions no longer required before the date chosen. Argument (optional): `ArchiveLedgerArgs`, which skips the
+   * dialog. Resolves what the archive did (`ArchiveOutcome`), or undefined. See docs/ledger-compaction-design.md.
+   */
+  archive: 'ledger.archive',
+  /** Opens the Options dialog at the Archiving page. */
+  archiveSettings: 'ledger.archiveSettings',
   /** Opens the Options dialog at the Backups page (the "Last backup failed" status item runs it). */
   backupSettings: 'ledger.backupSettings',
   /** Argument: `{ id }`. No menu item of its own; the accounts navigator and menu run it. */
@@ -138,7 +161,11 @@ export const LEDGER_CONTEXT_KEYS = {
    * Set while the last automatic backup of a ledger failed or was skipped, until a backup of it succeeds: what
    * happened, for the "Last backup failed" status item's tooltip. Unset otherwise.
    */
-  backupProblem: 'ledger.backupProblem'
+  backupProblem: 'ledger.backupProblem',
+  /** An archive file is open, read-only, for viewing (`LedgerInfo.archive`). */
+  isArchive: 'ledger.isArchive',
+  /** While one is: what it is, for the status bar: "Archive of “Home”, before 2026-01-01 · read-only". */
+  archive: 'ledger.archive'
 } as const
 
 const channel = (event: string) => channelFor(LEDGER_PLUGIN_ID, event)
@@ -171,7 +198,12 @@ export const LEDGER_CHANNELS = {
   /** `{ defaultPath }` → `string | undefined`: a folder, chosen in the folder dialog. */
   restoreFolder: channel('restore.folder'),
   /** `RestoreRequest` → `Result<RestoreOutcome>`: restores, pushing `restoreProgress` meanwhile. */
-  restoreRun: channel('restore.run')
+  restoreRun: channel('restore.run'),
+  // The Archive dialog's requests. They answer only while File › Archive Ledger… has the dialog open.
+  /** `ArchiveRunRequest` → `Result<ArchivePreview>`: what archiving before the date would do. */
+  archivePreview: channel('archive.preview'),
+  /** `ArchiveRunRequest` → `Result<ArchiveOutcome>`: archives, pushing `archiveProgress` meanwhile. */
+  archiveRun: channel('archive.run')
 } as const
 
 /** Push events, main → renderer. Each carries the whole new value, so a repeat is harmless. */
@@ -183,7 +215,9 @@ export const LEDGER_EVENTS = {
   /** `RecentLedger[]`, with `exists` filled in. */
   recent: channel('recent.changed'),
   /** `RestoreProgress`, while `restoreRun` works. */
-  restoreProgress: channel('restore.progress')
+  restoreProgress: channel('restore.progress'),
+  /** `ArchiveProgress`, while `archiveRun` works. */
+  archiveProgress: channel('archive.progress')
 } as const
 
 export const LEDGER_VIEWS = {
@@ -203,7 +237,9 @@ export const LEDGER_DIALOGS = {
   /** Input `RenameSubLedgerDialogInput`, result `{ id }`. */
   renameSubLedger: 'ledger.dialog.rename',
   /** Input `RestoreDialogInput`, result `RestoreDialogResult`. */
-  restore: 'ledger.dialog.restore'
+  restore: 'ledger.dialog.restore',
+  /** Input `ArchiveDialogInput`, result `ArchiveOutcome` (undefined if cancelled). */
+  archive: 'ledger.dialog.archive'
 } as const
 
 export interface NewLedgerDialogInput {
@@ -237,6 +273,8 @@ export interface BackupInfo {
   takenAt: string
   /** `'ledger'`: a ledger file, not a backup (a copy made before an upgrade, or by hand). */
   kind: BackupKind | 'ledger'
+  /** An archive file's archive date, YYYY-MM-DD. */
+  archiveBefore?: string
   /** Bytes. */
   size: number
   /** Why it can't be restored, when it can't: saved by a newer Tessera, not a ledger, the open ledger itself… */
@@ -282,6 +320,60 @@ export type RestoreRequest =
   | { backup: string, mode: 'new', folder: string, name: string }
   /** `keepAs`: the name the current file is kept under (without the extension); required when there is one. */
   | { backup: string, mode: 'inPlace', keepAs?: string }
+
+/** Argument of `ledger.archive`: archive before `before` without the dialog, with these options (default: theirs). */
+export interface ArchiveLedgerArgs {
+  before: string
+  options?: Record<string, boolean>
+}
+
+/** What the Archive dialog opens with. */
+export interface ArchiveDialogInput {
+  ledgerName: string
+  /** YYYY-MM-DD, from the Archiving page (`suggestedArchiveDate`). */
+  suggestedBefore: string
+  /** YYYY-MM-DD: the archive date can't be later. */
+  today: string
+  /** The ledger's last archive, if it has one. */
+  lastArchive?: { before: string, archivedAt: string }
+}
+
+/** What the Archive dialog asks about, and runs. */
+export interface ArchiveRunRequest {
+  before: string
+  /** The value of each option the participants offered; one not given takes its default. */
+  options?: Record<string, boolean>
+}
+
+/** One participant's part of the preview. */
+export interface ArchivePreviewPart extends ArchiveDescription {
+  contributor: string
+}
+
+/** What archiving before a date would do, for the Archive dialog. */
+export interface ArchivePreview {
+  before: string
+  parts: ArchivePreviewPart[]
+  /** Records removed, over every participant: nothing to archive when 0. */
+  count: number
+  /** The archive file it would make: its name (without the extension) and folder. */
+  copy: { name: string, folder: string }
+}
+
+/** A step of an archive, and how far the copy has got (0 to 1) when that is known. */
+export interface ArchiveProgress {
+  step: 'copying' | 'checking' | 'removing' | 'compacting'
+  done?: number
+}
+
+/** What the Archive dialog closes with: what the archive did. */
+export type ArchiveDialogResult = ArchiveOutcome
+
+/** The ledger's archive settings (the Archiving page): a namespace of their own. */
+export const LEDGER_ARCHIVE_SETTINGS = 'ledger.archive'
+
+/** The Archiving page of the Options dialog (under Ledger). */
+export const LEDGER_ARCHIVE_SETTINGS_PAGE = 'ledger.archive.settings'
 
 /** A step of a restore, and how far a copy has got (0 to 1) when that is known. */
 export interface RestoreProgress {

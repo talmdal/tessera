@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { KitStorageEngine, memoryDriver } from '@tessera/storage-kit'
 import { SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
 import {
-  LEDGER_BACKUP_SETTINGS_PAGE, LEDGER_CHANNELS, LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_DIALOGS, LEDGER_EVENTS, LEDGER_SESSION_SERVICE, LEDGER_SETTINGS_PAGE, LEDGER_VIEWS,
+  LEDGER_ARCHIVE_SETTINGS_PAGE, LEDGER_BACKUP_SETTINGS_PAGE, LEDGER_CHANNELS, LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_DIALOGS, LEDGER_EVENTS, LEDGER_SESSION_SERVICE, LEDGER_SETTINGS_PAGE, LEDGER_VIEWS,
   type LedgerSession
 } from '@tessera/ledger-api'
 import { createPluginContext, createPluginRuntime } from '../../../core/plugins/PluginContext'
@@ -70,7 +70,7 @@ describe('the ledger plugin: contributions', () => {
     const menus = resolveMenus([{ kind: 'menu', id: 'shell.file', label: '&File' }, ...impls('shell.menus').map(c => c.impl)])
     expect(menus.diagnostics).toEqual([])
     expect(menus.menus[0].children.filter(n => n.type === 'item').map(n => (n as any).label))
-      .toEqual(['&New Ledger…', '&Open Ledger…', '&Close Ledger', '&Back Up Ledger…', '&Restore Ledger…', '&Delete Ledger…'])
+      .toEqual(['&New Ledger…', '&Open Ledger…', '&Close Ledger', '&Back Up Ledger…', '&Restore Ledger…', '&Archive Ledger…', '&Delete Ledger…'])
 
     const views = resolveViews(impls('shell.views'), () => 'tessera-plugin://ledger/remoteEntry.js')
     expect(views.diagnostics).toEqual([])
@@ -80,24 +80,27 @@ describe('the ledger plugin: contributions', () => {
 
     const dialogs = resolveDialogs(impls('shell.dialogs'), () => 'tessera-plugin://ledger/remoteEntry.js')
     expect(dialogs.diagnostics).toEqual([])
-    expect(dialogs.dialogs.map(d => d.id)).toEqual([LEDGER_DIALOGS.newLedger, LEDGER_DIALOGS.renameSubLedger, LEDGER_DIALOGS.restore])
+    expect(dialogs.dialogs.map(d => d.id)).toEqual([LEDGER_DIALOGS.newLedger, LEDGER_DIALOGS.renameSubLedger, LEDGER_DIALOGS.restore, LEDGER_DIALOGS.archive])
 
     const items = resolveBarItems(impls('shell.bar.items'))
     expect(items.diagnostics).toEqual([])
     expect(items.items.map(item => [item.id, (item as { text?: string }).text, item.when])).toEqual([
       ['ledger.status.name', 'Ledger: {ledger.name}', 'ledger.isOpen'],
+      ['ledger.status.archive', '{ledger.archive}', 'ledger.isArchive'],
       ['ledger.status.activity', '{ledger.activity}', 'ledger.activity'],
       ['ledger.status.backupProblem', 'Last backup failed', 'ledger.backupProblem']
     ])
     // The problem is in the tooltip; clicking opens the Backups page
-    expect(items.items[2]).toMatchObject({ tooltip: '{ledger.backupProblem}', command: 'ledger.backupSettings', icon: 'Warning' })
+    const item = (id: string) => items.items.find(i => i.id === id)
+    expect(item('ledger.status.backupProblem')).toMatchObject({ tooltip: '{ledger.backupProblem}', command: 'ledger.backupSettings', icon: 'Warning' })
   })
 
   it('provides exactly the LedgerSession contract, not the implementation', async () => {
     const { session } = await setup()
     expect(Object.keys(session).sort()).toEqual([
       'beginOperation', 'close', 'create', 'createSubLedger', 'current', 'database', 'delete', 'deleteSubLedger', 'moveSubLedger',
-      'onDidChange', 'onDidChangeTree', 'onWillClose', 'open', 'operation', 'participate', 'registerNavigator', 'renameSubLedger', 'tree'
+      'onDidArchive', 'onDidChange', 'onDidChangeTree', 'onWillClose', 'open', 'operation', 'participate', 'participateInArchive',
+      'registerNavigator', 'renameSubLedger', 'tree'
     ])
   })
 
@@ -345,10 +348,13 @@ describe('the ledger plugin: settings', () => {
     expect(pages.map(p => [p.id, p.parent, p.settings, p.fields?.map(f => f.key)])).toEqual([
       [LEDGER_SETTINGS_PAGE, undefined, 'ledger', ['reopenLast', 'recentLimit']],
       // Backups, under Ledger: a namespace of its own
-      [LEDGER_BACKUP_SETTINGS_PAGE, LEDGER_SETTINGS_PAGE, 'ledger.backup', ['folder', 'onClose', 'trim', 'retentionDays', 'keepAtLeast']]
+      [LEDGER_BACKUP_SETTINGS_PAGE, LEDGER_SETTINGS_PAGE, 'ledger.backup', ['folder', 'onClose', 'trim', 'retentionDays', 'keepAtLeast']],
+      // Archiving, under Ledger: the date Archive Ledger… suggests
+      [LEDGER_ARCHIVE_SETTINGS_PAGE, LEDGER_SETTINGS_PAGE, 'ledger.archive', ['yearStartMonth', 'yearStartDay', 'keepYears']]
     ])
     expect(runtime.settings.snapshot('ledger')?.value).toEqual({ reopenLast: true, recentLimit: 10 })
     expect(runtime.settings.snapshot('ledger.backup')?.value).toEqual({ folder: '', onClose: true, trim: true, retentionDays: 30, keepAtLeast: 5 })
+    expect(runtime.settings.snapshot('ledger.archive')?.value).toEqual({ yearStartMonth: 1, yearStartDay: 1, keepYears: 0 })
     // An empty folder is the default one, which the field shows
     expect(pages[1].fields?.[0]).toMatchObject({ kind: 'folder', placeholder: path.join(DIR, 'Documents', 'Tessera Backups') })
     expect(log.warn).not.toHaveBeenCalled()

@@ -439,7 +439,7 @@ only** (`snapshot`'s `meta` option). The live ledger never gains them:
 | Key | Value | Used by |
 |---|---|---|
 | `backup.takenAt` | ISO 8601, UTC | Retention's age; the restore dialog |
-| `backup.kind` | `'manual'` (Back Up Ledger…) or `'auto'` (when the ledger closed) | The restore dialog ("taken automatically when Tessera closed") |
+| `backup.kind` | `'manual'` (Back Up Ledger…) or `'auto'` (when the ledger closed); and, since archiving, `'archive'`: the archive file File › Archive Ledger… keeps, with `backup.archiveBefore` ([ledger-compaction-design.md](ledger-compaction-design.md#the-copy-a-backup-of-its-own-kind)) | The restore dialog ("taken automatically when Tessera closed") |
 | `backup.ledgerName` | `Home` | The restore dialog, and the suggested name when restoring as new |
 | `backup.ledgerPath` | The ledger's absolute path when backed up | Finding its ledger to restore in place of ([Restoring](#restoring)) |
 | `backup.takenWith` | `ledger <LEDGER_API_VERSION>`, as `ledger.createdWith` | Diagnostics |
@@ -456,6 +456,11 @@ The probe already opens a file read-only and reads its meta before anything is w
 with `backup.takenAt` is refused with *“Home 2026-11-09 10-14-05” is a backup. Use File › Restore Ledger… to restore
 it.* Opening a backup directly would turn it into a live ledger: in WAL mode, upgraded, and then written to, which
 would change the backup itself.
+
+**Except an archive file** (`backup.kind: 'archive'`, added with archiving): Open Ledger… opens one **read-only**, to
+look at, and it is never written to. It takes no id while open, stays out of the recent list, isn't backed up as it
+closes, and can't be backed up or deleted from Tessera. Every other backup is still refused. See
+[ledger-compaction-design.md](ledger-compaction-design.md#opening-the-archive-file).
 
 ### Ledger identity
 
@@ -571,6 +576,9 @@ A failure up to step 3 leaves the current ledger open. For a moment both ledgers
       first, as `create()` does for a replaced ledger.
 4. **Remember it.** `context.state` key `backup.last`: `{ [ledgerId]: { takenAt, path } }`. This is what "changed
    since its last backup" and (later) reminders are measured against. It is not used for retention.
+   The archive file File › Archive Ledger… makes goes through the same steps, with `backup.archiveBefore` verified
+   too, but **is not remembered** (`record: false`): the archive may still delete it, so it mustn't count as the
+   ledger's latest backup ([ledger-compaction-design.md](ledger-compaction-design.md#phase-4-results)).
 5. **Say so.** "Backed up “Home” at 10:14" in the status bar. A failure is an error message box with the reason ("The
    folder “E:\Backups” isn't available.", "There isn't enough space…"), and the partial file is removed.
 6. **Trim**, if the backup was saved in the default backup folder ([Retention](#retention-trimming-old-backups)).
@@ -605,6 +613,8 @@ After each **successful** backup **saved in the default backup folder**, automat
    otherwise a default folder on a network share would grow without limit. A file that can't be deleted either is left,
    and the failure logged.
 4. Nothing happens if `trim` is off.
+5. **An archive file is never a candidate** (`backup.kind: 'archive'`), even one moved into the default folder. Archives
+   go in the `Archives` folder inside it, which retention doesn't look in either.
 
 **A backup saved anywhere else is never trimmed,** and nothing keeps a list of them. Someone who backs up by hand to a
 USB drive or an archive folder before the year-end keeps that backup for as long as they like. Moving a backup out of
@@ -760,6 +770,9 @@ be reopened" warning, because a ledger that won't open is the most common reason
    read-only and from its meta (`inspect`, Open's own checks). A file that can't be restored is listed with the
    reason, and can't be chosen: from a newer Tessera, not a ledger, made by the other engine, or the open ledger itself.
    A ledger file that isn't a backup (a pre-upgrade `Home.backup-….tessera`, a copy made by hand) can be restored too.
+   **Archive files** in the `Archives` folder inside the default folder are listed too (only archives are taken from
+   there), as "Archive file: everything before 1 Jan 2026". One can be restored while it is open for viewing: in place
+   of its ledger, that undoes the archive.
 3. **The chosen backup's plan:** how it can be restored, with free names.
 
 ```

@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  ACCOUNTS_CHANNELS, ACCOUNTS_EVENTS, type Account, type Category, type Chart, type RegisterSnapshot, type Transaction
+  ACCOUNTS_CHANNELS, ACCOUNTS_EVENTS, formatAmount, type Account, type Category, type Chart, type RegisterSnapshot, type Transaction
 } from '@tessera/accounts-api'
 import Register from '../../../../plugins/accounts/src/renderer/register/Register'
 import { createFakeRemote } from '../../../helpers/fakeBridge'
@@ -103,6 +103,43 @@ describe('the register', () => {
     expect(line('b')).toHaveAttribute('data-voided', 'true')
     expect(within(line('b')).getAllByRole('cell')[0]).toHaveTextContent('V')
     expect(line('c2')).toHaveTextContent('Transfer from: Savings')
+  })
+
+  it('dates the opening balance the last archival date once the account has been archived, saying why', async () => {
+    const archived = account({
+      openingDate: '2023-01-01', openingBalance: 250000, lastArchiveDate: '2025-01-01',
+      archived: { count: 1204, originalOpeningBalance: 100000 }
+    })
+    setup({ snapshot: snapshot({ account: archived }) })
+    await table()
+    const date = (iso: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`))
+    expect(within(line('opening')).getAllByRole('cell')[2]).toHaveTextContent(date('2025-01-01'))
+    expect(line('opening')).toHaveTextContent(/Opening balance.*2,500\.00/)
+    await userEvent.hover(within(line('opening')).getByText('Opening balance'))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      `The opening balance on ${date('2025-01-01')}, the last archival date. 1,204 earlier transactions are in the archive file. The account opened on ${date('2023-01-01')} with ${formatAmount(100000, 'CAD')}.`
+    )
+  })
+
+  it('starts a new transaction on the last archival date at the earliest, and its calendar there', async () => {
+    setup({ snapshot: snapshot({ account: account({ lastArchiveDate: '2026-12-01', archived: { count: 3, originalOpeningBalance: 0 } }) }) })
+    await table()
+    const date = document.querySelector('[data-editing="new"] input[aria-label="Date"]') as HTMLInputElement
+    expect(date).toHaveValue('2026-12-01')
+    expect(date).toHaveAttribute('min', '2026-12-01')
+    // Editing a row that stayed from before the date puts no limit on it
+    await userEvent.dblClick(line('a'))
+    expect(document.querySelector('[data-editing="a"] input[aria-label="Date"]')).not.toHaveAttribute('min')
+  })
+
+  it('dates the opening balance the opening date, without a tooltip, when the account has never been archived', async () => {
+    setup()
+    await table()
+    const date = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date('2026-01-01T00:00:00Z'))
+    expect(within(line('opening')).getAllByRole('cell')[2]).toHaveTextContent(date)
+    await userEvent.hover(within(line('opening')).getByText('Opening balance'))
+    await new Promise(resolve => setTimeout(resolve, 200))
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
   it('heads the register with the balances, the available one when the account has a minimum', async () => {
@@ -233,6 +270,41 @@ describe('the register', () => {
     expect(screen.getByText(/This account is closed/)).toBeInTheDocument()
     await userEvent.dblClick(line('a'))
     expect(document.querySelector('[data-editing]')).toBeNull()
+  })
+
+  it('offers nothing that changes a register in a ledger open read-only: no entry row, no editing, no menu', async () => {
+    const { calls } = setup({ snapshot: { ...snapshot(), annotations: { rows: [], summaries: [] }, readOnly: true } as never })
+    const grid = await table()
+    expect(document.querySelector('[data-editing]')).toBeNull()
+    expect(document.querySelector('[data-note="unchangeable"]')).toHaveTextContent('The ledger is open read-only, so nothing in this register can be changed.')
+    await userEvent.dblClick(line('a'))
+    expect(document.querySelector('[data-editing]')).toBeNull()
+    expect(screen.getByText('The ledger is open read-only, so its transactions can’t be changed.')).toBeInTheDocument()
+    // A right-click selects the row, and opens no menu
+    await userEvent.pointer({ keys: '[MouseRight]', target: line('c2') })
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(line('c2')).toHaveClass('Mui-selected')
+    // The keys that change rows do nothing
+    grid.closest<HTMLElement>('[tabindex="0"]')?.focus()
+    for (const key of ['{Enter}', ' ', '{Delete}', '{Insert}']) await userEvent.keyboard(key)
+    expect(document.querySelector('[data-editing]')).toBeNull()
+    // Insert doesn't move to an entry row there isn't: the row stays selected
+    expect(line('c2')).toHaveClass('Mui-selected')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const bar = screen.getByRole('toolbar', { name: 'Register actions' })
+    for (const name of ['New', 'Edit', 'Mark Cleared', 'Void', 'Delete', 'Reconcile…']) expect(within(bar).getByRole('button', { name })).toBeDisabled()
+    expect(calls(ACCOUNTS_CHANNELS.setStatus)).toEqual([])
+  })
+
+  it('shows the register itself, not a reconciliation, in a ledger open read-only', async () => {
+    setup({
+      snapshot: { ...snapshot(), annotations: { rows: [], summaries: [] }, readOnly: true } as never,
+      answers: { [ACCOUNTS_CHANNELS.reconcileState]: () => reconcileState() }
+    })
+    await table()
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(screen.getByRole('table', { name: 'Register of Chequing' })).toBeInTheDocument()
+    expect(document.querySelector('[data-note="paused"]')).toBeNull()
   })
 
   it('reloads when its account\'s transactions change, and not for another account\'s', async () => {

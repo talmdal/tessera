@@ -67,3 +67,13 @@ describe('which balance to show', () => {
     expect(shownRunningBalance({ minimumBalance: 400000 }, row)).toBe(800000)
   })
 })
+
+describe('the current period', () => {
+  it('starts on the last archival date once the account has been archived, else on the opening date', async () => {
+    const { periodStart } = await import('@tessera/accounts-api')
+    expect(periodStart({ openingDate: '2023-01-01' })).toBe('2023-01-01')
+    expect(periodStart({ openingDate: '2023-01-01', lastArchiveDate: '2025-01-01' })).toBe('2025-01-01')
+    // An account opened after the archive date: it starts when it opened
+    expect(periodStart({ openingDate: '2025-06-01', lastArchiveDate: '2025-01-01' })).toBe('2025-06-01')
+  })
+})

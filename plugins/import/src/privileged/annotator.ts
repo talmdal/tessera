@@ -15,7 +15,7 @@ import {
   type AcceptAllArgs, type AcceptArgs, type ChangeArgs
 } from '@tessera/import-api'
 import type { PayeeAliases } from './aliases'
-import { settle, viewOf, type Line } from './lineState'
+import { matchedDate, settle, viewOf, type Line } from './lineState'
 import { payeeScore, prepareLine, prepareTarget, scorePair, type PreparedLine } from './matching/score'
 import { BALANCED, type MatchTuning } from './matching/tuning'
 import { collectionsOf } from './store'
@@ -35,9 +35,10 @@ export interface AnnotatorDeps {
 }
 
 /** What Accept does to a proposal, for its tooltip: "Use the bank’s date, Oct 6, and amount, 84.12, and mark it…". */
-export function acceptTooltip(line: Line, t: Transaction, currency: string): string {
+export function acceptTooltip(line: Line, t: Transaction, currency: string, start?: string): string {
+  const date = matchedDate(line, t, start)
   const uses = [
-    t.date !== line.bank.date && `date, ${shortDate(line.bank.date)}`,
+    t.date !== date && `date, ${shortDate(date)}`,
     t.amount !== line.bank.amount && `amount, ${formatAmount(line.bank.amount, currency, { sign: 'never', currency: false })}`
   ].filter((u): u is string => typeof u === 'string')
   const marks = t.status === 'uncleared'
@@ -127,7 +128,7 @@ export class ImportAnnotator {
           rows.push({
             transactionId: t.id, review: true, tone: matched ? 'info' : 'warning',
             detail: { icon: matched ? 'CompareArrows' : 'Warning', parts: bankParts(line, t, prepared, payeeScore(prepared, target), account.currency, matched ? 'Matched to bank line: ' : 'Possible match: ', tuning) },
-            actions: actionable ? [accept(acceptTooltip(line, t, account.currency)), change] : []
+            actions: actionable ? [accept(acceptTooltip(line, t, account.currency, account.lastArchiveDate)), change] : []
           })
           break
         }

@@ -5,7 +5,7 @@
 import path from 'node:path'
 import type { Database, Json, Logger, ShellFiles, StorageEngine } from '@tessera/types'
 import {
-  LEDGER_BACKUP_FILTER, LEDGER_BACKUP_META, LEDGER_FILE_EXTENSION, LEDGER_FILE_FILTER, LEDGER_META, LedgerError,
+  LEDGER_ARCHIVES_FOLDER, LEDGER_BACKUP_FILTER, LEDGER_BACKUP_META, LEDGER_FILE_EXTENSION, LEDGER_FILE_FILTER, LEDGER_META, LedgerError,
   isLedgerError, validateLedgerFileName,
   type BackupInfo, type LedgerInfo, type RestoreOutcome, type RestorePlan, type RestoreProgress, type RestoreRequest
 } from '@tessera/ledger-api'
@@ -103,6 +103,8 @@ export class RestoreService {
     const id = meta[LEDGER_META.id]
     const name = meta[LEDGER_BACKUP_META.ledgerName]
     const from = meta[LEDGER_BACKUP_META.ledgerPath]
+    const kind = meta[LEDGER_BACKUP_META.kind]
+    const before = meta[LEDGER_BACKUP_META.archiveBefore]
     const open = this.deps.session.current
     return {
       path: resolved,
@@ -110,18 +112,25 @@ export class RestoreService {
       ...(typeof id === 'string' && id !== '' && { ledgerId: id }),
       ...(typeof from === 'string' && from !== '' && { ledgerPath: from }),
       takenAt: isBackup ? takenAt : stats.modified.toISOString(),
-      kind: isBackup ? (meta[LEDGER_BACKUP_META.kind] === 'auto' ? 'auto' : 'manual') : 'ledger',
+      kind: isBackup ? (kind === 'auto' || kind === 'archive' ? kind : 'manual') : 'ledger',
+      ...(isBackup && kind === 'archive' && typeof before === 'string' && { archiveBefore: before }),
       size: stats.size,
-      ...(open && samePath(open.path, resolved) && { problem: 'This is the open ledger.' })
+      // An archive open for viewing can be restored: that is how an archive is undone. The open ledger can't
+      ...(open && !open.archive && samePath(open.path, resolved) && { problem: 'This is the open ledger.' })
     }
   }
 
-  /** The backups in the default backup folder, newest first. */
+  /**
+   * The backups in the default backup folder, and the archive files in its `Archives` folder, newest first. (Only
+   * archives are taken from there: an ordinary backup someone moved in is neither listed nor trimmed.)
+   */
   async list(): Promise<{ folder: string, backups: BackupInfo[] }> {
     this.session()
     const folder = this.deps.backupFolder()
+    const archives = (await this.deps.disk.list(path.join(folder, LEDGER_ARCHIVES_FOLDER))).filter(isBackupFile)
+    const archiveInfos = (await Promise.all(archives.map(file => this.describe(file)))).filter(info => info.kind === 'archive')
     const files = (await this.deps.disk.list(folder)).filter(isBackupFile)
-    const infos = await Promise.all(files.map(file => this.describe(file)))
+    const infos = [...await Promise.all(files.map(file => this.describe(file))), ...archiveInfos]
     return { folder, backups: infos.sort((a, b) => b.takenAt.localeCompare(a.takenAt) || a.path.localeCompare(b.path)).map(info => this.offer(info)) }
   }
 

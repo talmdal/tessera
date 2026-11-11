@@ -13,6 +13,7 @@ import {
   isImportError, type AcceptAllArgs, type AcceptArgs, type ChangeArgs, type MatchCandidatesRequest
 } from '@tessera/import-api'
 import { PayeeAliases } from './aliases'
+import { importArchiver } from './archive'
 import { ImportAnnotator } from './annotator'
 import { contributions } from './contributions'
 import type { FileReader } from './files'
@@ -79,6 +80,9 @@ export async function activate(context: PluginContext, options: ActivateOptions 
     session.onDidChange(change => { if (change.type === 'opened') importer.recover().catch(quietly('Could not check for interrupted imports')) }),
     // A deleted account takes its saved matches and import records with it
     accounts.onDidChange(change => { importer.forgetAccounts(change.deleted).catch(quietly('Could not forget deleted accounts')) }),
+    // File › Archive Ledger…: the records of bank lines whose transactions were archived go too, where an import can
+    // no longer add them again. After accounts, which this plugin requires, so it knows what accounts removed
+    session.participateInArchive(IMPORT_PLUGIN_ID, importArchiver({ changed })),
     context.commands.register(IMPORT_COMMANDS.file, async () => {
       try {
         await flow.importFiles()

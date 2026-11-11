@@ -8,7 +8,7 @@
 import { KeyboardEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ACCOUNTS_CHANNELS, ACCOUNTS_COMMANDS, ACCOUNTS_EVENTS, ACCOUNTS_VIEWS, ACCOUNT_TYPE_LABELS, STATUS_LETTERS, formatAmount,
-  maskAccountNumber, shownRunningBalance, showsAvailable, todayIso,
+  maskAccountNumber, periodStart, shownRunningBalance, showsAvailable, todayIso,
   type Account, type AccountsResult, type AnnotationAction, type Category, type Chart, type Confirmation, type ReconcileActionArgs,
   type RegisterRow, type RegisterView, type ResolvedReconcileAction, type ResolvedRowAnnotation, type SaveTransactionRequest,
   type Transaction, type TransactionsRequest
@@ -18,7 +18,7 @@ import {
   ListItemText, Menu, MenuItem, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Toolbar, Tooltip, Typography
 } from '@tessera/ui'
 import { runCommand } from '../bridge'
-import { Balance, em, showDate } from '../display'
+import { Balance, em, openingBalanceNote, showDate } from '../display'
 import { ReconcileList } from '../reconcile/ReconcileList'
 import { useReconcileState } from '../reconcile/useReconcile'
 import {
@@ -62,9 +62,15 @@ interface Question { title: string, message: string, confirmLabel: string, destr
 function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: RegisterView, chart: Chart | null, categories: Category[], reload(): void }) {
   const { account, rows, balances } = snapshot
   const columns = columnsFor(account)
-  const editable = !account.closed
+  // A closed account can't change, and nothing in a ledger open read-only (an archive file) can
+  const readOnly = snapshot.readOnly === true
+  const editable = !account.closed && !readOnly
+  const unchangeable = readOnly
+    ? 'The ledger is open read-only, so its transactions can’t be changed.'
+    : `“${account.name}” is closed. Reopen it to change its transactions.`
   // With "show the balance above the minimum" on, the running balance is shown above the minimum too
   const available = showsAvailable(account)
+  const openingNote = openingBalanceNote(account)
   const accounts: Account[] = useMemo(() => chart?.accounts.map(s => s.account) ?? [], [chart])
   const choices = useMemo(() => categoryChoices(categories, accounts, account), [categories, accounts, account])
 
@@ -77,7 +83,11 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
   const columnCount = reviewColumn ? 9 : 8
 
   const lastRow = rows[rows.length - 1]
-  const defaults = () => ({ date: lastRow?.transaction.date ?? todayIso(), number: '' })
+  // The last row's date, or today; never before the last archival date, which a new transaction can't be dated before
+  const defaults = () => {
+    const date = lastRow?.transaction.date ?? todayIso()
+    return { date: account.lastArchiveDate !== undefined && date < account.lastArchiveDate ? account.lastArchiveDate : date, number: '' }
+  }
   const [selected, setSelected] = useState<string>(editable ? NEW : rows[rows.length - 1]?.transaction.id ?? OPENING)
   const [editing, setEditing] = useState<{ draft: Draft, original: Draft } | null>(null)
   const [entry, setEntry] = useState<Draft>(() => emptyDraft(defaults()))
@@ -93,8 +103,9 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
 
   // Reconciling: the statement's list replaces the register until it is completed, paused or cancelled
   const reconciliation = useReconcileState(account.id)
-  const reconciling = reconciliation && !reconciliation.reconciliation.paused ? reconciliation : undefined
-  const paused = reconciliation && reconciliation.reconciliation.paused ? reconciliation.reconciliation : undefined
+  // (A ledger open read-only shows the register itself: a reconciliation in it can't go on)
+  const reconciling = !readOnly && reconciliation && !reconciliation.reconciliation.paused ? reconciliation : undefined
+  const paused = !readOnly && reconciliation && reconciliation.reconciliation.paused ? reconciliation.reconciliation : undefined
 
   // The reconciliation options other plugins add (and the built-in statement one), for this account
   const [actions, setActions] = useState<{ account: ResolvedReconcileAction[], transaction: ResolvedReconcileAction[] }>({ account: [], transaction: [] })
@@ -200,7 +211,7 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
   }
 
   const startEditing = (row: RegisterRow) => {
-    if (!editable) { setNotice(`“${account.name}” is closed. Reopen it to change its transactions.`); return }
+    if (!editable) { setNotice(unchangeable); return }
     const draft = draftFrom(row, account, choices)
     setEditing({ draft, original: draft })
     setProblems(undefined)
@@ -266,7 +277,7 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
           return true
         case ' ': toggleCleared(); return true
         case 'Delete': void remove(); return true
-        case 'Insert': void select(NEW); setFocus('date'); setEntryKey(k => k + 1); return true
+        case 'Insert': if (editable) { void select(NEW); setFocus('date'); setEntryKey(k => k + 1) } return true
         default:
           if ((event.key === 'v' || event.key === 'V') && event.ctrlKey && event.shiftKey) { toggleVoid(); return true }
           return false
@@ -278,7 +289,8 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
   const onContextMenu = (event: MouseEvent, row: RegisterRow) => {
     event.preventDefault()
     void select(row.transaction.id)
-    setMenu({ top: event.clientY, left: event.clientX })
+    // Every item changes the row: a register that can't change has no menu (an empty one would open otherwise)
+    if (editable) setMenu({ top: event.clientY, left: event.clientX })
   }
 
   const problemsFor = (target: string) => problems?.target === target ? problems : undefined
@@ -350,7 +362,13 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
               )}
       </Toolbar>
 
-      {!editable && <Alert severity="info" sx={{ mx: 2, my: 1 }}>This account is closed, so its transactions can’t be changed. Reopen it to change them.</Alert>}
+      {!editable && (
+        <Alert severity="info" sx={{ mx: 2, my: 1 }} data-note="unchangeable">
+          {readOnly
+            ? 'The ledger is open read-only, so nothing in this register can be changed.'
+            : 'This account is closed, so its transactions can’t be changed. Reopen it to change them.'}
+        </Alert>
+      )}
       {paused && !reconciling && (
         <Alert severity="info" sx={{ mx: 2, my: 1 }} data-note="paused"
           action={editable && <Button color="inherit" size="small" onClick={() => void runCommand(ACCOUNTS_COMMANDS.reconcileStatement, { accountId: account.id } satisfies ReconcileActionArgs).catch(err => setNotice(String(err?.message ?? err)))}>Resume</Button>}>
@@ -394,8 +412,11 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
           <TableBody>
             <TableRow selected={selected === OPENING} onClick={() => void select(OPENING)} data-row="opening">
               <TableCell /><TableCell />
-              <TableCell>{showDate(account.openingDate)}</TableCell>
-              <TableCell colSpan={4} sx={{ color: 'text.secondary' }}>Opening balance</TableCell>
+              {/* The start of the current period: the last archival date, once the account has been archived */}
+              <TableCell>{showDate(periodStart(account))}</TableCell>
+              <TableCell colSpan={4} sx={{ color: 'text.secondary' }}>
+                {openingNote ? <Tooltip title={openingNote}><span>Opening balance</span></Tooltip> : 'Opening balance'}
+              </TableCell>
               <TableCell align="right">
                 <Balance minor={available ? account.openingBalance - account.minimumBalance! : account.openingBalance} currency={account.currency} />
               </TableCell>

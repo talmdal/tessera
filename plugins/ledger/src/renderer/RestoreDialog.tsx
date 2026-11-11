@@ -4,7 +4,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import type { DialogProps } from '@tessera/types'
 import {
-  LEDGER_CHANNELS, LEDGER_EVENTS, LEDGER_FILE_EXTENSION, validateLedgerFileName,
+  LEDGER_CHANNELS, LEDGER_EVENTS, LEDGER_FILE_EXTENSION, displayDate, displaySize, validateLedgerFileName,
   type BackupInfo, type RestoreDialogInput, type RestoreDialogResult, type RestoreOutcome, type RestorePlan,
   type RestoreProgress, type RestoreRequest, type Result
 } from '@tessera/ledger-api'
@@ -19,13 +19,16 @@ type FieldErrors = Partial<Record<'name' | 'folder' | 'keepAs', string>>
 const KIND: Record<BackupInfo['kind'], string> = {
   manual: 'Backed up by hand',
   auto: 'Backed up automatically',
+  archive: 'Archive file',
   ledger: 'A ledger file, last changed'
 }
 
 /** "9 Nov 2026, 10:14". */
 export const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
 
-const size = (bytes: number) => bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+/** What kind of file it is, for its line in the list: an archive says what it holds the history of. */
+export const kindOf = (backup: BackupInfo) =>
+  backup.kind === 'archive' && backup.archiveBefore ? `Archive file: everything before ${displayDate(backup.archiveBefore)}` : KIND[backup.kind]
 
 /** The list's order: newest first, as the privileged side lists them, kept as backups are added. */
 const newestFirst = (list: BackupInfo[]) => [...list].sort((a, b) => b.takenAt.localeCompare(a.takenAt))
@@ -162,7 +165,7 @@ export default function RestoreDialog({ input, close, setBusy }: DialogProps<Res
                 >
                   <ListItemText
                     primary={`“${backup.ledgerName}” — ${when(backup.takenAt)}`}
-                    secondary={backup.problem ?? `${KIND[backup.kind]} · ${size(backup.size)}`}
+                    secondary={backup.problem ?? `${kindOf(backup)} · ${displaySize(backup.size)}`}
                     slotProps={{ secondary: backup.problem ? { color: 'error' } : {} }}
                   />
                 </ListItemButton>

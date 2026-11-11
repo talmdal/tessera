@@ -67,6 +67,8 @@ export class KitDatabase implements Database {
   private readonly txLock = new Mutex()
   /** Snapshots being written: `close()` waits for them, so a backend never closes under one. */
   private readonly snapshots = new Set<Promise<unknown>>()
+  /** A compaction in progress: a snapshot started meanwhile waits for it. */
+  private compacting: Promise<unknown> | undefined
   private closed = false
 
   private constructor(private readonly backend: StorageBackend, private readonly options: KitDatabaseOptions) {
@@ -346,6 +348,9 @@ export class KitDatabase implements Database {
       const meta = options.meta === undefined ? undefined : JSON.parse(JSON.stringify(options.meta)) as Record<string, Json>
       const { signal, onProgress } = options
       if (signal?.aborted) throw new StorageError('ABORTED', `the snapshot of database "${this.name}" was abandoned`)
+      // A compaction rewrites the file: the copy waits for it, and is of the compacted file
+      if (this.compacting) await this.compacting.catch(() => {})
+      if (signal?.aborted) throw new StorageError('ABORTED', `the snapshot of database "${this.name}" was abandoned`)
       try {
         await this.backend.snapshot(file, { ...(meta && { meta }), ...(signal && { signal }), ...(onProgress && { onProgress }) })
       } catch (err) {
@@ -357,6 +362,35 @@ export class KitDatabase implements Database {
     this.snapshots.add(running)
     void running.then(() => this.snapshots.delete(running), () => this.snapshots.delete(running))
     return running
+  }
+
+  // ---- compaction
+
+  /**
+   * Under the commit lock, so no commit runs meanwhile: a commit made while another connection rewrites a SQLite file
+   * would fail at once with "database is locked" (docs/ledger-compaction-design.md, Phase 0 results). Snapshots
+   * already running finish first; those started meanwhile wait (see `snapshot`).
+   */
+  compact(): Promise<void> {
+    return this.commitLock.run(async () => {
+      this.writable()
+      const running = [...this.snapshots]
+      const work = (async () => {
+        await Promise.allSettled(running)
+        try {
+          await this.backend.compact()
+        } catch (err) {
+          if (err instanceof StorageError) throw err
+          throw ioError(`could not compact database "${this.name}"`, err)
+        }
+      })()
+      this.compacting = work
+      try {
+        await work
+      } finally {
+        this.compacting = undefined
+      }
+    })
   }
 
   // ---- lifecycle

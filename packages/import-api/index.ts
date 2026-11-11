@@ -14,4 +14,4 @@ export * from './model'
 export * from './protocol'
 
 /** Version of this contract. */
-export const IMPORT_API_VERSION = '1.1.0'
+export const IMPORT_API_VERSION = '1.2.0'

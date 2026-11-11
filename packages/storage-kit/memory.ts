@@ -55,6 +55,8 @@ export class MemoryBackend implements StorageBackend {
   }
   async commit(changes: StorageChange[]) { applyTo(this.files, changes) }
   async flush() {}
+  /** Nothing to give back: maps hold only what is there. */
+  async compact() {}
   async close() {}
 
   /** Synchronous from the first check to the copy, so the copy is one committed state. */

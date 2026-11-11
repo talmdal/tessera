@@ -893,5 +893,52 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
         expect(await engine.list()).not.toContain('missing')
       })
     })
+
+    describe('compaction', () => {
+      it('keeps every document, index and meta value, and the database carries on', async () => {
+        const tx = await ledger()
+        await tx.ensureIndex({ name: 'byAccount', fields: ['accountId'] })
+        await db.meta.set('app.version', 3)
+        await tx.deleteMany({ accountId: 'a2' })
+
+        await db.compact()
+
+        expect((await tx.find({}, { sort: { id: 1 } })).map(t => t.id)).toEqual(['t1', 't2', 't4'])
+        expect((await tx.indexes()).map(i => i.name)).toContain('byAccount')
+        expect(await db.meta.get('app.version')).toBe(3)
+        await tx.insert({ id: 't6', accountId: 'a1', date: '2026-03-01', amount: 1 })
+        // And after a restart, as written
+        const next = await harness.restart()
+        const reopened = await next.open({ name: 'test' })
+        expect((await reopened.collection('ledger').find({}, { sort: { id: 1 } })).map(t => t.id)).toEqual(['t1', 't2', 't4', 't6'])
+        expect(await reopened.meta.get('app.version')).toBe(3)
+      })
+
+      it('makes commits wait for it, then lands them', async () => {
+        await ledger()
+        const order: string[] = []
+        const compacting = db.compact().then(() => { order.push('compacted') })
+        const writing = db.collection('ledger').insert({ id: 't7', accountId: 'a1', date: '2026-03-02', amount: 2 }).then(() => { order.push('written') })
+        await Promise.all([compacting, writing])
+        expect(order).toEqual(['compacted', 'written'])
+        expect(await db.collection('ledger').count()).toBe(LEDGER.length + 1)
+      })
+
+      it('lets a snapshot started meanwhile copy the compacted database', async () => {
+        await ledger()
+        await db.collection('ledger').deleteMany({ accountId: 'a1' })
+        const target = harness.pathFor('during-compact')
+        await Promise.all([db.compact(), db.snapshot({ path: target })])
+        expect(await (await engine.open({ path: target }, { readOnly: true })).collection('ledger').count()).toBe(2)
+      })
+
+      it('refuses a read-only database and a closed one', async () => {
+        await ledger()
+        await db.close()
+        await rejects(db.compact(), 'NOT_OPEN')
+        const ro = await engine.open({ name: 'test' }, { readOnly: true })
+        await rejects(ro.compact(), 'READ_ONLY')
+      })
+    })
   })
 }

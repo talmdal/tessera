@@ -113,8 +113,8 @@ export async function begin(c: Collections, accountId: string, input: StatementI
       }, now)
       added.push(transaction.id)
     } catch (err) {
-      // Named after the dialog's field, not the register's
-      if (err instanceof AccountsError && err.field === 'category') throw new AccountsError(err.code, err.message, kind)
+      // Named after the dialog's field, not the register's (a date before the last archival date, a category gone)
+      if (err instanceof AccountsError && (err.field === 'category' || err.field === 'date')) throw new AccountsError(err.code, err.message, kind)
       throw err
     }
   }

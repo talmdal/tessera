@@ -68,6 +68,14 @@ export interface BackUpOptions {
   onWaiting?(): void
   /** Abandons the backup (an OS shutdown's budget): nothing is left, and it rejects with BACKUP_FAILED. */
   signal?: AbortSignal
+  /** An archive file's archive date (`kind: 'archive'`), written to its meta and checked. */
+  archiveBefore?: string
+  /**
+   * Default true: this is the ledger's latest backup (`backup.last`), and what changed before it is backed up. False
+   * for an archive file, which the archive may yet delete (it fails, and nothing is removed): the changes it holds
+   * must still be backed up as the ledger closes.
+   */
+  record?: boolean
 }
 
 export class BackupService {
@@ -110,11 +118,13 @@ export class BackupService {
       [LEDGER_BACKUP_META.kind]: options.kind,
       [LEDGER_BACKUP_META.ledgerName]: ledger.name,
       [LEDGER_BACKUP_META.ledgerPath]: ledger.path,
-      [LEDGER_BACKUP_META.takenWith]: `ledger ${LEDGER_API_VERSION}`
+      [LEDGER_BACKUP_META.takenWith]: `ledger ${LEDGER_API_VERSION}`,
+      ...(options.archiveBefore !== undefined && { [LEDGER_BACKUP_META.archiveBefore]: options.archiveBefore })
     }
     const partial = file + PARTIAL_SUFFIX
+    const record = options.record !== false
     // Changes from here on are for the next backup; if this one fails, they all still are
-    const undo = this.deps.session.backupStarting()
+    const undo = record ? this.deps.session.backupStarting() : () => {}
     const { signal } = options
     try {
       signal?.throwIfAborted()
@@ -123,7 +133,7 @@ export class BackupService {
       await db.snapshot({ path: partial }, {
         meta, ...(options.onProgress && { onProgress: options.onProgress }), ...(signal && { signal })
       })
-      await this.verify(partial, ledger, takenAt)
+      await this.verify(partial, ledger, takenAt, options.archiveBefore)
       signal?.throwIfAborted()
       if (await disk.exists(file)) {
         if ((await discard(this.deps, file)) === 'failed') throw new Error(`“${path.basename(file)}” is already there and could not be replaced`)
@@ -137,7 +147,7 @@ export class BackupService {
       throw signal?.aborted ? new LedgerError('BACKUP_FAILED', 'There wasn’t time to finish the backup before the computer shut down.') : failure(err, file)
     }
     this.deps.log.info(`[ledger] Backed up ${ledger.path} to ${file}`)
-    await this.remember(ledger, { takenAt, path: file })
+    if (record) await this.remember(ledger, { takenAt, path: file })
     return { path: file, takenAt, ledgerName: ledger.name, ...(ledger.id !== undefined && { ledgerId: ledger.id }) }
   }
 
@@ -187,11 +197,12 @@ export class BackupService {
   }
 
   /** The copy must read back as a backup of this ledger, made now. */
-  private async verify(partial: string, ledger: LedgerInfo, takenAt: string) {
+  private async verify(partial: string, ledger: LedgerInfo, takenAt: string, archiveBefore?: string) {
     const meta = await this.deps.engine.readMeta({ path: partial })
     const good = typeof meta[LEDGER_META.format] === 'number'
       && meta[LEDGER_BACKUP_META.takenAt] === takenAt
       && (ledger.id === undefined || meta[LEDGER_META.id] === ledger.id)
+      && (archiveBefore === undefined || meta[LEDGER_BACKUP_META.archiveBefore] === archiveBefore)
     if (!good) throw new Error('the copy did not read back as a backup of this ledger')
   }
 

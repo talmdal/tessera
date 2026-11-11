@@ -16,7 +16,7 @@ import {
 } from '@tessera/import-api'
 import type { PayeeAliases } from './aliases'
 import { Drafts } from './drafts'
-import { matchStateOf, settle, transactionOf, viewOf, type Line, type LineView } from './lineState'
+import { matchStateOf, matchedDate, settle, transactionOf, viewOf, type Line, type LineView } from './lineState'
 import { bankName, normalizeSearch } from './matching/payees'
 import { dayNumber, differences, looseScore, payeeScore, prepareLine, prepareTarget } from './matching/score'
 import { BALANCED, MAX_CANDIDATES, WIDE_DAYS, type MatchTuning } from './matching/tuning'
@@ -191,6 +191,8 @@ export class Review {
   /** The line matched to `target`, which takes the bank's date, amount and id. */
   private async matchTo(line: Line, target: Transaction, options: { replaces?: string, release?: Transaction } = {}): Promise<void> {
     const manager = this.manager(line)
+    // The bank's date, unless it would move the transaction before the account's last archival date
+    const date = matchedDate(line, target, (await this.deps.accounts.get(line.accountId))?.lastArchiveDate)
     await this.changing(line, {
       carrier: { kind: 'id', id: target.id },
       next: { outcome: 'matched', review: 'done', transactionId: target.id, before: beforeOf(target) }
@@ -199,7 +201,7 @@ export class Review {
       if (options.release) await this.confirming(o => manager.unmatch(options.release!.id, { restore: restoresFor(line, options.release!) }, o))
       await this.confirming(o => manager.match(target.id, {
         externalId: line.importId,
-        ...(target.date !== line.bank.date && { date: line.bank.date }),
+        ...(target.date !== date && { date }),
         ...(target.amount !== line.bank.amount && { amount: line.bank.amount }),
         ...(options.replaces !== undefined && { replaces: options.replaces })
       }, o))

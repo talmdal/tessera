@@ -1,7 +1,7 @@
 // `accounts.service`: the accounts of the open ledger. Every rule is enforced here, so whatever writes accounts (the
 // dialogs, an importer, a future plugin) gets the same checks.
 import type { Collection, Database, Disposable, Event, Logger, Transaction } from '@tessera/types'
-import { descendantIds, type LedgerSession, type LedgerTree, type SubLedgerParticipant } from '@tessera/ledger-api'
+import { descendantIds, type ArchiveParticipant, type LedgerSession, type LedgerTree, type SubLedgerParticipant } from '@tessera/ledger-api'
 import {
   ACCOUNT_CLASS, ACCOUNT_NOTES_MAX_LENGTH, ACCOUNT_NUMBER_MAX_LENGTH, ACCOUNT_TEXT_MAX_LENGTH, AccountsError,
   CREDIT_LIMIT_TYPES, MINIMUM_BALANCE_TYPES, accountNameKey, accountNumberKey, formatAmount, isAccountType, isAmount,
@@ -16,6 +16,7 @@ import {
   Emitter, change, collectionsOf, invalid, optionalText, toAccount, translate,
   type Collections, type StoredAccount
 } from './store'
+import { applyArchive, describePlan, planArchive, readLedger, removesClosedAccounts } from './archiveCore'
 import * as reconcile from './reconcileCore'
 import * as core from './transactionsCore'
 
@@ -24,9 +25,15 @@ export { translate }
 /** The fields a patch clears with `null`. Elsewhere `null` is a value: `subLedgerId: null` is the ledger itself. */
 const CLEARABLE: ReadonlySet<string> = new Set(['institution', 'accountNumber', 'notes', 'creditLimit', 'minimumBalance', 'showAvailableBalance'])
 
+/** What only archiving sets: a form, or another plugin, can't. */
+const SET_BY_ARCHIVING = ['lastArchiveDate', 'archived'] as const
+
 /** Checks and normalises every field of an account. Throws INVALID naming the field at fault. */
 export function checkAccountInput(input: AccountInput): Omit<StoredAccount, 'order' | 'closed' | 'closedOn' | 'lastReconciled'> {
   if (typeof input !== 'object' || input === null) throw invalid('name', 'Enter the account’s details.')
+  for (const field of SET_BY_ARCHIVING) {
+    if ((input as unknown as Record<string, unknown>)[field] !== undefined) throw invalid(field, 'This is set by archiving the ledger, not by editing the account.')
+  }
   const nameProblem = validateAccountName(input.name)
   if (nameProblem) throw invalid('name', nameProblem)
   if (!isAccountType(input.type)) throw invalid('type', 'Choose an account type.')
@@ -117,6 +124,8 @@ export interface AccountsServiceDeps {
   today?: () => string
   /** Now, as an ISO timestamp: when transactions are created and changed. */
   now?: () => string
+  /** Lets the event loop turn during a long archive (tests count the turns). Default: `setImmediate`. */
+  turn?: () => Promise<void>
 }
 
 export class AccountsServiceImpl implements AccountsService {
@@ -124,6 +133,8 @@ export class AccountsServiceImpl implements AccountsService {
   private readonly subscriptions: Disposable[] = []
   /** Accounts a sub-ledger delete moved, announced with the tree change that follows its commit. */
   private moved: string[] = []
+  /** What an archive changed, announced once the ledger has committed it. */
+  private archivedChange: AccountsChange | undefined
 
   readonly onDidChange: Event<AccountsChange>
 
@@ -257,7 +268,7 @@ export class AccountsServiceImpl implements AccountsService {
       }
 
       return {
-        ledger: { name: tree.ledger.name },
+        ledger: { name: tree.ledger.name, ...(tree.ledger.readOnly && { readOnly: true }) },
         subLedgers: tree.subLedgers.map(({ id, parentId, name, order }) => ({ id, parentId, name, order, totals: bySubLedger.get(id) ?? {} })),
         accounts: options.includeClosed === false ? summaries.filter(s => !s.account.closed) : summaries,
         totals
@@ -299,7 +310,9 @@ export class AccountsServiceImpl implements AccountsService {
       const next: StoredAccount & { id: string } = {
         id, ...fields, order, closed: stored.closed,
         ...(stored.closedOn !== undefined && { closedOn: stored.closedOn }),
-        ...(stored.lastReconciled !== undefined && { lastReconciled: stored.lastReconciled })
+        ...(stored.lastReconciled !== undefined && { lastReconciled: stored.lastReconciled }),
+        ...(stored.lastArchiveDate !== undefined && { lastArchiveDate: stored.lastArchiveDate }),
+        ...(stored.archived !== undefined && { archived: stored.archived })
       }
       return toAccount(await c.accounts.replace(next, options.expectedRev === undefined ? {} : { expectedRev: options.expectedRev }))
     }, account => ({
@@ -457,6 +470,34 @@ export class AccountsServiceImpl implements AccountsService {
         await accounts.updateOne({ id: account.id }, { $set: { subLedgerId: to, order: order++ } })
         this.moved.push(account.id)
       }
+    }
+  }
+
+  // ---- Taking part in archives
+
+  /**
+   * File › Archive Ledger…: removes the transactions no longer required before the archive date, carries their total
+   * into each account's opening balance, removes closed accounts left with nothing (unless the user unticks it), and
+   * checks that no balance changed, all inside the ledger's archive transaction. Shares what it removed
+   * (`AccountsArchived`) with the participants after it. See docs/ledger-compaction-design.md.
+   */
+  readonly archiver: ArchiveParticipant = {
+    describe: (before, options) => this.read(async c => {
+      const data = await readLedger(c)
+      return describePlan(planArchive(data, before, { removeClosedAccounts: removesClosedAccounts(options) }), data.accounts)
+    }),
+    archive: async (tx, request) => {
+      this.archivedChange = undefined
+      try {
+        const { result, change: touched } = await applyArchive(this.c(tx), request.before, request.options, this.deps.turn ?? (() => new Promise<void>(resolve => setImmediate(resolve))))
+        this.archivedChange = change(touched)
+        return result
+      } catch (err) { throw translate(err) }
+    },
+    committed: () => {
+      const touched = this.archivedChange
+      this.archivedChange = undefined
+      if (touched) this.changes.fire(touched)
     }
   }
 }

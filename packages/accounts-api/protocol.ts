@@ -19,6 +19,12 @@ export const ACCOUNTS_MIGRATOR_SERVICE = 'accounts.migrator'
 /** Current version of the accounts schema in a ledger. */
 export const ACCOUNTS_SCHEMA_VERSION = 1
 
+/** The options the accounts plugin offers in the Archive dialog (`ArchiveDescription.options`). */
+export const ACCOUNTS_ARCHIVE_OPTIONS = {
+  /** Remove closed accounts that the archive leaves empty, with a zero balance. On unless the user unticks it. */
+  removeClosedAccounts: 'accounts.removeClosedAccounts'
+} as const
+
 /** The collections in a ledger, all in schema version 1 (declaring a new collection needs no migration). */
 export const ACCOUNTS_COLLECTIONS = {
   accounts: 'accounts.accounts',
@@ -152,8 +158,11 @@ export const ACCOUNTS_EVENTS = {
   annotations: channel('annotations.changed')
 } as const
 
-/** What the register view loads: the snapshot, with every plugin's marks on its rows already merged. */
-export type RegisterView = RegisterSnapshot & { annotations: RegisterAnnotations }
+/**
+ * What the register view loads: the snapshot, with every plugin's marks on its rows already merged. `readOnly`: the
+ * ledger is open read-only (an archive file), so the register offers nothing that changes it.
+ */
+export type RegisterView = RegisterSnapshot & { annotations: RegisterAnnotations, readOnly?: boolean }
 
 export const ACCOUNTS_VIEWS = {
   navigator: 'accounts.navigator',
