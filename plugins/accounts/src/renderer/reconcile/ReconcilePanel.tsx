@@ -94,7 +94,7 @@ function Reconciling({ state }: { state: ReconcileState }) {
         In the register, mark each transaction the statement lists by clicking its status. When the difference is zero, complete.
       </Typography>
 
-      <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: '1fr auto', rowGap: 0.5, columnGap: 2, '& dd': { m: 0, textAlign: 'right', fontVariantNumeric: 'tabular-nums' } }}>
+      <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: '1fr auto', rowGap: 0.5, columnGap: 2, '& dd': { m: 0, textAlign: 'right', typography: 'numeric' } }}>
         <Typography component="dt" variant="body2">{liability ? 'Starting amount owed' : 'Starting balance'}</Typography>
         <Typography component="dd" variant="body2" data-figure="starting">{money(asStatement(account, summary.starting))}</Typography>
         <Typography component="dt" variant="body2">Marked ({summary.markedCount})</Typography>
@@ -106,7 +106,7 @@ function Reconciling({ state }: { state: ReconcileState }) {
       <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography variant="subtitle2" component="span">Difference</Typography>
         <Typography variant="subtitle1" component="span" data-figure="difference"
-          sx={{ fontVariantNumeric: 'tabular-nums', color: balanced ? 'success.main' : 'error.main', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+          sx={{ typography: 'numeric', color: balanced ? 'success.main' : 'error.main', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
           {balanced && <Icon name="Check" fontSize="small" />}
           {money(asStatement(account, summary.difference))}
         </Typography>

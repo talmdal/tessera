@@ -1,7 +1,7 @@
 // shell/main/theme/registerTheme.ts
 import type {
-  IpcMessage, Logger, PluginContext, PluginRuntime, SettingsHandle, SettingsPageContribution, ThemeDescriptor, ThemeModePreference,
-  ThemeSelection, ThemeSnapshot, ThemeState
+  FontSettings, IpcMessage, Logger, PluginContext, PluginRuntime, SettingsHandle, SettingsPageContribution, ThemeDescriptor,
+  ThemeModePreference, ThemeSelection, ThemeSnapshot, ThemeState
 } from '@tessera/types'
 import { SETTINGS_OPEN_COMMAND, SETTINGS_PAGES_EXTENSION_POINT } from '@tessera/types'
 import { ThemeService } from '../../../core/theme/ThemeService'
@@ -55,13 +55,18 @@ export interface ThemeHost {
  *
  * There is deliberately no request that changes the theme directly: changes go
  * through the settings (the Options dialog) or the commands.
+ *
+ * The user's fonts (`fonts`, the `shell.fonts` setting) travel with the theme: every snapshot carries them, so a
+ * window's first frame is already drawn in them, and a change to them is published to every window, as a change of
+ * theme is. Nothing here writes them.
  */
 export function registerTheme(
   shell: PluginContext,
   runtime: PluginRuntime,
   theme: ThemeService,
   log: Logger,
-  settings: SettingsHandle<ThemeSelection>
+  settings: SettingsHandle<ThemeSelection>,
+  fonts: SettingsHandle<FontSettings>
 ): ThemeHost {
   let focused: number | undefined
 
@@ -82,7 +87,8 @@ export function registerTheme(
     return windowId
   }
 
-  const snapshot = (state: ThemeState): ThemeSnapshot => ({ state, themes: theme.list(), systemPrefersDark: theme.systemPrefersDark })
+  const snapshot = (state: ThemeState): ThemeSnapshot =>
+    ({ state, themes: theme.list(), systemPrefersDark: theme.systemPrefersDark, fonts: fonts.get() })
 
   shell.ipc.register(THEME_GET, (msg: IpcMessage) => snapshot(theme.getState(windowOf(msg))))
 
@@ -114,6 +120,12 @@ export function registerTheme(
     settings.onDidChange(({ value }) => {
       theme.adoptGlobal(value)
       if (runtime.lifecycle.phase === 'started') theme.clearOverrides()
+    }),
+    // The user's fonts changed (OK or Apply in the Options dialog, or the settings file read at start-up): every window
+    // gets its snapshot again, each with its own state, as for a change of theme. The theme's state hasn't changed, so
+    // the theme manager has nothing to announce; this publishes directly.
+    fonts.onDidChange(() => {
+      for (const windowId of theme.windowIds()) runtime.events.publish(THEME_CHANGED, snapshot(theme.getState(windowId)))
     }),
     runtime.lifecycle.onShuttingDown(() => theme.flush())
   )

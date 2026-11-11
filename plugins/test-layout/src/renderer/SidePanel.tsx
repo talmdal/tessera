@@ -19,7 +19,8 @@ export function SidePanel({ side }: { side: Border }) {
   }
 
   return (
-    <div style={{ padding: 10, fontSize: 13, display: 'flex', flexDirection: 'column', gap: 8 }} data-sample-panel={side}>
+    // Text in the Interface text role's body size (body2), never a literal size: it follows the user's fonts.
+    <Box sx={{ p: '10px', typography: 'body2', display: 'flex', flexDirection: 'column', gap: 1 }} data-sample-panel={side}>
       <div>
         This is the <strong>{side}</strong> bar.
       </div>
@@ -35,6 +36,6 @@ export function SidePanel({ side }: { side: Border }) {
       <Button variant="outlined" onClick={ping} disabled={state === undefined}>
         Ping from {side}
       </Button>
-    </div>
+    </Box>
   )
 }

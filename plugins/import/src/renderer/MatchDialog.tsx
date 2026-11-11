@@ -169,7 +169,7 @@ export default function MatchDialog({ input, close }: DialogProps<ChangeArgs, Ma
                           {current && <Typography component="span" variant="caption" color="primary.main" sx={{ ml: 1 }}>{state === 'proposed' ? 'proposed' : 'current'}</Typography>}
                         </TableCell>
                         <TableCell sx={{ color: 'text.secondary' }}>{c.categoryLabel ?? ''}</TableCell>
-                        <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{unsigned(t.amount, account.currency)}</TableCell>
+                        <TableCell align="right" sx={{ typography: 'numeric' }}>{unsigned(t.amount, account.currency)}</TableCell>
                         <TableCell sx={{ color: 'text.secondary' }}>{c.differences.length > 0 ? c.differences.join(' · ') : 'the same'}</TableCell>
                       </TableRow>
                     )

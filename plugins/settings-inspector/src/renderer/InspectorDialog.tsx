@@ -96,7 +96,7 @@ function Folder({ report }: { report: InspectorReport }) {
   return (
     <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2 }}>
       <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
-        Settings folder: <Box component="span" sx={{ fontFamily: 'monospace' }}>{report.folder}</Box>
+        Settings folder: <Box component="span" sx={{ typography: 'monospace' }}>{report.folder}</Box>
         {!report.folderExists && ' (not created yet: nothing has been saved)'}
       </Typography>
       <CopyButton text={report.folder} label="Copy the folder" />
@@ -149,7 +149,7 @@ function Code({ title, text, path }: { title: string, text: string, path?: strin
         {path && <CopyButton text={path} label="Copy the path" />}
       </Stack>
       <Box component="pre" aria-label={title}
-        sx={{ m: 0, p: 1, borderRadius: 1, bgcolor: 'action.hover', fontFamily: 'monospace', fontSize: 12, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        sx={{ m: 0, p: 1, borderRadius: 1, bgcolor: 'action.hover', typography: 'monospace', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
         {text}
       </Box>
     </Box>

@@ -29,6 +29,14 @@ describe('the test-layout sample: themes', () => {
     expect(themes.map(t => t.id)).toEqual([DEFAULT_THEME_ID, 'test-layout.sunrise', 'test-layout.midnight'])
   })
 
+  it('sets fonts in one of them, as a theme may: serif headings in Sunrise', () => {
+    const { themes } = resolveThemes(runtime.extensions.getContributions(THEMES_EXTENSION_POINT))
+    const [sunrise, midnight] = themes.slice(1)
+
+    expect(sunrise.fonts).toEqual({ heading: { family: ['Georgia', 'Cambria', 'serif'] } })
+    expect(midnight.fonts).toBeUndefined()
+  })
+
   it('offers one theme that can follow the system and one that cannot', () => {
     const { themes } = resolveThemes(runtime.extensions.getContributions(THEMES_EXTENSION_POINT))
     const [sunrise, midnight] = themes.slice(1)

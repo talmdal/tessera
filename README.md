@@ -141,6 +141,13 @@ platform.
   icons (`shell.icons`, fetched when first drawn), and a window stays hidden until
   its theme is applied. See [docs/theming-design.md](docs/theming-design.md) and
   [Styling and theming](docs/plugin-creation.md#styling-and-theming).
+- **Fonts:** text is drawn in *font roles* (Interface text, Headings, Small text,
+  Tables and registers, Amounts and figures, Fixed-width text). The Options
+  dialog's **Fonts** page, under Appearance, sets each one's font, size and weight,
+  choosing from the fonts installed on the computer, with a live preview; the choice
+  is a setting, and OK or Apply re-fonts every window. A theme may set fonts too
+  (the user's choices win, and themes' fonts can be turned off). Plugin views follow
+  the roles through `@tessera/ui`. See [docs/font-roles-design.md](docs/font-roles-design.md).
 - **IPC:** a single dispatcher channel. Handlers are registered on channels
   named `<pluginId>:<event>` by convention, and replies are a structured
   success-or-error envelope. Events flow the other way too: the shell publishes its phase,
@@ -319,6 +326,10 @@ samples/statements/   Sample bank statements to import by hand, with walkthrough
   Material UI components and icons (`@tessera/ui`), and a theme manager that
   follows the system light or dark setting, with plugin themes and per-window
   overrides
+- [docs/font-roles-design.md](docs/font-roles-design.md): font roles (the kinds
+  of text Tessera styles separately), a Fonts page in the Options dialog, and
+  fonts in themes; phases 1 to 5 are done (the roles, their use throughout,
+  the setting, the Fonts page, and fonts in themes)
 - [docs/todo.md](docs/todo.md): known gaps and planned work
 
 ## License

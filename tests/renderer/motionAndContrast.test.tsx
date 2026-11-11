@@ -8,10 +8,12 @@ import { ShellThemeProvider } from '../../shell/renderer/theme/ShellThemeProvide
 import { Splitter } from '../../shell/renderer/layout/Splitter'
 import { createFakeRemote } from '../helpers/fakeBridge'
 import { settle } from '../helpers/settle'
+import { DEFAULT_FONT_SETTINGS } from '../../shared/fonts/resolveFonts'
 
 const snapshot = () => ({
   state: { windowId: 1, global: { theme: DEFAULT_THEME.id, mode: 'system' as const }, theme: DEFAULT_THEME.id, mode: 'light' as const },
-  themes: [DEFAULT_THEME]
+  themes: [DEFAULT_THEME],
+  fonts: DEFAULT_FONT_SETTINGS
 })
 
 /** A matchMedia whose answer the test can change, as the OS setting would. */

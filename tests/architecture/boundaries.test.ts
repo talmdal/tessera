@@ -42,6 +42,10 @@ describe('architecture boundaries', () => {
     expect(violations('shared', spec => PLATFORM.test(spec) || inLayer(spec, 'core') || inLayer(spec, 'shell'))).toEqual([])
   })
 
+  it('shared/ has no React, MUI or Emotion: the main process imports it (font roles and themes are checked there)', () => {
+    expect(violations('shared', spec => /^(react|react-dom)(\/|$)/.test(spec) || isPrivateUi(spec))).toEqual([])
+  })
+
   it('core/ has no platform imports and does not depend on shell/', () => {
     expect(violations('core', spec => PLATFORM.test(spec) || inLayer(spec, 'shell'))).toEqual([])
   })
@@ -114,6 +118,29 @@ describe('architecture boundaries', () => {
     const hexLiteral = /['"`]#[0-9a-fA-F]{3,8}['"`]/
     expect(files.filter(file => hexLiteral.test(fs.readFileSync(file, 'utf8')))
       .map(file => path.relative(repo, file))).toEqual([])
+  })
+
+  it('renderer code takes its fonts from the font roles, never from literal families or sizes', () => {
+    // The theme is where roles become fonts; everywhere else uses the roles (variants, `typography` in sx, components).
+    // Relative sizes ('0.75em', '90%') and weights for emphasis are fine: they follow the role they sit in.
+    // The Fonts page's picker draws each installed font in its own face: choosing a font is the one place a family is
+    // named, and the names come from the catalogue of installed fonts, which only holds names the shell accepts.
+    const THEME = ['shell/renderer/theme/createShellTheme.ts', 'shell/renderer/theme/fontTheme.ts', 'shell/renderer/fonts/FamilyPicker.tsx']
+    const plugins = path.join(repo, 'plugins')
+    const pluginRenderers = fs.readdirSync(plugins, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && fs.existsSync(path.join(plugins, entry.name, 'src/renderer')))
+      .flatMap(entry => sourceFiles(path.join(plugins, entry.name, 'src/renderer')))
+    const files = [...sourceFiles(path.join(repo, 'shell/renderer')), ...pluginRenderers]
+      .filter(file => !THEME.includes(path.relative(repo, file).split(path.sep).join('/')))
+
+    const literal = [
+      /font-?family\s*:\s*['"`]/i,                                    // a family written out: use a role
+      /font-?size\s*:\s*(\d|['"`][\d.]+\s*(px|rem|pt)\b)/i,           // an absolute size: use a variant
+      /font-?variant-?numeric/i                                       // digits of equal width: the numeric role
+    ]
+    const found = files.flatMap(file => fs.readFileSync(file, 'utf8').split('\n').flatMap((line, i) =>
+      literal.some(pattern => pattern.test(line)) ? [`${path.relative(repo, file)}:${i + 1}: ${line.trim()}`] : []))
+    expect(found).toEqual([])
   })
 
   it('plugin views reach MUI and Emotion only through @tessera/ui', () => {

@@ -101,7 +101,8 @@ Today the renderer has no styling beyond layout:
   [settings framework](settings-design.md). Commands and the View menu cover
   it until then.
 - Replacing the splitter or the layout model; only their appearance changes.
-- Bundled fonts: the OS font stack is used.
+- Bundled fonts: the OS font stack is used. (Since: fonts are chosen by role, by the user and by themes, from the fonts
+  installed on the computer; fonts shipped inside a theme remain later work. See [font-roles-design.md](font-roles-design.md).)
 
 ## Decisions
 
@@ -117,7 +118,7 @@ Answers to the first draft's questions, followed by the design decisions.
 | 6 | The theme is **global, with a per-window override**; an override may use a theme that doesn't follow the system | See [Themes](#themes) |
 | 7 | Plugins **get the theme state** as data | `useThemeState()` in `@tessera/ui` |
 | 8 | Windows chrome follows the OS | Revisit later |
-| 9 | The OS font stack | |
+| 9 | The OS font stack | Amended by [font-roles-design.md](font-roles-design.md): the OS font stack is the default of the *Interface text* role; the user (and a theme) may choose other installed fonts, role by role |
 | 10 | Compact density for the whole shell | A todo item re-evaluates it later |
 | 11 | No bundle budget | |
 | 12 | Nothing is shown until the window is ready (no flash) | Splash screen later |
@@ -126,7 +127,7 @@ Answers to the first draft's questions, followed by the design decisions.
 | 15 | `@tessera/ui` is **curated**: an export is added when a view needs it, never `export *` from MUI | A test pins the list. The shell's own components import from `@tessera/ui` too, so there is one import style |
 | 16 | Prefer MUI equivalents to native UI (dialogs, menus) where possible | Native menus and dialogs follow only the global setting and can't follow a window override, so the less native UI the fewer mismatches |
 | 17 | **Plugins cannot change the theme.** They read it (`useTheme`, `useThemeState`); the commands and IPC requests that change it are for the user's own gestures | A plugin switching the theme under the user would be hostile |
-| 18 | Theme tokens start at palette, background, text and divider | Widen later if needed |
+| 18 | Theme tokens start at palette, background, text and divider | Widened for typography by [font-roles-design.md](font-roles-design.md#themes-set-fonts): a theme may set `fonts` by role, with sizes held to a narrower range than the user's. Density and shape stay the shell's |
 | 19 | A window override is persisted with that window's state | |
 | 20 | **The theme is chosen in the Options dialog** (Appearance page), and **the application's theme is a setting** (`shell.theme`); the theme chooser dialog and the View ▸ Theme menu are removed | The settings framework gives one place for preferences, with OK, Apply and Cancel. The setting is the one source of truth: the Options dialog and the theme commands change it, and the theme manager follows it, re-theming every window. See [The Appearance page](#the-appearance-page) |
 | 21 | **Changing the application's theme, once the app runs, clears windows' own themes** | Nothing in the UI manages a window's own theme any more, so one left in place would silently defeat the user's choice. The commands for it (`setForWindow`, `clearWindowOverride`) remain |
@@ -232,8 +233,13 @@ Rules:
   a `[theme]` warning, and keeps the stored selection so the theme returns
   if the plugin does.
 - **Tokens, not code.** The token set is deliberately small (palette,
-  background, text, divider). Typography, density and shape are the shell's,
-  so plugin themes can't break layout. Widening it later is an open question.
+  background, text, divider). Density and shape are the shell's, so plugin
+  themes can't break layout. Typography was widened later: a theme may set
+  fonts by role, within narrower size limits than the user's, and the user's own
+  choices win ([font-roles-design.md](font-roles-design.md#themes-set-fonts)).
+  Colour stays here, in the tokens: text is drawn in `text.primary` and
+  `text.secondary`, for each mode, checked for contrast; font roles carry no
+  colour.
 - **Contrast** is not enforced by the framework in the first version (open
   question).
 

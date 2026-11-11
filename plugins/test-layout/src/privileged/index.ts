@@ -108,7 +108,10 @@ export function activate(context: PluginContext) {
       id: `${PLUGIN_ID}.sunrise`,
       label: 'Sunrise',
       light: { primary: '#c2410c', secondary: '#a16207', background: { default: '#fff7ed', paper: '#ffffff' } },
-      dark: { primary: '#fb923c', secondary: '#facc15', background: { default: '#1c1410', paper: '#271c15' } }
+      dark: { primary: '#fb923c', secondary: '#facc15', background: { default: '#1c1410', paper: '#271c15' } },
+      // A theme may set fonts too, by role: serif headings here. The user's own choices on the Fonts page win, and
+      // any role left out keeps the user's or Tessera's (docs/font-roles-design.md#themes-set-fonts).
+      fonts: { heading: { family: ['Georgia', 'Cambria', 'serif'] } }
     }),
     context.extensions.contribute(PLUGIN_ID, T, `${PLUGIN_ID}.midnight`, {
       id: `${PLUGIN_ID}.midnight`,

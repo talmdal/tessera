@@ -1,3 +1,5 @@
+import type { FontSettings, ThemeFonts } from './fonts'
+
 /** What a window looks like: light or dark. */
 export type ThemeMode = 'light' | 'dark'
 
@@ -34,6 +36,12 @@ export interface ThemeDescriptor {
   description?: string
   light?: ThemeTokens
   dark?: ThemeTokens
+  /**
+   * The fonts the theme sets, by role (docs/font-roles-design.md#themes-set-fonts). Anything left out is the user's
+   * choice or Automatic; the user's own choices always win, and the user can turn themes' fonts off. Sizes are held to
+   * a narrower range than the user's, so a theme chosen for its colours can't break a layout. The same in both modes.
+   */
+  fonts?: ThemeFonts
 }
 
 /** A choice of theme and mode: the application-wide setting, or one window's override. */
@@ -55,10 +63,15 @@ export interface ThemeState {
   mode: ThemeMode
 }
 
-/** What the renderer receives: the window's state and every registered theme. */
+/** What the renderer receives: the window's state, every registered theme, and the user's fonts. */
 export interface ThemeSnapshot {
   state: ThemeState
   themes: ThemeDescriptor[]
+  /**
+   * The user's fonts (the `shell.fonts` setting), sent with the theme so a window's first frame is already drawn in
+   * them. The window resolves them against its theme (shared/fonts/resolveFonts.ts).
+   */
+  fonts: FontSettings
   /**
    * Whether the operating system wants dark colours, so a preview of "follow the system" can show what it would
    * show. Not the window's mode, which an application-wide or window choice may override.

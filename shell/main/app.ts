@@ -1,5 +1,5 @@
 // shell/main/app.ts — composition root: wires core to Electron and file-system adapters.
-import { app, BrowserWindow, dialog, nativeTheme, screen, shell as electronShell } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme, screen, session, shell as electronShell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import type { AppState } from '@tessera/types'
@@ -25,6 +25,9 @@ import { osShutdownSources } from './lifecycle/systemShutdown'
 import { registerCoreMenus } from './menus/coreMenus'
 import { applyApplicationMenu } from './menus/electronMenu'
 import { FsPluginSource } from './plugins/FsPluginSource'
+import { createElectronFontProbe } from './fonts/electronFontProbe'
+import { createFontCatalogue } from './fonts/fontCatalogue'
+import { registerFonts } from './fonts/registerFonts'
 import { createElectronThemePort } from './theme/electronTheme'
 import { createThemePersistence } from './theme/appStatePersistence'
 import { registerInitialTheme } from './theme/initialTheme'
@@ -35,6 +38,7 @@ import { registerSettings } from './settings/registerSettings'
 import { registerViewsIpc } from './views/viewsIpc'
 import { createWindowReveal, registerWindowReady } from './window/windowReveal'
 import { createWindowStateGroup, createWindowStateStore, restoreWindowState } from './window/windowState'
+import { FONT_SETTINGS } from '../../shared/fonts/settings'
 import { THEME_SETTINGS } from '../../shared/theme/settings'
 import { windowBackground } from '../../shared/theme/tokens'
 
@@ -94,6 +98,8 @@ let layoutHost: LayoutHost
 
 // The application's theme is a setting (the Options dialog's Appearance page); the theme manager follows it.
 const themeSettings = runtime.settings.register(SHELL_CONTRIBUTOR_ID, THEME_SETTINGS)
+// So are the user's fonts, which travel to every window with its theme (docs/font-roles-design.md).
+const fontSettings = runtime.settings.register(SHELL_CONTRIBUTOR_ID, FONT_SETTINGS)
 const theme = new ThemeService(runtime.extensions, createElectronThemePort(nativeTheme), {
   persistence: createThemePersistence(appState, themeSettings, log),
   log
@@ -116,7 +122,9 @@ async function bootstrap() {
   registerViewsIpc(shell, remoteEntryFor, iconUrlFor, log)
   registerCommandsIpc(shell, log)
   layoutHost = registerLayout(shell, runtime, layout, iconUrlFor)
-  themeHost = registerTheme(shell, runtime, theme, log, themeSettings)
+  themeHost = registerTheme(shell, runtime, theme, log, themeSettings, fontSettings)
+  // The Fonts page, and the installed fonts it offers: listed when it first asks, from a probe page built next to app.js
+  registerFonts(shell, createFontCatalogue(createElectronFontProbe({ BrowserWindow, session }, path.join(__dirname, 'font-probe.html')), { log }))
   registerInitialTheme(windowId => themeHost.snapshotFor(windowId), log)
   registerWindowReady(shell, reveal, dialogs)
   // Provided before the plugins activate, so a plugin can require them

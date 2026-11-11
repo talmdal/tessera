@@ -1,18 +1,21 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
-import { useTheme } from '@mui/material'
-import { useThemeState as usePublicThemeState } from '@tessera/ui'
-import { describe, expect, it, vi } from 'vitest'
-import type { ThemeDescriptor, ThemeSnapshot } from '@tessera/types'
+import { useTheme, type Theme } from '@mui/material'
+import { useFontRoles, useThemeState as usePublicThemeState } from '@tessera/ui'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FontSettings, ThemeDescriptor, ThemeSnapshot } from '@tessera/types'
 import { DEFAULT_THEME, THEME_CHANGED, THEME_GET } from '../../shared/theme/types'
-import { FONT_STACK, createShellTheme } from '../../shell/renderer/theme/createShellTheme'
-import { ShellThemeProvider, useWindowTheme } from '../../shell/renderer/theme/ShellThemeProvider'
+import { createShellTheme } from '../../shell/renderer/theme/createShellTheme'
+import { FONT_STACK } from '../../shared/fonts/roles'
+import { DEFAULT_FONT_SETTINGS, resolveFonts } from '../../shared/fonts/resolveFonts'
+import { ShellThemeProvider, useThemeCatalogue, useWindowTheme } from '../../shell/renderer/theme/ShellThemeProvider'
 import { midnight, sunrise } from '../helpers/theme'
 import { createFakeRemote } from '../helpers/fakeBridge'
 import { settle } from '../helpers/settle'
 
 const snapshot = (over: Partial<ThemeSnapshot['state']> = {}, themes: ThemeDescriptor[] = [DEFAULT_THEME]): ThemeSnapshot => ({
   state: { windowId: 1, global: { theme: DEFAULT_THEME.id, mode: 'system' }, theme: DEFAULT_THEME.id, mode: 'light', ...over },
-  themes
+  themes,
+  fonts: DEFAULT_FONT_SETTINGS
 })
 
 /** Shows what a component below the provider sees. */
@@ -76,6 +79,164 @@ describe('createShellTheme', () => {
     expect(components?.MuiIconButton?.defaultProps).toMatchObject({ size: 'small' })
     expect(components?.MuiTextField?.defaultProps).toMatchObject({ size: 'small' })
     expect(components?.MuiToolbar?.defaultProps).toMatchObject({ variant: 'dense' })
+    // Dialog titles are labels: half MUI's vertical padding
+    expect(components?.MuiDialogTitle?.styleOverrides?.root).toEqual({ paddingTop: 8, paddingBottom: 8 })
+  })
+})
+
+describe('useFontRoles', () => {
+  function Fonts() {
+    const fonts = useFontRoles()
+    return <span data-testid="fonts">{JSON.stringify(fonts)}</span>
+  }
+
+  it("gives a plugin the window's fonts as data, from the shell's provider", async () => {
+    const { bridge } = createFakeRemote({ [THEME_GET]: () => snapshot() })
+
+    render(<ShellThemeProvider bridge={bridge} initial={snapshot()}><Fonts /></ShellThemeProvider>)
+
+    expect(JSON.parse(screen.getByTestId('fonts').textContent!)).toEqual(JSON.parse(JSON.stringify(resolveFonts())))
+    await settle()
+  })
+
+  it('says it needs the shell when used outside it', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(() => render(<Fonts />)).toThrow('useFontRoles must be used inside the shell')
+    vi.mocked(console.error).mockRestore()
+  })
+})
+
+describe("ShellThemeProvider: the user's fonts", () => {
+  /** The user's fonts: the defaults with Interface text at `size`. */
+  const sized = (size: number): FontSettings =>
+    ({ ...DEFAULT_FONT_SETTINGS, roles: { ...DEFAULT_FONT_SETTINGS.roles, ui: { family: null, size, weight: null } } })
+  const withFonts = (fonts: FontSettings, over: Partial<ThemeSnapshot['state']> = {}): ThemeSnapshot => ({ ...snapshot(over), fonts })
+  const fontsWith = (roles: Partial<FontSettings['roles']>): FontSettings => ({ ...DEFAULT_FONT_SETTINGS, roles: { ...DEFAULT_FONT_SETTINGS.roles, ...roles } })
+
+  let themes: Theme[] = []
+  function FontProbe() {
+    const theme = useTheme()
+    const roles = useFontRoles()
+    const { fonts } = useThemeCatalogue()
+    themes.push(theme)
+    return (
+      <>
+        <span data-testid="fontSize">{theme.typography.fontSize}</span>
+        <span data-testid="role">{roles.ui.size}</span>
+        <span data-testid="catalogue">{fonts.roles.ui.size ?? 'automatic'}</span>
+      </>
+    )
+  }
+  beforeEach(() => { themes = [] })
+
+  it("draws the very first frame in the user's fonts, from the initial snapshot", async () => {
+    const { bridge } = createFakeRemote({ [THEME_GET]: () => withFonts(sized(16)) })
+
+    render(<ShellThemeProvider bridge={bridge} initial={withFonts(sized(16))}><FontProbe /></ShellThemeProvider>)
+
+    // Synchronously: no frame in the shell's own fonts first
+    expect(screen.getByTestId('fontSize')).toHaveTextContent('16')
+    expect(screen.getByTestId('role')).toHaveTextContent('16')
+    expect(screen.getByTestId('catalogue')).toHaveTextContent('16')
+    expect(themes.every(t => t.typography.fontSize === 16)).toBe(true)
+    await settle()
+  })
+
+  it('builds exactly the theme it built before the setting existed, at the defaults', async () => {
+    const { bridge } = createFakeRemote({ [THEME_GET]: () => snapshot() })
+    render(<ShellThemeProvider bridge={bridge} initial={snapshot()}><FontProbe /></ShellThemeProvider>)
+    await settle()
+
+    const before = createShellTheme(DEFAULT_THEME, 'light')
+    expect(JSON.stringify(themes.at(-1)!.typography)).toBe(JSON.stringify(before.typography))
+    expect(JSON.stringify(themes.at(-1)!.components)).toBe(JSON.stringify(before.components))
+    expect(screen.getByTestId('catalogue')).toHaveTextContent('automatic')
+  })
+
+  it('re-fonts the window when the user changes the fonts', async () => {
+    const { bridge, emit } = createFakeRemote({ [THEME_GET]: () => snapshot() })
+    render(<ShellThemeProvider bridge={bridge} initial={snapshot()}><FontProbe /></ShellThemeProvider>)
+    await waitFor(() => expect(bridge.invoke).toHaveBeenCalled())
+    await settle()
+
+    act(() => emit(THEME_CHANGED, withFonts(sized(20))))
+
+    expect(screen.getByTestId('fontSize')).toHaveTextContent('20')
+    expect(screen.getByTestId('role')).toHaveTextContent('20')
+  })
+
+  it("ignores another window's fonts", async () => {
+    const { bridge, emit } = createFakeRemote({ [THEME_GET]: () => snapshot() })
+    render(<ShellThemeProvider bridge={bridge} initial={snapshot()}><FontProbe /></ShellThemeProvider>)
+    await waitFor(() => expect(bridge.invoke).toHaveBeenCalled())
+    await settle()
+
+    act(() => emit(THEME_CHANGED, withFonts(sized(20), { windowId: 2 })))
+
+    expect(screen.getByTestId('fontSize')).toHaveTextContent('13')
+  })
+
+  describe("a theme's fonts", () => {
+    const serif = sunrise({ fonts: { heading: { family: ['Georgia', 'serif'] }, ui: { size: 14 } } })
+    const onSerif = (fonts: FontSettings, over: Partial<ThemeSnapshot['state']> = {}) =>
+      withFonts(fonts, { theme: serif.id, global: { theme: serif.id, mode: 'light' }, ...over })
+    function HeadingProbe() {
+      const theme = useTheme()
+      const roles = useFontRoles()
+      return <span data-testid="heading">{`${theme.typography.h6.fontFamily}|${theme.typography.fontSize}|${roles.heading.sources.family}`}</span>
+    }
+    const render_ = (initial: ThemeSnapshot) => {
+      const { bridge, emit } = createFakeRemote({ [THEME_GET]: () => initial })
+      render(<ShellThemeProvider bridge={bridge} initial={{ ...initial, themes: [DEFAULT_THEME, serif] }}><HeadingProbe /></ShellThemeProvider>)
+      return { emit }
+    }
+    const heading = () => screen.getByTestId('heading').textContent!.split('|')
+
+    it('draws the window in the fonts of the theme it shows, for what the user left on Automatic', async () => {
+      render_(onSerif(DEFAULT_FONT_SETTINGS))
+
+      expect(heading()).toEqual([`"Georgia", serif, ${FONT_STACK}`, '14', 'theme'])
+      await settle()
+    })
+
+    it("puts the user's own choice first", async () => {
+      render_(onSerif(fontsWith({ heading: { family: ['Inter'], weight: null }, ui: { family: null, size: 16, weight: null } })))
+
+      expect(heading()).toEqual([`"Inter", ${FONT_STACK}`, '16', 'user'])
+      await settle()
+    })
+
+    it('ignores them when the user turned theme fonts off', async () => {
+      render_(onSerif({ ...DEFAULT_FONT_SETTINGS, useThemeFonts: false }))
+
+      expect(heading()).toEqual([FONT_STACK, '13', 'inherited'])
+      await settle()
+    })
+
+    it("uses a window's own theme's fonts, and the new theme's when the theme changes", async () => {
+      const { emit } = render_(withFonts(DEFAULT_FONT_SETTINGS))
+      expect(heading()[2]).toBe('inherited')
+      // The provider's own first request has been answered, so it can't land after the events below
+      await settle()
+
+      act(() => emit(THEME_CHANGED, { ...onSerif(DEFAULT_FONT_SETTINGS, { override: { theme: serif.id, mode: 'light' } }), themes: [DEFAULT_THEME, serif] }))
+      expect(heading()).toEqual([`"Georgia", serif, ${FONT_STACK}`, '14', 'theme'])
+
+      act(() => emit(THEME_CHANGED, { ...withFonts(DEFAULT_FONT_SETTINGS), themes: [DEFAULT_THEME, serif] }))
+      expect(heading()).toEqual([FONT_STACK, '13', 'inherited'])
+    })
+  })
+
+  it('keeps the same theme object when a snapshot brings the same fonts again', async () => {
+    const { bridge, emit } = createFakeRemote({ [THEME_GET]: () => withFonts(sized(16)) })
+    render(<ShellThemeProvider bridge={bridge} initial={withFonts(sized(16))}><FontProbe /></ShellThemeProvider>)
+    await settle()
+    const first = themes.at(-1)
+
+    // Equal fonts in a new object, as every snapshot from the main process is
+    act(() => emit(THEME_CHANGED, withFonts(sized(16))))
+
+    expect(themes.at(-1)).toBe(first)
   })
 })
 

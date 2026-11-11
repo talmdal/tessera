@@ -11,13 +11,15 @@ import { createFederationViewLoader } from '../../shell/renderer/views/federatio
 import { ShellThemeProvider } from '../../shell/renderer/theme/ShellThemeProvider'
 import { createFakeRemote } from '../helpers/fakeBridge'
 import { settle } from '../helpers/settle'
+import { DEFAULT_FONT_SETTINGS } from '../../shared/fonts/resolveFonts'
 
 const red: ThemeDescriptor = { id: 'p.red', label: 'Red', light: { primary: '#ff0000' }, dark: { primary: '#aa0000' } }
 const green: ThemeDescriptor = { id: 'p.green', label: 'Green', light: { primary: '#00ff00' } }
 
 const snapshot = (theme: ThemeDescriptor, mode: 'light' | 'dark'): ThemeSnapshot => ({
   state: { windowId: 1, global: { theme: theme.id, mode }, theme: theme.id, mode },
-  themes: [DEFAULT_THEME, red, green]
+  themes: [DEFAULT_THEME, red, green],
+  fonts: DEFAULT_FONT_SETTINGS
 })
 
 describe('a plugin view using @tessera/ui', () => {

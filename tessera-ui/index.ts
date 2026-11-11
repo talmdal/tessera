@@ -7,6 +7,9 @@
 // At run time the shell supplies the one instance of this module to every plugin as a Module Federation
 // singleton, so a plugin's components share the shell's theme and style cache.
 
+// The typography variants of the font roles (`numeric`, `monospace`), in MUI's types. Types only.
+import './typography'
+
 export {
   Alert,
   Autocomplete,
@@ -67,5 +70,6 @@ export { createSvgIcon } from '@mui/material/utils'
 export { Icon } from './Icon'
 export type { IconProps } from './Icon'
 export { useThemeState } from './themeState'
+export { useFontRoles } from './fontRoles'
 
 export { TESSERA_UI_VERSION } from './version'

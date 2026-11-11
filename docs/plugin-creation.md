@@ -1587,7 +1587,7 @@ export default function Summary() {
 }
 ```
 
-`@tessera/ui` (version 1.1) exports a curated set, added when a view needs it:
+`@tessera/ui` (version 1.3) exports a curated set, added when a view needs it:
 
 | For | Components |
 |---|---|
@@ -1598,15 +1598,15 @@ export default function Summary() {
 | Lists and menus | `List`, `ListItemButton`, `ListItemIcon`, `ListItemText`, `Menu`, `MenuItem` |
 | Tables | `Table`, `TableContainer`, `TableHead`, `TableBody`, `TableRow`, `TableCell` |
 | Tabs and dialogs | `Tab`, `Tabs`, `Dialog`, `DialogTitle`, `DialogContent`, `DialogActions` (for a dialog of your own, prefer [`shell.dialogs`](#contributing-a-dialog)) |
-| Theme and icons | `useTheme`, `useThemeState`, `Icon`, `createSvgIcon` |
+| Theme, fonts and icons | `useTheme`, `useThemeState`, `useFontRoles`, `Icon`, `createSvgIcon` |
 
 Prop types for the common ones are exported too (`TextFieldProps`, `AutocompleteProps`, `MenuProps`,
 `TooltipProps`, `Theme`). Style with the `sx`
 prop and the theme's tokens (`primary.main`, `text.secondary`, `background.paper`,
 `action.selected`, `divider`, ...), never literal colours: a hex colour that suits the
 light theme is unreadable on the dark one. (A test fails the build of the shell's own
-code on a literal hex colour.) Compact density and the operating system's font are the
-shell's, so your views match without choosing them.
+code on a literal hex colour.) Compact density is the shell's, and fonts come from the
+font roles (below), so your views match without choosing them.
 
 **Icons.** `<Icon name="Save" />` draws one of the shell's standard icons; see
 [the layout note](layout-controller-design.md#icons) for the set. For others, register
@@ -1614,6 +1614,36 @@ your own with `shell.icons` (`{ id: 'budget.chart', file: './icons/chart.svg' }`
 `<Icon name="budget.chart" />`: it is fetched when first drawn and cached, and is painted
 in the text colour. Or build a component from path data with `createSvgIcon` and ship it
 inside your view code. The same ids work for the `icon` of a view or bar item.
+
+**Fonts.** Text is drawn in *font roles*, kinds of text whose font the user chooses (and a
+theme may set): Interface text, Headings, Small text, Tables and registers, Amounts and
+figures, Fixed-width text ([design](font-roles-design.md)). Your views follow them by using
+the variants and components:
+
+| Role | What follows it |
+|---|---|
+| Interface text | `body1`, `body2`, buttons, fields, menus, lists, tabs: every size follows this one |
+| Headings | `h1` to `h6`, `subtitle1`, `subtitle2`, dialog titles |
+| Small text | `caption`, `overline`, helper text under fields, tooltips |
+| Tables and registers | `Table` and its cells |
+| Amounts and figures | **`variant="numeric"`**, or `sx={{ typography: 'numeric' }}`: digits of equal width, in the size of the text around them |
+| Fixed-width text | **`variant="monospace"`**, or `sx={{ typography: 'monospace' }}`: paths, file contents |
+
+```tsx
+<TableCell align="right" sx={{ typography: 'numeric' }}>{amount}</TableCell>
+<Typography variant="monospace" component="pre">{json}</Typography>
+```
+
+- **Never name a font or a size:** no `fontFamily: 'monospace'`, no `fontSize: 13`, `'12px'` or
+  `'0.75rem'`, and no `fontVariantNumeric` (that is what `numeric` is for). Sizes relative to
+  the text around (`'0.75em'`) and `fontWeight` for emphasis are fine. A test fails on a
+  literal family or size in the shell's and the bundled plugins' views.
+- **Text may be larger than you designed for:** Interface text goes from 11 to 24 px. Give table
+  columns widths in `em` (a width designed for 13 px text, divided by 13), the table's
+  `minWidth` too, and let a table scroll sideways rather than cut an amount short: a truncated
+  amount reads as a different number.
+- **`useFontRoles()`** returns each role as data (the CSS family, the size in px, the weight), for
+  what the theme can't style, such as a canvas or a chart. It is read only.
 
 **Theme as data.** `useThemeState()` returns `{ theme, mode }` (`'light'` or `'dark'`),
 for what the MUI theme can't style, such as a canvas or a third-party chart. It is read
@@ -1642,7 +1672,41 @@ mistake is skipped with a `[theme]` warning. The theme then appears on the Optio
 it in each mode before the user chooses; plugins can't change the theme themselves. Give it
 an optional `description` (a short line) and the card shows it, and the page's filter finds
 it by it.
-The sample [test-layout](../plugins/test-layout/src/privileged/index.ts) contributes two.
+
+A theme may also set **fonts**, by role (the roles are in [Fonts](#styling-and-theming) above):
+
+```ts
+context.extensions.contribute(context.pluginId, 'shell.themes', 'budget.ledgerbook', {
+  id: 'budget.ledgerbook',
+  label: 'Ledger Book',
+  light: { primary: '#7c2d12', background: { default: '#fbf6ea', paper: '#fffdf7' } },
+  fonts: {
+    heading: { family: ['Georgia', 'Cambria', 'serif'], weight: 600 },
+    numeric: { family: ['Cascadia Mono', 'Consolas'] }
+  }
+})
+```
+
+- Each role takes only what it has: a `family` for all of them; a `size` for Interface text,
+  Small text, Tables and registers, and Fixed-width text; a `weight` (400, 500, 600 or 700) for
+  Interface text and Headings.
+- `family` is a list of font names, most wanted first, and never CSS: the shell quotes them and
+  adds its own fallbacks. End it with a generic family (`serif`, `monospace`) for computers
+  without your first choices. Fonts must be installed on the user's computer: a theme can't
+  ship font files yet.
+- Sizes are whole pixels, held to a narrower range than the user's (12 to 16 for Interface
+  text and Tables and registers, 10 to 14 for Small text, 11 to 16 for Fixed-width text), so a
+  theme chosen for its colours can't break a layout.
+- The user's own choices on the Fonts page win, and the user can turn themes' fonts off. A
+  role you don't set keeps the user's font or Tessera's. The theme's card says what it sets.
+- A font that can't be used (an unknown role, a size out of range, a name with `;` in it) skips
+  the theme with a `[theme]` warning, as a bad colour does.
+- **Colour isn't a font's:** text is drawn in the theme's `text.primary` and `text.secondary`
+  (and the status colours, such as `error` for what is owed), set per mode above and checked
+  for contrast.
+
+The sample [test-layout](../plugins/test-layout/src/privileged/index.ts) contributes two;
+its Sunrise sets serif headings.
 
 A theme that is hard to read still works, but the log says so: `Theme "budget.sunrise"
 may be hard to read: text.primary on background.paper is 3.1:1 in light mode (WCAG AA asks

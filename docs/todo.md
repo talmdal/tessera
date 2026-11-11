@@ -260,7 +260,48 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
       contributed themes are done (they warn).
 - [ ] **Settle the open questions** in the note (curated vs complete
       `@tessera/ui`, token breadth, who may change the theme, per-window
-      native chrome).
+      native chrome). Token breadth is answered for typography by font roles
+      (below): themes may set fonts.
+
+## Fonts
+
+Design: [font-roles-design.md](font-roles-design.md): font roles (kinds of
+text), a Fonts page in the Options dialog, and fonts in themes.
+
+- [x] **Phase 0, spike:** the type scale, listing installed fonts, the new
+      variants through federation, the picker, the layout at 10 to 24 px.
+      Results in [font-roles-design.md](font-roles-design.md#phase-0-results).
+- [x] **Phase 1, roles as data:** the six roles, names and CSS, resolution,
+      the roles in the MUI theme, with no visible change. Results in
+      [font-roles-design.md](font-roles-design.md#phase-1-results).
+- [x] **Decided:** the interface minimum is 11 px; the Navigator scales
+      horizontally, as the register does.
+- [x] **Phase 2, roles in the code:** `useFontRoles`, `@tessera/ui` 1.3,
+      the literals migrated, registered icons sized like MUI's, the register's
+      widths in `em` (no amount is cut to 24 px), the status column, the
+      Navigator and tab strips, the guard test. Results in
+      [font-roles-design.md](font-roles-design.md#phase-2-results).
+- [ ] **Check phases 2 and 3 in Electron:** large sizes (phase 2 was checked in
+      Chromium, in light mode), and a hand-edited `settings/shell.fonts.json`
+      read at start-up with no flash (phase 3 was checked by tests and in
+      Chromium, light and dark).
+- [x] **Phase 3, the `shell.fonts` setting,** delivered to every window with
+      the theme snapshot; nothing looks different at the defaults. Results in
+      [font-roles-design.md](font-roles-design.md#phase-3-results).
+- [x] **Phase 4, the Fonts page** (Tools ▸ Options… ▸ Appearance ▸ Fonts),
+      listing installed fonts from a hidden probe window. Results in
+      [font-roles-design.md](font-roles-design.md#phase-4-results).
+- [ ] **Finish checking phase 4 in Electron.** Seen working on Windows: the
+      page, saving, re-fonting. Still to check: the installed fonts are listed; the
+      main window can't list them itself (`(await queryLocalFonts()).length` in its
+      developer tools is 0); a restart keeps the fonts with no flash; macOS and
+      Linux. See the results' checklist.
+- [x] **Phase 5, themes set fonts,** by role, checked like colours; the
+      user's choices win, and themes' fonts can be turned off. Results in
+      [font-roles-design.md](font-roles-design.md#phase-5-results).
+- [ ] **Later:** fonts shipped inside themes, roles contributed by plugins,
+      text-size shortcuts, per-mode theme fonts, a "larger headings"
+      percentage.
 
 ## Localisation
 
