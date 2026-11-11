@@ -96,9 +96,9 @@ describe('@tessera/import-api', () => {
       expect(id).toMatch(SERVICE_ID_PATTERN)
       expect(id.startsWith('import.'), id).toBe(true)
     }
-    for (const name of [...Object.values(imports.IMPORT_COLLECTIONS), ...Object.values(imports.IMPORT_STATE_KEYS)]) {
-      expect(name.startsWith('import.'), name).toBe(true)
-    }
+    for (const name of Object.values(imports.IMPORT_COLLECTIONS)) expect(name.startsWith('import.'), name).toBe(true)
+    // State keys are the plugin's own, in context.state, which adds the prefix when it stores them
+    for (const name of Object.values(imports.IMPORT_STATE_KEYS)) expect(name.includes('.'), name).toBe(false)
     expect(imports.IMPORT_FORMATS_POINT).toBe('import.formats')
   })
 

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { KitStorageEngine, memoryDriver } from '@tessera/storage-kit'
 import { SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
 import {
-  LEDGER_CHANNELS, LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_DIALOGS, LEDGER_EVENTS, LEDGER_SESSION_SERVICE, LEDGER_VIEWS,
+  LEDGER_CHANNELS, LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_DIALOGS, LEDGER_EVENTS, LEDGER_SESSION_SERVICE, LEDGER_SETTINGS_PAGE, LEDGER_VIEWS,
   type LedgerSession
 } from '@tessera/ledger-api'
 import { createPluginContext, createPluginRuntime } from '../../../core/plugins/PluginContext'
@@ -15,16 +15,21 @@ import { resolveMenus } from '../../../shared/menus/resolveMenus'
 import { resolveViews } from '../../../shared/views/resolveViews'
 import { activate } from '../../../plugins/ledger/src/privileged/index'
 import { DIR, fakeFiles, fakePrompts, file, logger, memoryAppState, memoryDisk } from './harness'
+import { memorySettingsPersistence } from '../../helpers/settings'
 
-async function setup(options: { last?: string } = {}) {
+/** `settings` are the ledger's saved settings, read as the app reads them before plugins activate. */
+async function setup(options: { last?: string, settings?: object, recent?: string[] } = {}) {
   const log = logger()
-  const runtime = createPluginRuntime(undefined, log)
+  const saved = memorySettingsPersistence(options.settings ? { ledger: { version: 1, values: options.settings } } : {})
+  const runtime = createPluginRuntime(undefined, log, { settingsPersistence: saved.persistence })
+  await runtime.settings.load()
   const driver = memoryDriver()
   const disk = memoryDisk(driver)
   const { files, trashed } = fakeFiles(driver, disk)
   const { prompts, answers } = fakePrompts()
   const state = memoryAppState()
   if (options.last) state.values.set('ledger.last', options.last)
+  if (options.recent) state.values.set('ledger.recent', options.recent.map(name => ({ path: file(name), name, openedAt: '2026-11-01T00:00:00.000Z' })))
   runtime.services.provide('storage-memory', 'storage.engine', new KitStorageEngine(driver))
   runtime.services.provide('app-state', 'app.state', state)
   runtime.services.provide('shell', SHELL_FILES_SERVICE, files)
@@ -54,7 +59,7 @@ async function setup(options: { last?: string } = {}) {
     files.showSaveDialog.mockResolvedValueOnce(file(name))
     return run(LEDGER_COMMANDS.new)
   }
-  return { runtime, log, driver, disk, files, trashed, prompts, answers, state, reveals, events, run, ask, session, key, last, newLedger }
+  return { runtime, log, driver, disk, files, trashed, prompts, answers, state, reveals, events, run, ask, session, key, last, newLedger, saved }
 }
 
 describe('the ledger plugin: contributions', () => {
@@ -316,5 +321,56 @@ describe('the ledger plugin: lifecycle', () => {
     await env.runtime.lifecycle.markStarted()
     await env.newLedger()
     expect(await env.ask(LEDGER_CHANNELS.state)).toEqual({ isOpen: true, ledger: expect.objectContaining({ name: 'Home' }) })
+  })
+})
+
+describe('the ledger plugin: settings', () => {
+  /** A ledger file a previous run left, so there is something to reopen. */
+  const leaveLedger = async (env: Awaited<ReturnType<typeof setup>>, name: string) => {
+    const db = await env.runtime.services.get<any>('storage.engine').open({ path: file(name) })
+    await db.meta.set('ledger.format', 1)
+    await db.close()
+  }
+
+  it('contributes a page the shell draws, for settings it registered', async () => {
+    const { runtime, log } = await setup()
+    const pages = runtime.settings.pages()
+
+    expect(pages.map(p => [p.id, p.settings, p.fields?.map(f => f.key)])).toEqual([[LEDGER_SETTINGS_PAGE, 'ledger', ['reopenLast', 'recentLimit']]])
+    expect(runtime.settings.snapshot('ledger')?.value).toEqual({ reopenLast: true, recentLimit: 10 })
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+
+  it('starts at the start view, not the last ledger, when the user said so', async () => {
+    const env = await setup({ last: file('Home.tessera'), settings: { reopenLast: false } })
+    await leaveLedger(env, 'Home.tessera')
+
+    await env.runtime.lifecycle.markStarted()
+
+    expect(env.session.current).toBeUndefined()
+    expect(env.reveals).toEqual([LEDGER_VIEWS.start])
+    expect(await env.ask(LEDGER_CHANNELS.state)).toEqual({ isOpen: false })
+  })
+
+  it('lists as many recent ledgers as the user chose, at once when the number changes', async () => {
+    const env = await setup({ recent: ['A.tessera', 'B.tessera', 'C.tessera', 'D.tessera'], settings: { recentLimit: 3 } })
+    expect((await env.ask(LEDGER_CHANNELS.recent)).map((r: { name: string }) => r.name)).toEqual(['A.tessera', 'B.tessera', 'C.tessera'])
+
+    const result = await env.runtime.settings.commit([{ id: 'ledger', value: { reopenLast: true, recentLimit: 2 } }])
+
+    expect(result.ok).toBe(true)
+    await vi.waitFor(() => expect(env.last(LEDGER_EVENTS.recent)?.map((r: { name: string }) => r.name)).toEqual(['A.tessera', 'B.tessera']))
+    await env.newLedger('E.tessera')
+    expect((env.state.values.get('ledger.recent') as { name: string }[]).map(r => r.name)).toEqual(['E', 'A.tessera'])
+  })
+
+  it('refuses a number of recent ledgers it cannot list, from the dialog or a file edited by hand', async () => {
+    const env = await setup()
+    expect(await env.runtime.settings.commit([{ id: 'ledger', value: { recentLimit: 0 } }]))
+      .toEqual({ ok: false, errors: { ledger: ['Recent ledgers to list: enter a number from 1 to 30.', 'List from 1 to 30 recent ledgers.'] } })
+
+    const edited = await setup({ settings: { recentLimit: 500 } })
+    expect(edited.runtime.settings.snapshot('ledger')?.value).toEqual({ reopenLast: true, recentLimit: 10 })
+    expect(edited.log.warn).toHaveBeenCalledWith(expect.stringContaining('List from 1 to 30 recent ledgers.'))
   })
 })

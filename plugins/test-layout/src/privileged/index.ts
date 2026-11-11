@@ -101,7 +101,7 @@ export function activate(context: PluginContext) {
   //
   // Declarative data: a variant sets only the tokens it wants to change; the rest come from the shell's theme.
   // One has both a light and a dark variant, so it can follow the system; the other is dark only, so it
-  // can't. Choose one from View > Theme (or the shell.theme.select command).
+  // can't. Choose one in Tools > Options > Appearance (or with the shell.theme.select command).
   const T = 'shell.themes'
   context.subscriptions.push(
     context.extensions.contribute(PLUGIN_ID, T, `${PLUGIN_ID}.sunrise`, {

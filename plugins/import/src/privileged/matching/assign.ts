@@ -3,7 +3,7 @@
 // from the best pair down. Deterministic: the same statement and register always pair the same way. Pure.
 // See docs/import-manager-design.md, "Candidates" and "One line, one transaction".
 import type { Transaction } from '@tessera/accounts-api'
-import { WINDOW } from './tuning'
+import { BALANCED, type MatchTuning } from './tuning'
 import { dayNumber, prepareLine, prepareTarget, rememberingSimilarity, scorePair, type AliasMap, type MatchLine, type MatchTarget } from './score'
 
 /**
@@ -15,11 +15,11 @@ export function isCandidate(t: Pick<Transaction, 'id' | 'voided' | 'status' | 'e
 }
 
 /** The dates a statement's candidates can have: the earliest line less the cheque window, to the latest plus a few days. */
-export function windowOf(lines: Pick<MatchLine, 'date' | 'userDate'>[]): { from: string, to: string } | undefined {
+export function windowOf(lines: Pick<MatchLine, 'date' | 'userDate'>[], tuning: MatchTuning = BALANCED): { from: string, to: string } | undefined {
   if (lines.length === 0) return undefined
   const days = lines.flatMap(l => l.userDate !== undefined ? [dayNumber(l.date), dayNumber(l.userDate)] : [dayNumber(l.date)])
   const iso = (n: number) => new Date(n * 86_400_000).toISOString().slice(0, 10)
-  return { from: iso(Math.min(...days) - WINDOW.chequeBefore), to: iso(Math.max(...days) + WINDOW.after) }
+  return { from: iso(Math.min(...days) - tuning.window.chequeBefore), to: iso(Math.max(...days) + tuning.window.after) }
 }
 
 export interface Proposal {
@@ -42,7 +42,7 @@ interface Pair {
  * transaction entered first, then the line first in the statement. So two identical coffees pair with two identical
  * entries in order, rather than both with the first.
  */
-export function assign(lines: MatchLine[], targets: MatchTarget[], currency: string, aliases: AliasMap = new Map()): Proposal[] {
+export function assign(lines: MatchLine[], targets: MatchTarget[], currency: string, aliases: AliasMap = new Map(), tuning: MatchTuning = BALANCED): Proposal[] {
   const prepared = lines.map(line => prepareLine(line, aliases))
   const similarity = rememberingSimilarity()
   // By date, keeping register order within a day, so each line looks only at the transactions in its window
@@ -64,11 +64,11 @@ export function assign(lines: MatchLine[], targets: MatchTarget[], currency: str
 
   const pairs: Pair[] = []
   prepared.forEach((line, i) => {
-    const before = line.line.number !== undefined ? WINDOW.chequeBefore : WINDOW.before
+    const before = line.line.number !== undefined ? tuning.window.chequeBefore : tuning.window.before
     const from = Math.min(...line.days) - before
-    const to = Math.max(...line.days) + WINDOW.after
+    const to = Math.max(...line.days) + tuning.window.after
     for (let j = firstFrom(from); j < byDate.length && byDate[j].day <= to; j++) {
-      const score = scorePair(line, byDate[j].prepared, currency, similarity)
+      const score = scorePair(line, byDate[j].prepared, currency, similarity, tuning)
       if (score?.proposed) pairs.push({ line: i, target: byDate[j].order, score: score.score, days: Math.abs(score.days) })
     }
   })

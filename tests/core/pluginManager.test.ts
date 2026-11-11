@@ -85,4 +85,34 @@ describe('PluginManager', () => {
     expect(runtime.ipc.has('alpha:ping')).toBe(false)
     expect(manager.activePlugins).toEqual([])
   })
+
+  it('gives a plugin context.state when its manifest requires app.state, activating the store first', async () => {
+    const runtime = createRuntime()
+    const values = new Map<string, unknown>()
+    const store = {
+      get: async (key: string) => values.get(key), set: async (key: string, value: unknown) => { values.set(key, value) },
+      update: async () => {}, remove: async () => {}
+    }
+    const remembered: unknown[] = []
+    const source = new MemoryPluginSource([
+      // Discovered before the store, but activated after it, because it requires it
+      plugin('budget', { activate: async (context: PluginContext) => { await context.state.set('opened', true); remembered.push(await context.state.get('opened')) } },
+        { services: { requires: ['app.state'] } }),
+      plugin('app-state', { activate: (context: PluginContext) => { context.services.provide('app-state', 'app.state', store) } },
+        { services: { provides: ['app.state'] } }),
+      // Doesn't declare it: its use of state fails, and so does its activation, however the order falls
+      plugin('careless', { activate: async (context: PluginContext) => { await context.state.set('x', 1) } })
+    ])
+    const log = createLogger()
+
+    const active = await new PluginManager(source, runtime, log).activateAll()
+
+    expect(active.map(m => m.id)).toEqual(['app-state', 'budget'])
+    expect(remembered).toEqual([true])
+    expect(values.get('budget.opened')).toBe(true)
+    expect(log.error).toHaveBeenCalledWith('[plugins] Failed to activate "careless"', expect.objectContaining({
+      message: expect.stringContaining('add it to services.requires')
+    }))
+  })
 })
+

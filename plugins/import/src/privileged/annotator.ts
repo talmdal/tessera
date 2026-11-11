@@ -17,7 +17,7 @@ import {
 import type { PayeeAliases } from './aliases'
 import { settle, viewOf, type Line } from './lineState'
 import { payeeScore, prepareLine, prepareTarget, scorePair, type PreparedLine } from './matching/score'
-import { MATCHED_AT, PAYEE_DIFFERS_BELOW } from './matching/tuning'
+import { BALANCED, type MatchTuning } from './matching/tuning'
 import { collectionsOf } from './store'
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
@@ -30,6 +30,8 @@ export interface AnnotatorDeps {
   session: LedgerSession
   accounts: AccountsService
   aliases: PayeeAliases
+  /** The matching preset the user chose (the `import` setting). Balanced when not given. */
+  tuning?: () => MatchTuning
 }
 
 /** What Accept does to a proposal, for its tooltip: "Use the bank’s date, Oct 6, and amount, 84.12, and mark it…". */
@@ -59,6 +61,17 @@ export class ImportAnnotator {
     for (const listener of [...this.listeners]) listener({ accounts })
   }
 
+  /**
+   * The matching preset changed: the registers with proposals still to review are read again, so their rows are
+   * scored, and shown as *Matched* or *Possible match*, by the new one.
+   */
+  async presetChanged(): Promise<void> {
+    if (!this.deps.session.current) return
+    const c = collectionsOf(this.deps.session.database(IMPORT_PLUGIN_ID))
+    const pending = await c.lines.find({ outcome: 'matched', review: 'pending' })
+    this.fire([...new Set(pending.map(line => line.accountId))])
+  }
+
   /** Exactly the `RegisterAnnotator` contract. */
   service(): RegisterAnnotator {
     return { annotate: accountId => this.annotate(accountId), onDidChange: this.onDidChange }
@@ -70,6 +83,7 @@ export class ImportAnnotator {
     const c = collectionsOf(this.deps.session.database(IMPORT_PLUGIN_ID))
     const lines = (await c.lines.find({ accountId })).filter(l => l.outcome !== 'skipped') as Line[]
     if (lines.length === 0) return { rows: [] }
+    const tuning = this.deps.tuning?.() ?? BALANCED
     const { accounts } = this.deps
     const account = await accounts.get(accountId)
     if (!account) return { rows: [] }
@@ -105,14 +119,14 @@ export class ImportAnnotator {
           const t = view.transaction
           const payeeName = t.payeeId !== undefined ? names.get(t.payeeId) : undefined
           const target = prepareTarget({ id: t.id, date: t.date, amount: t.amount, ...(payeeName && { payeeName }), ...(t.number && { number: t.number }) })
-          // Scored again: the user may have edited the transaction since the import
-          const score = scorePair(prepared, target, account.currency)?.score ?? 0
-          const matched = score >= MATCHED_AT
+          // Scored again, with the preset chosen now: the user may have edited the transaction since the import
+          const score = scorePair(prepared, target, account.currency, undefined, tuning)?.score ?? 0
+          const matched = score >= tuning.matchedAt
           matches++
           sources.add(line.batchId)
           rows.push({
             transactionId: t.id, review: true, tone: matched ? 'info' : 'warning',
-            detail: { icon: matched ? 'CompareArrows' : 'Warning', parts: bankParts(line, t, prepared, payeeScore(prepared, target), account.currency, matched ? 'Matched to bank line: ' : 'Possible match: ') },
+            detail: { icon: matched ? 'CompareArrows' : 'Warning', parts: bankParts(line, t, prepared, payeeScore(prepared, target), account.currency, matched ? 'Matched to bank line: ' : 'Possible match: ', tuning) },
             actions: actionable ? [accept(acceptTooltip(line, t, account.currency)), change] : []
           })
           break
@@ -169,14 +183,14 @@ export class ImportAnnotator {
 }
 
 /** The bank's version of a proposed match, with what differs from the transaction emphasised. */
-function bankParts(line: Line, t: Transaction, prepared: PreparedLine, payee: number | undefined, currency: string, label: string) {
+function bankParts(line: Line, t: Transaction, prepared: PreparedLine, payee: number | undefined, currency: string, label: string, tuning: MatchTuning) {
   const parts: { text: string, emphasis?: boolean }[] = [{ text: label }]
   const add = (text: string, emphasis: boolean) => {
     if (parts.length > 1) parts.push({ text: ' · ' })
     parts.push({ text, ...(emphasis && { emphasis: true }) })
   }
   add(shortDate(line.bank.date), t.date !== line.bank.date)
-  if (prepared.line.payee) add(prepared.line.payee, payee !== undefined && payee < PAYEE_DIFFERS_BELOW)
+  if (prepared.line.payee) add(prepared.line.payee, payee !== undefined && payee < tuning.payeeDiffersBelow)
   add(formatAmount(line.bank.amount, currency, { sign: 'never', currency: false }), t.amount !== line.bank.amount)
   return parts
 }

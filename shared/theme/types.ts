@@ -11,7 +11,10 @@ export const THEMES_EXTENSION_POINT = 'shell.themes'
 /** The shell's own theme, which every fallback lands on. */
 export const DEFAULT_THEME_ID = 'tessera.default'
 
-/** The `app.state` key of the application-wide selection. It already held `'light'` or `'dark'`. */
+/**
+ * The `app.state` key the application-wide selection was kept under (it once held `'light'` or `'dark'`). It is a
+ * setting now (`shell.theme`, see ./settings.ts); a value found here is moved there once, and removed.
+ */
 export const THEME_STATE_KEY = 'theme'
 /** The `app.state` key of a window's override, by stable window key (`main` for the primary window). */
 export const themeOverrideKey = (windowKey: string) => `shell.theme.${windowKey}`
@@ -20,16 +23,13 @@ export const themeOverrideKey = (windowKey: string) => `shell.theme.${windowKey}
 export const THEME_GET = shell('theme.get')               // → ThemeSnapshot
 // Push event (main → renderer); carries the window id, so other windows ignore it
 export const THEME_CHANGED = shell('theme.changed')       // ThemeSnapshot
-/** Push event: the theme chooser should open in this window (`windowId` says which). */
-export const THEME_CHOOSER_OPEN = shell('theme.chooser.open') // ThemeChooserOpen
-export interface ThemeChooserOpen { windowId: number }
 
 /** Commands the shell registers for the theme. Each acts on the focused window. */
 export const THEME_COMMANDS = {
   useSystem: 'shell.theme.useSystem',
   useLight: 'shell.theme.useLight',
   useDark: 'shell.theme.useDark',
-  /** Opens the theme chooser in the focused window. */
+  /** Opens the Options dialog at its Appearance page, where the theme is chosen. */
   choose: 'shell.theme.choose',
   /** Argument: a `ThemeSelection`; sets the application-wide theme and mode exactly. */
   set: 'shell.theme.set',
@@ -84,8 +84,3 @@ export const DEFAULT_THEME: ThemeDescriptor = {
  * window is not known. Not routed through the IPC router, which is asynchronous.
  */
 export const THEME_INITIAL = shell('theme.initial')
-
-/** The command a View ▸ Theme item runs to choose theme `themeId` for the application. Registered per theme. */
-export const themeUseCommand = (themeId: string) => `shell.theme.use.${themeId}`
-/** The command a View ▸ Theme ▸ This Window item runs to give the focused window theme `themeId`. Registered per theme. */
-export const themeWindowUseCommand = (themeId: string) => `shell.theme.window.use.${themeId}`

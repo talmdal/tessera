@@ -41,6 +41,10 @@ vi.mock('electron', () => {
         context.extensions.contribute('test-plugin', 'shell.dialogs', 'test-plugin.name', { id: 'test-plugin.name', title: 'Name', module: './NameDialog' })
         const prompts = context.services.get('shell.prompts')
         context.commands.register('test-plugin.ask', () => prompts.show('test-plugin.name', { name: 'Home' }))
+        context.settings.register({ defaults: { greeting: 'Hello' } })
+        context.extensions.contribute('test-plugin', 'shell.settings.pages', 'test-plugin.settings', {
+          id: 'test-plugin.settings', title: 'Test', fields: [{ kind: 'text', key: 'greeting', label: 'Greeting', required: true }]
+        })
       }
     `
   )
@@ -236,6 +240,27 @@ describe('main process (dynamic plugin system)', { shuffle: false }, () => {
       .resolves.toMatchObject({ data: { state: { mode: 'dark' } } })
   })
 
+  it('re-themes the window when a theme is applied in the Options dialog, keeping the choice as a setting', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const invoke = (channel: string, data?: unknown) => (electron.ipcMain as any).__invoke('tessera:invoke', { channel, data })
+    const applyTheme = (mode: string) => invoke('shell:settings.commit', { changes: [{ id: 'shell.theme', value: { theme: 'tessera.default', mode } }] })
+    onTestFinished(() => applyTheme('system'))
+    const [window] = electron.BrowserWindow.getAllWindows() as any[]
+    const before = window.webContents.send.mock.calls.length
+
+    expect(await applyTheme('dark')).toMatchObject({ ok: true, data: { ok: true } })
+
+    const published = window.webContents.send.mock.calls.slice(before).map((call: any[]) => call[1])
+    expect(published).toContainEqual(expect.objectContaining({ name: 'shell:theme.changed', data: expect.objectContaining({ state: expect.objectContaining({ mode: 'dark' }) }) }))
+    expect(electron.nativeTheme.themeSource).toBe('dark')
+    const file = path.join(electron.app.getPath('userData'), 'settings', 'shell.theme.json')
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, values: { mode: 'dark' } })
+
+    // Chosen in Options now: the View menu has no Theme submenu
+    const template = vi.mocked(electron.Menu.buildFromTemplate).mock.calls[0][0] as any[]
+    expect(template.find(m => m.label === '&View').submenu.map((i: any) => i.label)).not.toContain('&Theme')
+  })
+
   it('answers the preload synchronously with the window theme, so the first render is themed', async () => {
     await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
 
@@ -302,6 +327,36 @@ describe('main process (dynamic plugin system)', { shuffle: false }, () => {
     await vi.waitFor(() => expect(window.webContents.send).toHaveBeenCalledWith(
       'tessera:event', { name: 'shell:lifecycle.changed', data: { phase: 'started' } }))
   })
+  it('keeps plugin settings in the user data folder, edited through the Options dialog opened from Tools', async () => {
+    await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
+    const invoke = (channel: string, data?: unknown) => (electron.ipcMain as any).__invoke('tessera:invoke', { channel, data })
+    const file = path.join(electron.app.getPath('userData'), 'settings', 'test-plugin.json')
+    onTestFinished(() => invoke('shell:settings.commit', { changes: [{ id: 'test-plugin', value: { greeting: 'Hello' } }] }))
+
+    const template = vi.mocked(electron.Menu.buildFromTemplate).mock.calls[0][0] as any[]
+    expect(template.find(m => m.label === '&Tools').submenu).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: '&Options…', accelerator: 'CmdOrCtrl+,', enabled: true })
+    ]))
+
+    const catalogue = await invoke('shell:settings.get')
+    expect(catalogue.ok).toBe(true)
+    // The shell's own Appearance page comes first; the plugin's follows
+    expect(catalogue.data.pages.map((p: any) => [p.id, p.settings])).toEqual([['shell.appearance', 'shell.theme'], ['test-plugin.settings', 'test-plugin']])
+    expect(catalogue.data.namespaces).toContainEqual(expect.objectContaining({ id: 'test-plugin', value: { greeting: 'Hello' } }))
+
+    expect(await invoke('shell:settings.commit', { changes: [{ id: 'test-plugin', value: { greeting: ' ' } }] }))
+      .toEqual({ ok: true, data: { ok: false, errors: { 'test-plugin': ["Greeting: this can't be empty."] } } })
+    expect(await invoke('shell:settings.commit', { changes: [{ id: 'test-plugin', value: { greeting: 'Bonjour' } }] }))
+      .toMatchObject({ ok: true, data: { ok: true } })
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, values: { greeting: 'Bonjour' } })
+
+    const [window] = electron.BrowserWindow.getAllWindows() as any[]
+    const before = window.webContents.send.mock.calls.length
+    await invoke('shell:commands.execute', { id: 'shell.settings.open', args: ['test-plugin.settings'] })
+    expect(window.webContents.send.mock.calls.slice(before).map((call: any[]) => call[1]))
+      .toContainEqual({ name: 'shell:settings.open', data: { windowId: 7, page: 'test-plugin.settings' } })
+  })
+
   // Last: it reports the window ready, which the window-reveal test needs not to have happened yet
   it('shows a dialog a plugin asks for in the window, and hands the window\'s answer back to the plugin', async () => {
     await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())

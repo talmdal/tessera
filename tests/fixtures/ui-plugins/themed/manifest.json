@@ -7,7 +7,8 @@
     "entry": "renderer/remoteEntry.js",
     "expose": {
       "./ThemedView": "src/renderer/ThemedView.tsx",
-      "./NameDialog": "src/renderer/NameDialog.tsx"
+      "./NameDialog": "src/renderer/NameDialog.tsx",
+      "./ThemedSettingsPage": "src/renderer/ThemedSettingsPage.tsx"
     }
   }
 }

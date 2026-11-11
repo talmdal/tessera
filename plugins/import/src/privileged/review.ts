@@ -19,7 +19,7 @@ import { Drafts } from './drafts'
 import { matchStateOf, settle, transactionOf, viewOf, type Line, type LineView } from './lineState'
 import { bankName, normalizeSearch } from './matching/payees'
 import { dayNumber, differences, looseScore, payeeScore, prepareLine, prepareTarget } from './matching/score'
-import { MAX_CANDIDATES, WIDE_DAYS, WINDOW } from './matching/tuning'
+import { BALANCED, MAX_CANDIDATES, WIDE_DAYS, type MatchTuning } from './matching/tuning'
 import { collectionsOf, type Before, type LineIntent } from './store'
 
 export interface ReviewDeps {
@@ -30,6 +30,8 @@ export interface ReviewDeps {
   /** Told which accounts' import records changed, so their registers' marks are read again. */
   changed: (accounts: string[]) => void
   log: Pick<Logger, 'warn'>
+  /** The matching preset the user chose (the `import` setting). Balanced when not given. */
+  tuning?: () => MatchTuning
 }
 
 /** The user said no to changing a reconciled transaction: nothing more is done, and that is not a failure. */
@@ -421,11 +423,12 @@ export class Review {
     const current = transactionOf(view)
     const listsCurrent = current !== undefined && view.state !== 'new'
 
+    const tuning = this.deps.tuning?.() ?? BALANCED
     const range = request?.range === 'all' || request?.range === 'wide' ? request.range : 'window'
     const days = [dayNumber(line.bank.date), ...(line.bank.userDate ? [dayNumber(line.bank.userDate)] : [])]
     const [from, to] = range === 'all' ? [-Infinity, Infinity]
       : range === 'wide' ? [Math.min(...days) - WIDE_DAYS, Math.max(...days) + WIDE_DAYS]
-      : [Math.min(...days) - (line.bank.number !== undefined ? WINDOW.chequeBefore : WINDOW.before), Math.max(...days) + WINDOW.after]
+      : [Math.min(...days) - (line.bank.number !== undefined ? tuning.window.chequeBefore : tuning.window.before), Math.max(...days) + tuning.window.after]
     const query = normalizeSearch(typeof request?.query === 'string' ? request.query : '')
     const digits = query.replace(/[^\d.]/g, '')
 
@@ -451,8 +454,8 @@ export class Review {
         transaction: t,
         ...(row.payeeName !== undefined && { payeeName: row.payeeName }),
         ...(row.categoryLabel !== undefined && { categoryLabel: row.categoryLabel }),
-        score: looseScore(prepared, target, account.currency),
-        differences: differences(prepared, target, account.currency),
+        score: looseScore(prepared, target, account.currency, tuning),
+        differences: differences(prepared, target, account.currency, tuning),
         payeeKnown: !teaches(line) || p === undefined || p === 1,
         distance: Math.abs(dayNumber(t.date) - dayNumber(line.bank.date))
       })

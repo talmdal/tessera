@@ -30,9 +30,12 @@ import { createThemePersistence } from './theme/appStatePersistence'
 import { registerInitialTheme } from './theme/initialTheme'
 import { ThemeHost, registerTheme } from './theme/registerTheme'
 import { handlePluginProtocol, pluginUrl, registerPluginSchemePrivileges } from './plugins/pluginProtocol'
+import { createJsonSettingsPersistence, SETTINGS_FOLDER } from './settings/jsonSettingsPersistence'
+import { registerSettings } from './settings/registerSettings'
 import { registerViewsIpc } from './views/viewsIpc'
 import { createWindowReveal, registerWindowReady } from './window/windowReveal'
 import { createWindowStateGroup, createWindowStateStore, restoreWindowState } from './window/windowState'
+import { THEME_SETTINGS } from '../../shared/theme/settings'
 import { windowBackground } from '../../shared/theme/tokens'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -40,7 +43,10 @@ const __dirname = path.dirname(__filename)
 
 const log = console
 
-const runtime = createPluginRuntime(app.getPath('userData'), log)
+// Settings are plain JSON files the shell keeps, one per namespace, read before any plugin activates.
+const runtime = createPluginRuntime(app.getPath('userData'), log, {
+  settingsPersistence: createJsonSettingsPersistence(path.join(app.getPath('userData'), SETTINGS_FOLDER), log)
+})
 
 // Bundled plugins are built from plugins/ into modules/ (see scripts/build-plugins.ts).
 // They are listed first, so a user plugin can't replace a bundled one.
@@ -86,19 +92,18 @@ const layout = new LayoutService(runtime.extensions, runtime.contextKeys, { remo
 })
 let layoutHost: LayoutHost
 
+// The application's theme is a setting (the Options dialog's Appearance page); the theme manager follows it.
+const themeSettings = runtime.settings.register(SHELL_CONTRIBUTOR_ID, THEME_SETTINGS)
 const theme = new ThemeService(runtime.extensions, createElectronThemePort(nativeTheme), {
-  persistence: createThemePersistence(appState),
+  persistence: createThemePersistence(appState, themeSettings, log),
   log
 })
 let themeHost: ThemeHost
 const reveal = createWindowReveal(log)
 
-// Dialogs go to the window the user is working in: the focused one, else the first.
-const dialogs = new DialogService(runtime.extensions, runtime.events, {
-  remoteEntryFor,
-  targetWindow: () => (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0])?.id,
-  log
-})
+// Dialogs (and the Options dialog) go to the window the user is working in: the focused one, else the first.
+const targetWindow = () => (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0])?.id
+const dialogs = new DialogService(runtime.extensions, runtime.events, { remoteEntryFor, targetWindow, log })
 
 async function bootstrap() {
   const shell = createPluginContext(SHELL_CONTRIBUTOR_ID, runtime).context
@@ -111,7 +116,7 @@ async function bootstrap() {
   registerViewsIpc(shell, remoteEntryFor, iconUrlFor, log)
   registerCommandsIpc(shell, log)
   layoutHost = registerLayout(shell, runtime, layout, iconUrlFor)
-  themeHost = registerTheme(shell, runtime, theme, log)
+  themeHost = registerTheme(shell, runtime, theme, log, themeSettings)
   registerInitialTheme(windowId => themeHost.snapshotFor(windowId), log)
   registerWindowReady(shell, reveal, dialogs)
   // Provided before the plugins activate, so a plugin can require them
@@ -119,8 +124,11 @@ async function bootstrap() {
     prompts: createElectronPrompts({ dialog, BrowserWindow }, dialogs),
     files: createElectronFiles({ dialog, BrowserWindow, shell: electronShell, app })
   })
+  registerSettings(shell, runtime, { remoteEntryFor, targetWindow, log })
   // Registered before the plugins activate, so it runs before the storage plugin closes the store.
   runtime.lifecycle.onShuttingDown(() => trackedWindows.flush())
+  // What was saved is read before any plugin registers its settings, so `get()` is right from the start.
+  await runtime.settings.load()
   await pluginManager.activateAll()
   layout.refresh()   // a plugin's renderer is only known once it has activated
   await themeHost.load()   // the saved theme is in app-state, which has only now activated

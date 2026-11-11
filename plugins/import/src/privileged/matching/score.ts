@@ -1,10 +1,8 @@
 // How alike a bank line and a transaction the user entered are: a score from 0 to 1 for each of the date, the amount
 // and the payee, combined, and whether the pair is good enough to propose. Pure: no storage, no services. Every number
-// is in tuning.ts. See docs/import-manager-design.md, "Scores".
+// comes from a preset in tuning.ts (Balanced unless one is given). See docs/import-manager-design.md, "Scores".
 import { formatAmount, minorDigits } from '@tessera/accounts-api'
-import {
-  AMOUNT_SCORES, CHEQUE_BONUS, CHEQUE_DATE_SCORE, DATE_SCORES, PAYEES_AGREE_AT, PAYEE_DIFFERS_BELOW, PROPOSE_AT, WEIGHTS, WINDOW
-} from './tuning'
+import { BALANCED, type MatchTuning } from './tuning'
 import { normalizePayee, normalizedSimilarity } from './payees'
 
 /** A bank line, as matching sees it. Amounts are minor units, signed. */
@@ -100,24 +98,28 @@ export function chequeMatches(line: Pick<MatchLine, 'number'>, target: Pick<Matc
   return a !== undefined && a === chequeNumber(target.number)
 }
 
-/** `D` for `days` (the line's date minus the transaction's), or undefined when that is outside the window. */
-export function dateScore(days: number, cheque: boolean): number | undefined {
-  const score = DATE_SCORES.find(row => days >= row.from && days <= row.to)?.score
-  if (cheque && days >= 4 && days <= WINDOW.chequeBefore) return Math.max(score ?? 0, CHEQUE_DATE_SCORE)
+/**
+ * `D` for `days` (the line's date minus the transaction's), or undefined when that is outside the window. A cheque
+ * whose number matches scores at least the cheque score, from the same day to the cheque window: it can clear weeks
+ * after it is written, and a matching number never makes the date count for less.
+ */
+export function dateScore(days: number, cheque: boolean, tuning: MatchTuning = BALANCED): number | undefined {
+  const score = tuning.dateScores.find(row => days >= row.from && days <= row.to)?.score
+  if (cheque && days >= 0 && days <= tuning.window.chequeBefore) return Math.max(score ?? 0, tuning.chequeDateScore)
   return score
 }
 
 /** The better `D` of the line's posting date and the date the user made it, with its days. */
-export function bestDate(line: Pick<MatchLine, 'date' | 'userDate'>, targetDate: string, cheque: boolean): { score: number, days: number } | undefined {
+export function bestDate(line: Pick<MatchLine, 'date' | 'userDate'>, targetDate: string, cheque: boolean, tuning: MatchTuning = BALANCED): { score: number, days: number } | undefined {
   const days = line.userDate !== undefined ? [dayNumber(line.date), dayNumber(line.userDate)] : [dayNumber(line.date)]
-  return bestOf(days, dayNumber(targetDate), cheque)
+  return bestOf(days, dayNumber(targetDate), cheque, tuning)
 }
 
-function bestOf(lineDays: number[], targetDay: number, cheque: boolean): { score: number, days: number } | undefined {
+function bestOf(lineDays: number[], targetDay: number, cheque: boolean, tuning: MatchTuning): { score: number, days: number } | undefined {
   let best: { score: number, days: number } | undefined
   for (const day of lineDays) {
     const days = day - targetDay
-    const score = dateScore(days, cheque)
+    const score = dateScore(days, cheque, tuning)
     if (score !== undefined && (!best || score > best.score || (score === best.score && Math.abs(days) < Math.abs(best.days)))) best = { score, days }
   }
   return best
@@ -132,12 +134,12 @@ function majorUnit(currency: string): number {
 }
 
 /** `A`, or undefined when the signs differ (money in can't be money out) or the amounts are too far apart. */
-export function amountScore(line: number, target: number, currency: string): number | undefined {
+export function amountScore(line: number, target: number, currency: string, tuning: MatchTuning = BALANCED): number | undefined {
   if (line === 0 || Math.sign(line) !== Math.sign(target)) return undefined
   const delta = Math.abs(line - target)
-  if (delta === 0) return AMOUNT_SCORES.exact
+  if (delta === 0) return tuning.amountScores.exact
   const ratio = delta / Math.abs(line)
-  const { close, near, far } = AMOUNT_SCORES
+  const { close, near, far } = tuning.amountScores
   if (ratio <= close.ratio || delta <= close.majorUnits * majorUnit(currency)) return close.score
   if (ratio <= near.ratio) return near.score
   if (ratio <= far.ratio) return far.score
@@ -165,25 +167,26 @@ export interface PairScore {
 }
 
 /** How alike a line and a transaction are, or undefined when the transaction isn't a candidate at all. */
-export function scorePair(line: PreparedLine, target: PreparedTarget, currency: string, similarity?: Similarity): PairScore | undefined {
-  const amount = amountScore(line.line.amount, target.target.amount, currency)
+export function scorePair(line: PreparedLine, target: PreparedTarget, currency: string, similarity?: Similarity, tuning: MatchTuning = BALANCED): PairScore | undefined {
+  const amount = amountScore(line.line.amount, target.target.amount, currency, tuning)
   if (amount === undefined) return undefined
   const cheque = chequeMatches(line.line, target.target)
-  const date = bestOf(line.days, target.day, cheque)
+  const date = bestOf(line.days, target.day, cheque, tuning)
   if (date === undefined) return undefined
   const payee = payeeScore(line, target, similarity)
+  const { withPayee, withoutPayee } = tuning.weights
   let score = payee === undefined
-    ? WEIGHTS.withoutPayee.amount * amount + WEIGHTS.withoutPayee.date * date.score
-    : WEIGHTS.withPayee.amount * amount + WEIGHTS.withPayee.date * date.score + WEIGHTS.withPayee.payee * payee
-  if (cheque) score = Math.min(1, score + CHEQUE_BONUS)
+    ? withoutPayee.amount * amount + withoutPayee.date * date.score
+    : withPayee.amount * amount + withPayee.date * date.score + withPayee.payee * payee
+  if (cheque) score = Math.min(1, score + tuning.chequeBonus)
   score = Math.round(score * 1e6) / 1e6
-  const proposed = score >= PROPOSE_AT && (amount === AMOUNT_SCORES.exact || (payee !== undefined && payee >= PAYEES_AGREE_AT))
+  const proposed = score >= tuning.proposeAt && (amount === tuning.amountScores.exact || (payee !== undefined && payee >= tuning.payeesAgreeAt))
   return { score, amount, date: date.score, ...(payee !== undefined && { payee }), days: date.days, cheque, proposed }
 }
 
 /** A pair's score for the Change Match dialog, which lists transactions outside the window too: 0 for those. */
-export function looseScore(line: PreparedLine, target: PreparedTarget, currency: string): number {
-  return scorePair(line, target, currency)?.score ?? 0
+export function looseScore(line: PreparedLine, target: PreparedTarget, currency: string, tuning: MatchTuning = BALANCED): number {
+  return scorePair(line, target, currency, undefined, tuning)?.score ?? 0
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
@@ -192,7 +195,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * What differs between the transaction and the bank line, in words, from the transaction's side:
  * ['1 day earlier', '0.12 less', 'payee', 'number'].
  */
-export function differences(line: PreparedLine, target: PreparedTarget, currency: string): string[] {
+export function differences(line: PreparedLine, target: PreparedTarget, currency: string, tuning: MatchTuning = BALANCED): string[] {
   const words: string[] = []
   const days = dayNumber(line.line.date) - dayNumber(target.target.date)
   if (days > 0) words.push(`${plural(days, 'day', 'days')} earlier`)
@@ -201,7 +204,7 @@ export function differences(line: PreparedLine, target: PreparedTarget, currency
   if (Math.sign(target.target.amount) !== Math.sign(line.line.amount)) words.push('the other way')
   else if (delta !== 0) words.push(`${formatAmount(Math.abs(delta), currency, { currency: false })} ${delta < 0 ? 'less' : 'more'}`)
   const payee = payeeScore(line, target)
-  if (payee !== undefined && payee < PAYEE_DIFFERS_BELOW) words.push('payee')
+  if (payee !== undefined && payee < tuning.payeeDiffersBelow) words.push('payee')
   const a = chequeNumber(line.line.number)
   const b = chequeNumber(target.target.number)
   if (a !== undefined && b !== undefined && a !== b) words.push('number')

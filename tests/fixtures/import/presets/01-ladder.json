@@ -1,0 +1,24 @@
+{
+  "about": "A month of card purchases, from the plain to the awkward: how late the bank posts, how much later the user wrote one down, and how far the amount drifts",
+  "currency": "CAD",
+  "register": [
+    { "id": "groceries", "date": "2026-10-03", "amount": "-84.12", "payee": "Loblaws" },
+    { "id": "coffee", "date": "2026-10-05", "amount": "-4.75", "payee": "Bridgehead" },
+    { "id": "bistro", "date": "2026-10-07", "amount": "-50.00", "payee": "Beckta" },
+    { "id": "fuel", "date": "2026-10-09", "amount": "-60.00", "payee": "Shell" },
+    { "id": "books", "date": "2026-10-10", "amount": "-36.40", "payee": "Amazon" },
+    { "id": "hotel", "date": "2026-10-11", "amount": "-412.80", "payee": "Fairmont Banff Springs" },
+    { "id": "dinner", "date": "2026-10-14", "amount": "-40.00", "payee": "Play Food & Wine" },
+    { "id": "taxi", "date": "2026-10-25", "amount": "-22.00", "payee": "Blueline Taxi" }
+  ],
+  "statement": [
+    { "date": "2026-10-03", "amount": "-84.12", "payee": "LOBLAWS #1001 OTTAWA ON", "from": "strict", "expect": "groceries" },
+    { "date": "2026-10-07", "amount": "-4.75", "payee": "BRIDGEHEAD 214", "from": "strict", "expect": "coffee" },
+    { "date": "2026-10-08", "amount": "-58.50", "payee": "BECKTA DINING", "from": "balanced", "expect": "bistro" },
+    { "date": "2026-10-10", "amount": "-62.50", "payee": "SHELL C12345 KANATA ON", "from": "balanced", "expect": "fuel" },
+    { "date": "2026-10-20", "amount": "-36.40", "payee": "AMZN MKTP CA*2K3L91", "from": "balanced", "expect": "books" },
+    { "date": "2026-10-29", "amount": "-412.80", "payee": "FAIRMONT BANFF SPRINGS", "from": "lenient", "expect": "hotel" },
+    { "date": "2026-10-15", "amount": "-58.00", "payee": "PLAY FOOD AND WINE", "from": "lenient", "expect": "dinner" },
+    { "date": "2026-10-20", "amount": "-22.00", "payee": "BLUELINE TAXI 4411", "from": "lenient", "expect": "taxi" }
+  ]
+}

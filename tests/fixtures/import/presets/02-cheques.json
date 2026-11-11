@@ -1,0 +1,14 @@
+{
+  "about": "Cheques cashed late: the number matches, so the cheque window applies, and it is wider for each preset",
+  "currency": "CAD",
+  "register": [
+    { "id": "rent", "date": "2026-08-01", "amount": "-1450.00", "payee": "Greenbelt Properties", "number": "311" },
+    { "id": "dentist", "date": "2026-07-01", "amount": "-180.00", "payee": "Dr. Okafor", "number": "312" },
+    { "id": "deposit", "date": "2026-06-10", "amount": "-500.00", "payee": "Camp Kawartha", "number": "313" }
+  ],
+  "statement": [
+    { "date": "2026-08-20", "amount": "-1450.00", "number": "311", "payee": "CHQ 311", "from": "strict", "expect": "rent" },
+    { "date": "2026-09-14", "amount": "-180.00", "number": "312", "payee": "CHQ 312", "from": "balanced", "expect": "dentist" },
+    { "date": "2026-09-28", "amount": "-500.00", "number": "313", "payee": "CHQ 313", "from": "lenient", "expect": "deposit" }
+  ]
+}

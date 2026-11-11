@@ -165,7 +165,7 @@ export class PluginManager {
   private async activate(descriptor: PluginDescriptor) {
     const manifest = descriptor.manifest
     const module = toPrivilegedModule(await this.source.load(descriptor, manifest.privileged.entry))
-    const scope = createPluginContext(manifest.id, this.runtime, { provides: providedServices(manifest) })
+    const scope = createPluginContext(manifest.id, this.runtime, { provides: providedServices(manifest), requires: requiredServices(manifest) })
 
     try {
       await module.activate(scope.context)

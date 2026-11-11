@@ -16,7 +16,7 @@ Queries, updates and aggregations are **plain data** (a Mongo-like subset),
 so any backend can answer them and they can be logged, tested and carried
 over IPC.
 
-- **Multiple databases.** `app` for framework state and settings, one per
+- **Multiple databases.** `app` for framework state, one per
   vault, scratch databases for caches. Each database is its own file and its
   own transaction scope, so a window-move that saves bounds no longer copies
   the ledger.
@@ -335,10 +335,16 @@ one above it:
 | Tier | Owner | Lives in | Read | Holds |
 |---|---|---|---|---|
 | **0 · Bootstrap** | shell | `<userData>/tessera-bootstrap.json`, plain JSON, read synchronously ([shell/main/bootstrap/bootstrapConfig.ts](../shell/main/bootstrap/bootstrapConfig.ts)) | before any plugin activates | `disabledPlugins`, `preferredPlugins` — the choices that shape activation |
-| **1 · Application state and settings** | `app-state` (later `settings`) | the `app` database through `storage.engine` | after activation | theme, window bounds, recent files, last vault, user settings |
+| **0 · Settings** | shell (`SettingsService` in `core/`) | `<userData>/settings/<namespace>.json`, plain JSON, one file per namespace ([settings-design.md](settings-design.md)) | loaded before any plugin activates | the user's preferences, edited in the Options dialog |
+| **1 · Application state** | `app-state` | the `app` database through `storage.engine`; plugins use their own keys through `context.state` | after activation | window bounds, layout, a window's own theme, recent ledgers, last ledger, the import's last folder |
 | **2 · Financial data** | vault | a user-chosen file | when the user opens it | accounts, transactions…; the backend is chosen **per file** by `vault.backends` descriptors and `sniff` ([vault-design.md](vault-design.md)), never by a setting |
 
-Tier 0 is deliberately tiny and boring: two arrays of plugin ids. A
+Settings were planned for tier 1, and moved to tier 0 when they were built:
+storage plugins, and `app-state` itself, may have settings, and a plugin
+reads its settings in `activate`, before storage is there. By the rule
+below, they can't live behind storage.
+
+The bootstrap file is deliberately tiny and boring: two arrays of plugin ids. A
 missing file is defaults; an unreadable or malformed one is logged and
 ignored, so it can never stop startup. `preferredPlugins` moves those
 plugins to the front of the activation order, and since the first provider
@@ -377,7 +383,7 @@ window and theme state anyway.
 The framework allows one provider per service id and orders activation by
 `requires`. Two cases:
 
-1. **The application's default store** (`app` database: state, settings,
+1. **The application's default store** (`app` database: state and
    caches). Exactly one plugin provides `storage.engine`. Both
    `storage-sqlite` and `storage-loki` are bundled and provide the **same
    id**. Two installed at once: the preferred one wins (SQLite by default,
@@ -487,11 +493,10 @@ flush()             → db.flush()                    // from onShuttingDown; th
 ```
 
 `useWindowState` saves 250 ms after the last resize or move. Later,
-`db.onDidChange` can push changes to other windows. The `app` database is
-the natural home for
-[settings-design.md](settings-design.md) as well (`settings.values`
-collection), so one file holds everything "application", separate from any
-vault.
+`db.onDidChange` can push changes to other windows. Settings were first
+meant to join it here; they are plain JSON files the shell keeps instead
+(see [Configuration tiers](#configuration-tiers)), so they can be read
+before storage activates.
 
 ## Decisions
 
