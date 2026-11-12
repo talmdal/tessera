@@ -12,6 +12,7 @@ import ChevronRight from '@mui/icons-material/ChevronRight'
 import Circle from '@mui/icons-material/Circle'
 import Close from '@mui/icons-material/Close'
 import CompareArrows from '@mui/icons-material/CompareArrows'
+import ContentCopy from '@mui/icons-material/ContentCopy'
 import CreditCard from '@mui/icons-material/CreditCard'
 import Delete from '@mui/icons-material/Delete'
 import Edit from '@mui/icons-material/Edit'
@@ -33,7 +34,7 @@ import UploadFile from '@mui/icons-material/UploadFile'
 import Warning from '@mui/icons-material/Warning'
 
 export const STANDARD_ICONS: Record<IconName, typeof SvgIcon> = {
-  Add, AccountBalance, Block, CalendarToday, Check, ChevronLeft, ChevronRight, Circle, Close, CompareArrows, CreditCard,
+  Add, AccountBalance, Block, CalendarToday, Check, ChevronLeft, ChevronRight, Circle, Close, CompareArrows, ContentCopy, CreditCard,
   Delete, Edit,
   // `Error` would shadow the global Error constructor in this module
   Error: ErrorIcon,

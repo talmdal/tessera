@@ -1,12 +1,13 @@
 // @vitest-environment node
 // The OFX format plugin: the sample statements (samples/statements) and hand-made edge cases, read into the neutral
-// statements the import manager imports. OFX 1.x (SGML, unclosed value tags) and 2.x (XML), QFX, cards and banks.
+// statements the import manager imports. OFX 1.x (SGML, unclosed value tags) and 2.x (XML), QFX, QBO, cards and
+// banks, and ids a conversion tool made up.
 import { describe, expect, it } from 'vitest'
 import { ExtensionRegistryImpl } from '../../../core/extensions/ExtensionRegistry'
 import { isCanonicalDecimal, isImportError, IMPORT_FORMATS_POINT, type ParseContext, type ParseResult } from '@tessera/import-api'
 import { OFX_FORMAT, activate, ofxFormat } from '../../../plugins/import-ofx/src/privileged/index'
 import { parseOfx, valueOf } from '../../../plugins/import-ofx/src/privileged/sgml'
-import { ofxDate } from '../../../plugins/import-ofx/src/privileged/statements'
+import { madeUpIds, ofxDate } from '../../../plugins/import-ofx/src/privileged/statements'
 import fs from 'node:fs'
 import path from 'node:path'
 import { importFile, sample, SAMPLES } from '../../helpers/importFile'
@@ -21,7 +22,7 @@ const sgml = (body: string, header = 'OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n
   `<BANKTRANLIST>${body}</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`
 
 describe('the OFX format plugin', () => {
-  it('contributes one format for .ofx and .qfx, and provides its service', () => {
+  it('contributes one format for .ofx, .qfx and .qbo, and provides its service', () => {
     const extensions = new ExtensionRegistryImpl()
     const provided: [string, unknown][] = []
     activate({
@@ -29,7 +30,8 @@ describe('the OFX format plugin', () => {
       services: { provide: (_: string, id: string, impl: unknown) => { provided.push([id, impl]); return { dispose() {} } } }
     } as never)
     expect(extensions.getContributions(IMPORT_FORMATS_POINT).map(c => c.impl)).toEqual([OFX_FORMAT])
-    expect(OFX_FORMAT.extensions).toEqual(['ofx', 'qfx'])
+    expect(OFX_FORMAT.extensions).toEqual(['ofx', 'qfx', 'qbo'])
+    expect(OFX_FORMAT.label).toBe('OFX / QFX / QBO statement (Microsoft Money, Quicken, QuickBooks)')
     expect(provided).toEqual([['import-ofx.format', ofxFormat]])
   })
 
@@ -63,8 +65,8 @@ describe('the sample statements', () => {
   })
 
   it('keeps every sample statement plain ASCII, so copying it between machines can’t change it', () => {
-    const statements = fs.readdirSync(SAMPLES).filter(name => /\.(ofx|qfx)$/i.test(name))
-    expect(statements.length).toBeGreaterThanOrEqual(4)
+    const statements = fs.readdirSync(SAMPLES).filter(name => /\.(ofx|qfx|qbo|csv|qif)$/i.test(name))
+    expect(statements.length).toBeGreaterThanOrEqual(22)
     for (const name of statements) {
       const bytes = fs.readFileSync(path.join(SAMPLES, name))
       expect(bytes.findIndex(b => b > 0x7e || (b < 0x20 && b !== 0x0a && b !== 0x0d && b !== 0x09)), name).toBe(-1)
@@ -172,3 +174,77 @@ describe('OFX edge cases', () => {
   })
 })
 
+describe('QBO (QuickBooks Web Connect)', () => {
+  it('reads a QBO file as the OFX it is, naming the bank from its FI, never from INTU.BID', async () => {
+    const { statements, warnings } = await parse(sample('lakeside-business-2026-10.qbo'))
+    expect(warnings).toEqual([])
+    const [s] = statements
+    expect(s.account).toEqual({
+      key: 'ofx:bank:229000:4002290117', keyStrength: 'strong', accountNumber: '4002290117',
+      label: 'Lakeside Credit Union •••• 0117', institution: 'Lakeside Credit Union', type: 'chequing'
+    })
+    expect(s.balance).toEqual({ amount: '11038.25', asOf: '2026-10-31' })
+    expect(s.lines).toHaveLength(10)
+    expect(s.lines.find(l => l.number === '2041')).toMatchObject({ amount: '-725.00', kind: 'cheque', externalId: 'LCU202610200001' })
+    expect(s).not.toHaveProperty('stableIds')
+    // INTU.BID names a bank in QuickBooks' list, which a file made by a converter may borrow: it is never used
+    const converted = (await parse(sample('maple-trust-chequing-2026-10-converted.qbo'))).statements[0]
+    expect(converted.account).toMatchObject({ institution: 'Maple Trust Bank', label: 'Maple Trust Bank •••• 5678', key: 'ofx:bank:012345:8812345678' })
+    expect(JSON.stringify(converted.account)).not.toContain('3000')
+  })
+
+  it("gives a QBO file and an OFX file for the same account the same key, so they share a saved match and bank ids", async () => {
+    const ofx = (await parse(sample('maple-trust-chequing-2026-10.ofx'))).statements[0]
+    const qbo = (await parse(sample('maple-trust-chequing-2026-10-converted.qbo'))).statements[0]
+    expect(qbo.account.key).toBe(ofx.account.key)
+  })
+})
+
+describe('made-up bank ids', () => {
+  const line = (externalId: string | undefined, over: object = {}) =>
+    ({ date: '2026-10-05', amount: '-1.00', payee: `SHOP ${externalId}`, ...(externalId !== undefined && { externalId }), ...over })
+
+  it('are a counter: at least 3 lines, every id a short plain number, one after another', () => {
+    expect(madeUpIds(['1', '2', '3'].map(id => line(id)))).toEqual({ why: 'counter', example: '1, 2, 3' })
+    expect(madeUpIds(['1003', '1001', '1002', '1004'].map(id => line(id)))).toEqual({ why: 'counter', example: '1001, 1002, 1003' })
+    expect(madeUpIds(['001', '002', '003'].map(id => line(id)))).toMatchObject({ why: 'counter' })
+  })
+
+  it('are the same id on two different lines, but not one line sent twice', () => {
+    expect(madeUpIds([line('A7'), line('B9'), line('A7', { amount: '-2.00' })])).toEqual({ why: 'reused', example: 'A7' })
+    expect(madeUpIds([line('A7'), line('A7')])).toBeUndefined()
+  })
+
+  it("aren't a bank's own: long, dated, sparse, mixed, missing, or too few to tell", () => {
+    expect(madeUpIds(['MT2026100201', 'MT2026100301', 'MT2026100401'].map(id => line(id)))).toBeUndefined()
+    expect(madeUpIds(['1', '2', '5'].map(id => line(id)))).toBeUndefined()
+    expect(madeUpIds(['1', '2', '3', '1234567'].map(id => line(id)))).toBeUndefined()
+    expect(madeUpIds(['1', '2', 'X3'].map(id => line(id)))).toBeUndefined()
+    expect(madeUpIds([line('1'), line('2'), line(undefined)])).toBeUndefined()
+    expect(madeUpIds(['1', '2'].map(id => line(id)))).toBeUndefined()
+    expect(madeUpIds([])).toBeUndefined()
+  })
+
+  it('make the statement say its ids can’t be trusted, with one warning, in any OFX file', async () => {
+    const { statements: [s], warnings } = await parse(sample('maple-trust-chequing-2026-10-converted.qbo'))
+    expect(s.stableIds).toBe(false)
+    expect(s.lines.map(l => l.externalId)).toEqual(Array.from({ length: 17 }, (_, i) => String(i + 1)))
+    expect(warnings).toEqual([{ message: 'Maple Trust Bank •••• 5678: the transaction ids look made up (1, 2, 3…), so its lines are recognised by their content instead.' }])
+    const reused = await parse(importFile('x.ofx', sgml(
+      '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261005<TRNAMT>-1.00<FITID>T1<NAME>ONE</STMTTRN>' +
+      '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261006<TRNAMT>-2.00<FITID>T1<NAME>TWO</STMTTRN>')))
+    expect(reused.statements[0].stableIds).toBe(false)
+    expect(reused.warnings).toEqual([{ message: 'Bank 1 •••• 99: the same transaction id (“T1”) is given to different transactions, so its lines are recognised by their content instead.' }])
+  })
+})
+
+describe('where values are written', () => {
+  it('records each value’s place in the text, entities and all, for tools that rewrite them in place', () => {
+    const text = 'OFXHEADER:100\n\n<OFX><A><NAME>  CAF&#201; D&#201;P&#212;T #204 \n<MEMO>x</A><B><C>two</C></B></OFX>'
+    const doc = parseOfx(text)!
+    const values: [string, string | undefined, string][] = []
+    const walk = (n: typeof doc.root) => { for (const c of n.children) { if (c.span) values.push([c.name, c.text, text.slice(c.span.start, c.span.end)]); walk(c) } }
+    walk(doc.root)
+    expect(values).toEqual([['NAME', 'CAFÉ DÉPÔT #204', 'CAF&#201; D&#201;P&#212;T #204'], ['MEMO', 'x', 'x'], ['C', 'two', 'two']])
+  })
+})

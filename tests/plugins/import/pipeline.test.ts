@@ -22,11 +22,11 @@ const repo = path.resolve(__dirname, '../../..')
 const scratch = fs.mkdtempSync(path.join(fs.mkdirSync(path.join(repo, 'node_modules/.cache'), { recursive: true }) ?? path.join(repo, 'node_modules/.cache'), 'tessera-import-'))
 afterAll(() => { fs.rmSync(scratch, { recursive: true, force: true }) })
 
-describe('the built import and OFX plugins', () => {
+describe('the built import, OFX, CSV and QIF plugins', () => {
   it('import a statement into a ledger file, and remember it across runs of the app', { timeout: 180_000 }, async () => {
     const out = path.join(scratch, 'modules')
     const results = await buildPlugins({
-      pluginsDir: path.join(repo, 'plugins'), outDir: out, only: ['storage.sqlite', 'app.state', 'ledger', 'accounts', 'import', 'import-ofx']
+      pluginsDir: path.join(repo, 'plugins'), outDir: out, only: ['storage.sqlite', 'app.state', 'ledger', 'accounts', 'import', 'import-ofx', 'import-csv', 'import-qif']
     })
     expect(results.every(r => r.ok), JSON.stringify(results)).toBe(true)
 
@@ -40,7 +40,9 @@ describe('the built import and OFX plugins', () => {
       show: vi.fn(async (id: string, input: any) => {
         shown.push(id)
         if (id === IMPORT_DIALOGS.account) return { kind: 'create', remember: true }
-        if (id === ACCOUNTS_DIALOGS.account) return { id: (await accounts!.createAccount({ subLedgerId: null, ...input.initial } as AccountInput)).id }
+        if (id === ACCOUNTS_DIALOGS.account) return { id: (await accounts!.createAccount({ subLedgerId: null, type: 'chequing', name: 'Imported', ...input.initial } as AccountInput)).id }
+        if (id === 'import-csv.dialog.layout') return { kind: 'layout', layout: input.layout }
+        if (id === 'import-qif.dialog.options') return { kind: 'options', dateOrder: input.dates?.value }
         return {}
       })
     }
@@ -62,6 +64,8 @@ describe('the built import and OFX plugins', () => {
     const first = await start()
     expect(first.active.indexOf('import')).toBeGreaterThan(first.active.indexOf('accounts'))
     expect(first.active).toContain('import-ofx')
+    expect(first.active).toContain('import-csv')
+    expect(first.active).toContain('import-qif')
     await first.session.create(path.join(userData, 'Home.tessera'))
     const october = await first.importer.importFiles([path.join(SAMPLES, 'maple-trust-chequing-2026-10.ofx')])
     expect(october!.results[0]).toMatchObject({ outcome: 'imported', accountName: 'Maple Trust Bank 5678', counts: { added: 17 } })
@@ -86,9 +90,24 @@ describe('the built import and OFX plugins', () => {
     expect(mark.buttons.map(b => b.label)).toEqual(['Accept', 'Change…'])
     expect(await second.runtime.commands.execute(mark.buttons[0].command, mark.buttons[0].args)).toEqual({ ok: true })
     expect(await accounts!.transactions(account.id).get(typed.id)).toMatchObject({ date: '2026-11-02', externalId: 'MT2026110201', status: 'electronic' })
+    // The built CSV format reads a CSV export, after its CSV Columns dialog, into accounts of its own
+    shown.length = 0
+    const csv = await second.importer.importFiles([path.join(SAMPLES, 'harbour-bank-2026-10.csv')])
+    expect(shown).toEqual(['import-csv.dialog.layout', IMPORT_DIALOGS.account, ACCOUNTS_DIALOGS.account, IMPORT_DIALOGS.account, ACCOUNTS_DIALOGS.account, IMPORT_DIALOGS.summary])
+    expect(csv!.results.map(r => [r.outcome, r.counts.added])).toEqual([['imported', 5], ['imported', 2]])
+    // And the built QIF format, after its QIF Options dialog (the file's dates read two ways)
+    shown.length = 0
+    const qif = await second.importer.importFiles([path.join(SAMPLES, 'cedar-savings-2026-08-12.qif')])
+    expect(shown).toEqual(['import-qif.dialog.options', IMPORT_DIALOGS.account, ACCOUNTS_DIALOGS.account, IMPORT_DIALOGS.summary])
+    expect(qif!.results.map(r => [r.outcome, r.counts.added])).toEqual([['imported', 4]])
     await second.manager.deactivateAll()
     // The Change Match dialog is in the built renderer
     expect(fs.readFileSync(path.join(out, 'import', 'renderer', 'remoteEntry.js'), 'utf8')).toContain('./MatchDialog')
+    expect(fs.readFileSync(path.join(out, 'import', 'renderer', 'remoteEntry.js'), 'utf8')).toContain('./CategoriesDialog')
+    expect(fs.readFileSync(path.join(out, 'import', 'renderer', 'remoteEntry.js'), 'utf8')).toContain('./SignsDialog')
+    expect(fs.readFileSync(path.join(out, 'import', 'renderer', 'remoteEntry.js'), 'utf8')).toContain('./SavedChoicesDialog')
+    expect(fs.readFileSync(path.join(out, 'import-csv', 'renderer', 'remoteEntry.js'), 'utf8')).toContain('./LayoutDialog')
+    expect(fs.readFileSync(path.join(out, 'import-qif', 'renderer', 'remoteEntry.js'), 'utf8')).toContain('./OptionsDialog')
     expect(log.error).not.toHaveBeenCalled()
   })
 })

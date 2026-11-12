@@ -1,0 +1,18 @@
+{
+  "about": "A header, ISO dates, one signed amount column: everything recognised",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "amount": 2
+    },
+    "dateOrder": "YMD",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

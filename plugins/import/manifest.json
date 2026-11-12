@@ -1,7 +1,7 @@
 {
   "id": "import",
   "name": "Import",
-  "version": "0.2.0",
+  "version": "0.6.0",
   "privileged": { "entry": "privileged/index.js" },
   "renderer": {
     "entry": "renderer/remoteEntry.js",
@@ -9,7 +9,10 @@
       "./FormatDialog": "src/renderer/FormatDialog.tsx",
       "./AccountDialog": "src/renderer/AccountDialog.tsx",
       "./SummaryDialog": "src/renderer/SummaryDialog.tsx",
-      "./MatchDialog": "src/renderer/MatchDialog.tsx"
+      "./MatchDialog": "src/renderer/MatchDialog.tsx",
+      "./CategoriesDialog": "src/renderer/CategoriesDialog.tsx",
+      "./SignsDialog": "src/renderer/SignsDialog.tsx",
+      "./SavedChoicesDialog": "src/renderer/SavedChoicesDialog.tsx"
     }
   },
   "services": {

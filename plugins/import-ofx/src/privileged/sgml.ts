@@ -8,6 +8,11 @@ export interface OfxNode {
   name: string
   /** The element's value, trimmed, for an element that holds one. */
   text?: string
+  /**
+   * Where the value is written in the text given to `parseOfx`, trimmed: `text.slice(start, end)` is the value as
+   * written, entities and all. For tools that rewrite values in place (the anonymiser, scripts/anonymise/).
+   */
+  span?: { start: number, end: number }
   children: OfxNode[]
 }
 
@@ -38,6 +43,20 @@ function readHeader(text: string): Record<string, string> {
   return header
 }
 
+/**
+ * The encoding a file's header declares: OFX 2.x's XML declaration, or OFX 1.x's CHARSET (1252 for most banks). UTF-8
+ * when it declares none. `head` is the start of the file read as Latin-1, which is safe: every OFX header is ASCII.
+ */
+export function declaredEncoding(head: string): string {
+  const declared = /encoding\s*=\s*"([^"]+)"/i.exec(head)?.[1]
+  if (declared) return declared
+  const charset = /^\s*CHARSET\s*:\s*(\S+)/im.exec(head)?.[1]?.toUpperCase()
+  if (/^(UTF-?8|CSUNICODE)$/.test(charset ?? '')) return 'utf-8'
+  if (charset === undefined || charset === 'NONE') return 'utf-8'
+  if (/^ISO-?8859-?1$/.test(charset)) return 'latin1'
+  return /^\d+$/.test(charset) ? `windows-${charset}` : charset.toLowerCase()
+}
+
 /** Reads an OFX file's text, or returns undefined when it has no <OFX> element. */
 export function parseOfx(text: string): OfxDocument | undefined {
   const start = text.search(/<OFX>/i)
@@ -51,10 +70,17 @@ export function parseOfx(text: string): OfxDocument | undefined {
   const closeValue = () => { if (stack.length > 1 && top().text !== undefined) stack.pop() }
 
   const tokens = /<(\/?)([A-Za-z][\w.]*)[^>]*>|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|([^<]+)/g
-  for (const [token, slash, name, content] of text.slice(start).matchAll(tokens)) {
+  for (const match of text.slice(start).matchAll(tokens)) {
+    const [token, slash, name, content] = match
     if (content !== undefined) {
       const value = decodeEntities(content).trim()
-      if (value !== '' && stack.length > 1) top().text = (top().text ?? '') + value
+      if (value !== '' && stack.length > 1) {
+        const node = top()
+        node.text = (node.text ?? '') + value
+        const from = start + match.index! + (content.length - content.trimStart().length)
+        const to = start + match.index! + content.trimEnd().length
+        node.span = { start: node.span?.start ?? from, end: to }
+      }
       continue
     }
     if (name === undefined || token.startsWith('<!--') || token.startsWith('<?')) continue

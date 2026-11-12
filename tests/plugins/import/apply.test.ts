@@ -15,7 +15,7 @@ import { sample, setupImport, type ImportEnv } from './harness'
 const chequing = (over: Partial<AccountInput> = {}): AccountInput =>
   ({ name: 'Chequing', type: 'chequing', subLedgerId: null, currency: 'CAD', openingDate: '2026-01-01', openingBalance: 0, ...over })
 
-const line = (importId: string, amount = -100) => ({ importId, bank: { date: '2026-10-05', amount, payee: 'SHOP' } })
+const line = (importId: string, amount = -100) => ({ importId, line: 1, bank: { date: '2026-10-05', amount, payee: 'SHOP' } })
 const draft = (importId: string, amount = -100) => ({ date: '2026-10-05', amount, payee: 'Shop', status: 'electronic' as const, externalId: importId })
 const counts = { lines: 2, added: 2, matched: 0, possible: 0, duplicates: 0, invalid: 0 }
 
@@ -107,15 +107,16 @@ describe('the import plugin, activated', () => {
     const menus = env.runtime.extensions.getContributions('shell.menus').filter(c => c.contributor === 'import').map(c => c.impl)
     expect(menus).toEqual([
       { kind: 'group', id: 'import.file', parent: 'shell.file', order: 5 },
-      { kind: 'item', id: 'import.file.import', label: '&Import…', parent: 'shell.file', group: 'import.file', command: IMPORT_COMMANDS.file }
+      { kind: 'item', id: 'import.file.import', label: '&Import…', parent: 'shell.file', group: 'import.file', command: IMPORT_COMMANDS.file },
+      { kind: 'item', id: 'import.file.saved', label: 'Saved Import &Choices…', parent: 'shell.file', group: 'import.file', command: IMPORT_COMMANDS.manageLinks }
     ])
     expect(env.runtime.extensions.getContributions('shell.dialogs').filter(c => c.contributor === 'import').map(c => c.id))
-      .toEqual([IMPORT_DIALOGS.format, IMPORT_DIALOGS.account, IMPORT_DIALOGS.summary, IMPORT_DIALOGS.match])
+      .toEqual([IMPORT_DIALOGS.format, IMPORT_DIALOGS.account, IMPORT_DIALOGS.summary, IMPORT_DIALOGS.match, IMPORT_DIALOGS.categories, IMPORT_DIALOGS.signs, IMPORT_DIALOGS.links])
     expect(env.runtime.extensions.getContributions(REGISTER_ANNOTATIONS_POINT).filter(c => c.contributor === 'import').map(c => c.impl))
       .toEqual([{ id: 'import.review', service: IMPORT_ANNOTATOR_SERVICE }])
     expect(env.runtime.services.has(IMPORT_MANAGER_SERVICE)).toBe(true)
     expect(env.runtime.services.has(IMPORT_ANNOTATOR_SERVICE)).toBe(true)
-    for (const command of [IMPORT_COMMANDS.accept, IMPORT_COMMANDS.acceptAll, IMPORT_COMMANDS.change]) expect(env.runtime.commands.has(command)).toBe(true)
+    for (const command of [IMPORT_COMMANDS.accept, IMPORT_COMMANDS.acceptAll, IMPORT_COMMANDS.change, IMPORT_COMMANDS.manageLinks]) expect(env.runtime.commands.has(command)).toBe(true)
     expect(env.importLog.warn).not.toHaveBeenCalled()
   })
 

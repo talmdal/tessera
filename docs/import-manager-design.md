@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | In progress: phase 0.1 (`@tessera/import-api`, [results](#01-results)) and 0.2 (`shell.files` additions, [results](#02-results)) 0.3 (`accounts` bank-line methods, [results](#03-results)), 0.4 (register annotations, [results](#04-results)) and 0.5 (New Account with initial values, [results](#05-results)) done: phase 0 is complete. Phase 1 (the import plugin and OFX, [results](#phase-1-results)) and phase 2 (matching and review, [results](#phase-2-results)) done. Phase 3 (CSV) next. Review decisions of 2026-11-06 applied (see [Decisions taken in review](#decisions-taken-in-review)) |
+| **Status** | In progress: phase 0.1 (`@tessera/import-api`, [results](#01-results)) and 0.2 (`shell.files` additions, [results](#02-results)) 0.3 (`accounts` bank-line methods, [results](#03-results)), 0.4 (register annotations, [results](#04-results)) and 0.5 (New Account with initial values, [results](#05-results)) done: phase 0 is complete. Phase 1 (the import plugin and OFX, [results](#phase-1-results)) and phase 2 (matching and review, [results](#phase-2-results)) done. Phase 3 (CSV) is replaced by [import-formats-design.md](import-formats-design.md), which designs CSV, QBO and QIF and plans them as phases F0 to F6 (reviewed 2026-11-11); its phases F0 (the groundwork), F1 (QBO and the anonymiser), F2 (duplicates across sources), F3 (the sign cross-check), F4 (CSV, the `import-csv` plugin), F5 (QIF, the `import-qif` plugin) and F6 (*File › Saved Import Choices…*, which includes this note's Saved Account Matches dialog) are done. Review decisions of 2026-11-06 applied (see [Decisions taken in review](#decisions-taken-in-review)) |
 | **Date** | 2026-11-06 |
 | **Scope** | Importing bank and card statements from files into the open ledger: the `import.formats` extension point that format plugins contribute to, choosing files, working out which account a statement belongs to (and remembering it), adding the statement's transactions to that account's register, fuzzy matching against transactions already entered, and reviewing those matches in the register |
 | **Builds on** | [account-manager-design.md](account-manager-design.md) (`accounts.service`, the register, the `externalId` reserved on transactions, `accounts.reconcile.actions` as the model for a data-only extension point), [plugin-creation.md](plugin-creation.md) (`shell.dialogs`, `shell.files`, `ledger.schema`) |
@@ -142,7 +142,7 @@ Gaps, and how the design handles each:
 | 7 | **Saved account matches and import records live in the ledger** (`import.*` collections) | They refer to the ledger's account ids, and they must travel with the file and disappear with it |
 | 8 | **Every added or matched transaction carries an `externalId`**: the bank's id (OFX `FITID`) when the file has one, otherwise a **fingerprint** of the line | The unique `[accountId, externalId]` index then makes double-importing impossible, even for CSV files, which have no ids |
 | 9 | **Accepting a match takes the bank's date and amount, and keeps the user's payee, category and memo** | Decided in review. The bank's date and amount are what actually cleared, so the register follows the statement and reconciling against it is straightforward. The user's descriptive fields are better than the bank's (`POS PURCHASE COSTCO WHSE #0123` versus *Costco*, *Food : Groceries*) |
-| 10 | **CSV files ask for the account every time, with the remembered account chosen**, unless the user ticks *Don't ask again* | A CSV file's only identity is its column layout, and two banks can share one. One click confirms, and the user can choose to skip the dialog in future |
+| 10 | **CSV files ask for the account every time, with the remembered account chosen**, unless the user ticks *Don't ask again* | A CSV file's only identity is its column layout, and two banks can share one. One click confirms, and the user can choose to skip the dialog in future. Narrowed by [import-formats-design.md](import-formats-design.md#decisions) (F-7): a CSV file with an account-number column has a strong key, as an OFX file does |
 | 11 | **One import runs at a time**, and a statement's additions are one storage transaction | The dialogs are modal anyway, and it keeps recovery simple (see [Applying an import](#applying-an-import)) |
 | 12 | **Format code runs in the privileged half, on bytes the import manager has read** | The renderer has no Node access. Format plugins never open files, so they need no file-system access and are easy to test |
 | 13 | **Every row to review has the same two buttons, *Accept* and *Change…***, whether it is a proposed match or was added as new | Decided in review, for consistency: one pattern to learn. The Change Match dialog offers what suits the row. New rows need acknowledging, so a missed match is noticed |
@@ -183,8 +183,9 @@ Gaps, and how the design handles each:
 | Component | Kind | Provides | Requires | Owns |
 |---|---|---|---|---|
 | `import` | bundled plugin | `import.manager`, `import.annotator`, `import.migrator` | `accounts.service`, `ledger.session`, `shell.files`, `shell.prompts`, `app.state` | `import.formats` |
-| `import-ofx` | bundled format plugin | `import-ofx.format` | | |
-| `import-csv` | bundled format plugin | `import-csv.format` | `shell.prompts` | |
+| `import-ofx` | bundled format plugin (OFX, QFX and QBO; QBO since phase F1 of import-formats-design.md) | `import-ofx.format` | | |
+| `import-csv` | bundled format plugin ([import-formats-design.md](import-formats-design.md#csv), phase F4, [results](import-formats-design.md#phase-f4-results)) | `import-csv.format` | (none: it asks through `ParseContext.prompt`) | |
+| `import-qif` | bundled format plugin ([import-formats-design.md](import-formats-design.md#qif), phase F5, [results](import-formats-design.md#phase-f5-results)) | `import-qif.format` | (none: it asks through `ParseContext.prompt`) | |
 | `accounts` | bundled plugin (changed) | `accounts.service` (extended) | (unchanged) | `accounts.register.annotations` (new) |
 | `@tessera/import-api` | package (types, constants, pure helpers) | | `@tessera/types`, `@tessera/accounts-api` | |
 
@@ -209,6 +210,8 @@ User: File › Import…
   ├─4─ Find the account ─── saved match → account number → Account dialog (pick, create or skip); save the match
   ├─5─ Convert and check ── decimal strings → minor units in the account's currency; dates; lengths
   ├─6─ Drop duplicates ──── externalId (bank id or fingerprint) already in the account or in import.lines
+  ├─6½ Check the signs ──── amounts the wrong way round for the account? Asked (Amounts Reversed?) only on evidence;
+  │                         see import-formats-design.md, "Sign cross-check"
   ├─7─ Match ────────────── fuzzy score against the account's open transactions; one-to-one assignment
   ├─8─ Apply ────────────── one storage transaction adds the new lines (E, externalId); matches recorded as proposals
   │
@@ -229,10 +232,10 @@ Each file is independent: a file that fails to parse is reported in the summary,
 `import.file` (*File › Import…*) builds the dialog's filters from the valid `import.formats` contributions:
 
 ```
-Files of type:  [ All supported statements (*.ofx, *.qfx, *.csv, *.qif)  ▾ ]
-                  All supported statements (*.ofx, *.qfx, *.csv, *.qif)
-                  OFX / QFX statement (Microsoft Money, Quicken) (*.ofx, *.qfx)
-                  CSV file (*.csv, *.txt)
+Files of type:  [ All supported statements (*.ofx, *.qfx, *.qbo, *.csv, *.qif)  ▾ ]
+                  All supported statements (*.ofx, *.qfx, *.qbo, *.csv, *.qif)
+                  OFX / QFX / QBO statement (Microsoft Money, Quicken, QuickBooks) (*.ofx, *.qfx, *.qbo)
+                  CSV file (*.csv)
                   QIF file (*.qif)
                   All files (*.*)
 ```
@@ -344,6 +347,11 @@ export interface ParseContext {
   /** The window the import was started from, for the format's own dialogs. */
   windowId?: number
   log: Logger
+  /**
+   * Added in import-api 1.3 (phase F0 of import-formats-design.md): opens the format's own dialog in the import's
+   * window, with the 30-second limit paused while it is open. Throw ImportError('CANCELLED') for Cancel Import.
+   */
+  prompt<TResult, TInput>(dialogId: string, input: TInput, options?: { title?: string }): Promise<TResult | undefined>
 }
 
 export interface ParseResult {
@@ -521,7 +529,8 @@ export interface AccountLink {
 }
 ```
 
-*File › Saved Account Matches…* (`import.links.manage`, phase 4) lists them. Each match can be pointed at another
+*File › Saved Import Choices…* (`import.links.manage`, built in [F6](import-formats-design.md#phase-f6-results) ahead of
+phase 4) lists them. Each match can be pointed at another
 account, switched between *ask every time* and *don't ask*, or forgotten. When an account is deleted, its matches go
 with it: the import plugin follows `accounts.onDidChange`'s `deleted`.
 
@@ -556,6 +565,13 @@ A line is a **duplicate**, counted in the summary and otherwise ignored, when it
 - already a transaction's `externalId` in that account (`TransactionManager.findByExternalIds`); or
 - already in `import.lines` for that account. This covers a line the user deleted or chose not to import: deleting
   an imported transaction doesn't make it come back on the next import.
+
+**Unless the bank id now names another transaction** (phase F0 of
+[import-formats-design.md](import-formats-design.md#bank-ids-that-collide)). A bank id seen before is compared with
+what it named then. If the line is dated more than 3 days away, or has both another amount and another payee, it is a
+**collision**: the line is known by its fingerprint instead, with a warning, and counted in `idConflicts`. When more
+than half a statement's known ids collide, none of its ids are used. A statement can also say so itself
+(`ParsedStatement.stableIds: false`).
 
 **After an archive** (File › Archive Ledger…, [ledger-compaction-design.md](ledger-compaction-design.md#imports-after-an-archive)),
 the archived transactions are gone, and so are the `import.lines` records of those dated before the archive date. So a
@@ -612,6 +628,11 @@ For each line, the candidates are the account's transactions that:
   has a `number` equal to the transaction's number) the window starts 90 days before.
 
 Both sides of a transfer are ordinary transactions in their own accounts, so a transfer matches like anything else.
+
+A transaction already imported is never a candidate: it is some bank line's. A new line that looks like a line imported
+before **from another kind of file** (the same amount, dates within 3 days, the bank's texts alike, known by other ids)
+is checked for first, and proposed as *Already imported?* on that line's transaction instead: phase F2 of
+[import-formats-design.md](import-formats-design.md#duplicates-across-sources).
 The candidates are loaded once per statement, with `list({ from, to })` over the statement's whole window. That is a
 few hundred rows, even for busy accounts.
 
@@ -1311,9 +1332,9 @@ open question 6).
 |---|---|
 | Wrong fuzzy matches | Nothing is applied without *Accept*. *Possible match* is shown in the warning colour with differences emphasised. The thresholds are tuned on a fixture corpus, and *Change…* › *Unmatch* takes a wrong match apart, even after it was accepted |
 | Missed matches, which make duplicates | *Change…* on every new row merges it into the user's entry in one step, and aliases learnt from it improve the next import |
-| Banks that reissue OFX FITIDs, so duplicates slip in | `stableIds: false` per format. The review step shows each new row, so a duplicate is seen. A "probable duplicate" warning (same date, amount and payee as an imported row) is later work |
+| Banks that reissue OFX FITIDs, so duplicates slip in | `stableIds: false` per format, and per statement from phase F0. The review step shows each new row, so a duplicate is seen. *Already imported?* proposals ([import-formats-design.md](import-formats-design.md#duplicates-across-sources), phase F2) catch a line seen before under another id |
 | Two plugins' writes (`import` and `accounts`) can't share a storage transaction | Ordered steps, each atomic, with the recovery rule; tests cut the run between every pair of steps |
-| A third-party format plugin is slow, hangs or throws | Each file's parse runs under the run's `AbortSignal`, with a 30-second limit. A throw fails that file only. Format code runs with full Node access, like every plugin, which is the framework's open "Plugin trust" item |
+| A third-party format plugin is slow, hangs or throws | Each file's parse runs under the run's `AbortSignal`, with a 30-second limit on its own work (time in the format's dialogs, through `ParseContext.prompt`, doesn't count). A throw fails that file only. Format code runs with full Node access, like every plugin, which is the framework's open "Plugin trust" item |
 | Large registers make candidate loading slow | Candidates are loaded by date range through `byAccountDate`. `scale.test.ts` checks a 2,000-line statement against a 10,000-transaction account |
 | CSV layouts that collide between banks | Weak keys never apply silently unless the user asks |
 | Accepting moves a row to the bank's date, and a transfer's other side moves with it | The tooltip says so before *Accept*; the selection follows the row; *Unmatch* puts the date back. When the other side's own statement is imported, a difference of a few days still scores well (`D` ≥ 0.9 up to 3 days) |
@@ -1378,7 +1399,8 @@ Two rules specific to this feature:
 Phase 0 ─┬─► Phase 1 ──────► Phase 2 ──► Phase 4
 (prereqs) │   (import core,     (matching     (history, undo,
           │    OFX)              and review)   saved matches)
-          └─────────────────────────► Phase 3 (CSV; needs Phase 1, independent of Phase 2)
+          └─────────────────────────► Phase 3 (CSV, QBO and QIF: now phases F0 to F6 of
+                                        import-formats-design.md)
 ```
 
 Phase 0's accounts work (0.3 to 0.5) and the API package (0.1) can run in parallel.
@@ -2037,52 +2059,20 @@ themes, still needs a person.
 
 ## Phase 3: CSV (M)
 
-CSV is the format with no account identity and no line ids, which is why this note gives it so much care. It depends
-on phase 1 only.
+**Replaced** by [import-formats-design.md](import-formats-design.md), which designs CSV together with QBO and QIF, and
+plans them as phases F0 to F6. The plan that stood here (an `import-csv` plugin with RFC 4180 rows, a guessed layout,
+a layout dialog, weak keys by header row, and fingerprints) is kept there and extended. What changed, and why:
 
-### Files
-
-```
-plugins/import-csv/
-├── manifest.json                 id "import-csv"; requires shell.prompts; provides import-csv.format;
-│                                 renderer.expose { "./LayoutDialog" }
-└── src/
-    ├── privileged/
-    │   ├── index.ts              the contribution ({ extensions: ['csv', 'txt'] }) and the service
-    │   ├── csv.ts                RFC 4180 rows: quotes, embedded newlines, ',' ';' and tab delimiters (detected)
-    │   ├── layout.ts             Layout: header row?, columns for date, amount | debit + credit, payee, memo,
-    │   │                         number; date order; decimal separator; "amounts are reversed"
-    │   │                         guessLayout(rows) from header names (Date, Description, Withdrawals, Deposits…)
-    │   └── parse.ts              rows + layout → one ParsedStatement; key 'csv:layout:<hash of the header row>',
-    │                             keyStrength 'weak'; no externalIds (fingerprints are used)
-    └── renderer/
-        └── LayoutDialog.tsx      a preview of the first rows, a column-role picker per column, the options, and a
-                                  live preview of the resulting lines
-```
-
-### Tasks
-
-1. **`csv.ts`** against hostile input: quotes, BOMs, `\r\n`, a trailing empty line, ragged rows.
-2. **`guessLayout`** from common bank headers, in English and French at first.
-3. **The layout dialog**, shown when no layout is remembered for this header signature (`context.memory`), or when
-   the remembered one fails on this file. The user confirms or corrects it, and it is remembered.
-4. **`parse`**: one statement, a weak key from the header row, `label` "CSV file with columns Date, Description,
-   Amount", and warnings for rows that don't fit the layout.
-
-### Tests
-
-| File | Covers |
-|---|---|
-| `import-csv/csv.test.ts` | The parser's edge cases; delimiter detection |
-| `import-csv/layout.test.ts` | Guessing for a set of real bank header rows; debit/credit columns; reversed signs; day-month-year dates; comma decimals |
-| `import-csv/parse.test.ts` | Rows to lines; the weak key is stable for the same header and differs for a different one; warnings |
-| `import-csv/renderer/layoutDialog.test.tsx` | Picking roles; the preview follows; invalid layouts can't be saved |
-| `import/run.test.ts` (extended) | A CSV import always shows the Account dialog, with the last account chosen; *Don't ask again* makes the next one silent; overlapping CSV exports add nothing twice (fingerprints) |
-
-**Exit criteria (manual):** import two monthly CSV exports from a real bank, with one overlapping week. The layout is
-asked for once. The Account dialog appears each time with the account chosen. The overlapping week isn't doubled.
-
----
+- **The layout dialog can't run inside `parse` as planned.** `parse` has 30 seconds in total, so a user who took
+  longer than 30 seconds in the dialog would have the import aborted. Formats now ask through `ParseContext.prompt`,
+  which pauses the clock (phase F0).
+- **CSV lines are fingerprints, and matching skips transactions that already carry an id**, so a CSV import followed
+  by the same bank's OFX doubled the overlap. *Already imported?* proposals prevent that (phase F2), and CSV ships
+  only after them.
+- **The layout dialog is shown for every CSV file** (decided in review), filled in with the remembered layout or the
+  guess, for confirmation. A **sign cross-check** once the account is known (phase F3) backs it up. A CSV file with
+  an account-number column gets a strong key (decision 10, narrowed). Pending rows are left out.
+- **The size is now L**, with a fixture corpus of layouts like the matching corpus.
 
 ## Phase 4: history, undo and saved matches (M)
 
@@ -2102,14 +2092,14 @@ on the next import; badges follow reviews.
 
 | Item | Notes |
 |---|---|
-| QIF format plugin | `!Type:Bank`, `!Type:CCard`, `!Account` blocks, date formats; no ids, so fingerprints |
+| ~~QIF format plugin~~ | Designed and planned: [import-formats-design.md › QIF](import-formats-design.md#qif), phase F5 |
 | Reconcile with the imported statement | A `accounts.reconcile.actions` contribution (*Reconcile with Downloaded Statement…*) that begins a reconciliation with the batch's period and bank balance, and marks the lines it matched or added |
 | Auto-accept exact matches | Turned down for now in review (decision 16). A possible future setting, off by default |
 | Transfer detection | A new line in one account that mirrors one in another becomes a transfer pair, with the user's approval |
 | A Downloads "inbox" | Watch the Downloads folder for files the formats can read, and offer to import them |
 | Drag and drop | Drop files on the window to import them (needs a shell facility for file drops) |
 | Settings page, more | The matching presets are done ([Matching tolerances](#matching-tolerances)); the default folder, and auto-accept if it is ever wanted, could join them |
-| Probable-duplicate warning | For sources that reissue ids: same date, amount and payee as an imported row |
+| ~~Probable-duplicate warning~~ | Designed and planned as *Already imported?* proposals: [import-formats-design.md › Duplicates across sources](import-formats-design.md#duplicates-across-sources), phase F2. Bank ids that collide are guarded against in phase F0 |
 | `.mny` reader | See [A `.mny` reader](#a-mny-reader) |
 | Bank connections | A plugin calling `import.manager.importStatements` |
 
@@ -2153,5 +2143,5 @@ Besides the tables above:
 | 0 | `@tessera/import-api`; `shell.files` multi-select and Downloads; `accounts`: `externalId`, `createMany`, `findByExternalIds`, `match`, `unmatch`, `accounts.register.annotations` and its register UI, New Account with initial values; `@tessera/ui` 1.2 | M |
 | 1 | The `import` plugin: *File › Import…*, formats, reading, account resolution with saved matches and the Account dialog, duplicates, adding lines, recovery, summary, `import.manager`; the `import-ofx` format plugin | L |
 | 2 | Fuzzy matching, proposals, *Accept* / *Change…* on every row to review, *Accept All*, the Change Match dialog with *Unmatch* (also for accepted rows, from the row menu), payee aliases | L |
-| 3 | The `import-csv` format plugin: layout guessing and dialog, weak keys, fingerprints | M |
+| 3 | Replaced by [import-formats-design.md](import-formats-design.md#phases): F0 groundwork (M), F1 QBO and the anonymiser (M), F2 duplicates across sources (M), F3 the sign cross-check (M), F4 CSV (L), F5 QIF (M), F6 remembered choices (S) | — |
 | 4 | Import history, undo import, the Saved Account Matches dialog, navigator badges | M |

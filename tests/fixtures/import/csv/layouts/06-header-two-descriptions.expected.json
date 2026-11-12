@@ -1,0 +1,23 @@
+{
+  "about": "Eight columns: account type and number, a cheque number, two descriptions, and CAD$ and USD$ amount columns, the second empty",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "account": 1,
+      "date": 2,
+      "number": 3,
+      "payee": 4,
+      "memo": [
+        5
+      ],
+      "amount": 6
+    },
+    "dateOrder": "MDY",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

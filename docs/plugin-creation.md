@@ -1582,8 +1582,14 @@ a small plugin that turns a file's bytes into statements; the import manager doe
 - it leaves out lines imported before;
 - it adds the rest.
 
-The bundled OFX plugin ([plugins/import-ofx/](../plugins/import-ofx/)) is the example to follow. The contract is
-`@tessera/import-api`.
+The bundled OFX plugin ([plugins/import-ofx/](../plugins/import-ofx/)) is the example to follow for a format that reads a
+file on its own. The bundled CSV plugin ([plugins/import-csv/](../plugins/import-csv/)) is the example of one that
+asks the user (its CSV Columns dialog) and remembers what they said. The bundled QIF plugin
+([plugins/import-qif/](../plugins/import-qif/)) asks only when a file can be read two ways, and gives one statement per
+account of a file. The contract is `@tessera/import-api`.
+
+The sketch below reads one bank's CSV export. Tessera reads CSV files itself, so a plugin like this would sit beside
+`import-csv`: both claim `.csv`, and its `sniff`, which knows that bank's header, says which files are its own.
 
 ```json
 { "id": "bank-csv", "name": "Bank CSV", "version": "0.1.0", "privileged": { "entry": "privileged/index.js" },
@@ -1626,21 +1632,55 @@ export function activate(context: PluginContext) {
   so a card's charges are negative. Use `canonicalDecimal(text, { decimal })` for what a bank writes (`'1.234,56'`,
   `'(12.00)'`), and never a JavaScript number. The import manager converts them once it knows the account's currency.
 - **Dates are `YYYY-MM-DD`.** `isoDate(text, 'MDY' | 'DMY' | 'YMD')` reads a bank's and refuses what is ambiguous.
-  A line you can't read should go into `warnings`, not the statement.
+  A line you can't read should go into `warnings`, not the statement. Options read more: `{ pivot }` accepts two-digit
+  years written last (pass the current year plus 10), and `{ monthNames: true }` accepts `5 Oct 2026`, `Oct 5, 2026`
+  and French names. Decide a file's order and decimal separator from all its rows at once: `guessDateOrder(samples)`
+  and `guessDecimal(samples)` return every reading that fits them all, so one answer decides and several mean you
+  should ask (or use what `context.memory` remembers).
 - **Say how your files name their account**, with `account.key`:
   - `'strong'` when it is an account number: the account is then found, or remembered, without asking;
-  - `'weak'` when it only suggests one (a column layout): the user is asked each time, with the last answer chosen;
-  - with no key, the file's name is used, weakly.
+  - `'weak'` when it only suggests one (a column layout, an account's name): the user is asked each time, with the last
+    answer chosen;
+  - with no key, the file's name is used, weakly. To key a statement by its file's name yourself (so what you remember
+    for it and what `correct` is told use your key), use `fileNameStem(file.name)`, the import manager's own rule.
+- **Give `account.name`** when the file names the account (a QIF `!Account`): the New Account form starts from it.
 - **Give `externalId`** when the format has the bank's own ids, so re-imports are recognised exactly. Without one,
   lines are recognised by a fingerprint of their content. Set `stableIds: false` on the contribution if your source
-  changes its ids between downloads.
-- **Ask the user only through a dialog of your own** (`shell.dialogs`), and resolve `undefined` if they cancel: the file
-  is then skipped. `context.memory` keeps small values in the ledger between imports, such as a column layout.
+  changes its ids between downloads, or on one statement (`ParsedStatement.stableIds`) when only that file's ids look
+  made up (numbered 1, 2, 3…). The import manager also checks an id it has seen before against what it named then: a
+  line dated more than 3 days away, or with both another amount and another payee, is imported by its content rather
+  than dropped as a duplicate.
+- **Amounts the wrong way round are checked for you.** Once the account is known, the import manager checks a
+  statement's signs against the account (its type, its entries, its earlier imports, its balance) and asks the user
+  when they look reversed. If your format can remember how to read a source (a CSV layout's *amounts are reversed*),
+  provide `correct(correction, { memory })` on your service: when the user reverses a statement and asks to remember,
+  you are told (`{ kind: 'signsReversed', key }`), update what you keep for that key, and resolve true. Otherwise the
+  import manager keeps the correction itself. Either way, a file is never reversed twice.
+- **Give a line's `category`** (`'Food:Groceries'`) when the file has one, as QIF does. It is only a hint: it is used
+  when the ledger has that category, and only for a source whose user chose to take the file's categories (the import
+  manager asks them once, and remembers). Never give a transfer (`[Savings]`) as a category.
+- **Ask the user through `context.prompt(dialogId, input)`**, with a dialog of your own (`shell.dialogs`, its id
+  starting with your plugin id). It opens in the window the import started from, and the time limit stops while the
+  dialog is open. For *Skip This File*, resolve `parse` with `undefined`; for *Cancel Import*, throw
+  `ImportError('CANCELLED', …)`, which stops this file and every file after it. `context.memory` keeps small values in
+  the ledger between imports, such as a column layout. `import-csv` shows the whole pattern:
+  - it contributes its dialog to `shell.dialogs` (`{ id: 'import-csv.dialog.layout', module: './LayoutDialog',
+    size: 'lg' }`), and its manifest's `renderer.expose` names the component;
+  - the dialog's input and result types, and the code both halves run, are in `src/shared/`, so the dialog's preview
+    reads the file with the very code that imports it;
+  - `parse` passes the decoded text (not the bytes) to the dialog, and remembers what the user confirmed, with
+    `context.memory.set`, before it returns;
+  - it provides `correct`, so a reversal the user makes later lands in the layout its dialog shows;
+  - it provides `describeMemory(key, value)`, so each layout it remembers is listed in *File › Saved Import Choices…*
+    (`{ what: 'CSV columns', source: 'Date, Description, Amount', detail: 'Dates month first' }`), where the user can
+    forget it. Return `undefined` for values that are your own index, not the user's choices; and read a value that
+    has gone (forgotten) as "nothing remembered".
 - **Don't read files or touch accounts.** `parse` gets the bytes (`file.bytes`, `file.text(encoding)`); a byte-order
   mark wins over the encoding you ask for. Use `file.text('windows-1252')` rather than your own `TextDecoder`: Node's
-  reads windows-1252 as ISO-8859-1 and loses `€` and curly quotes, and `text()` doesn't. Throw
-  `ImportError('UNREADABLE', message)` for a file you can't read: the message is shown. `parse` has 30 seconds, and
-  files over 25 MB are refused before it is called.
+  reads windows-1252 as ISO-8859-1 and loses `€` and curly quotes, and `text()` doesn't. For a file that doesn't say
+  its encoding (CSV, QIF), `file.text('auto')` reads UTF-8 when the bytes are valid UTF-8, and windows-1252 otherwise.
+  Throw `ImportError('UNREADABLE', message)` for a file you can't read: the message is shown. `parse` has 30 seconds of
+  its own work (time in `context.prompt` doesn't count), and files over 25 MB are refused before it is called.
 
 Other plugins can also import statements they already have (from a bank connection, say) through the `import.manager`
 service: `importStatements(statements, { label }, { interactive })`. They go through the same account resolution,
@@ -1669,7 +1709,7 @@ export default function Summary() {
 }
 ```
 
-`@tessera/ui` (version 1.3) exports a curated set, added when a view needs it:
+`@tessera/ui` (version 1.4) exports a curated set, added when a view needs it:
 
 | For | Components |
 |---|---|

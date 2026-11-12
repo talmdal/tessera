@@ -1,0 +1,21 @@
+{
+  "about": "Name and Memo columns, and a Transaction column (DEBIT, CREDIT, OTHER) that isn't a direction",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 0,
+      "payee": 2,
+      "memo": [
+        3
+      ],
+      "amount": 4
+    },
+    "dateOrder": "MDY",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

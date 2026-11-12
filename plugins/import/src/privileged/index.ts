@@ -10,7 +10,8 @@ import { ACCOUNTS_SERVICE, type AccountsService } from '@tessera/accounts-api'
 import {
   IMPORT_ANNOTATOR_SERVICE, IMPORT_CHANNELS, IMPORT_COMMANDS, IMPORT_CONTEXT_KEYS, IMPORT_EVENTS, IMPORT_FORMATS_POINT,
   IMPORT_MANAGER_SERVICE, IMPORT_MIGRATOR_SERVICE, IMPORT_PLUGIN_ID,
-  isImportError, type AcceptAllArgs, type AcceptArgs, type ChangeArgs, type MatchCandidatesRequest
+  IMPORT_DIALOGS, isImportError, toImportResult,
+  type AcceptAllArgs, type AcceptArgs, type ChangeArgs, type LinkUpdateRequest, type MatchCandidatesRequest, type RememberedUpdateRequest
 } from '@tessera/import-api'
 import { PayeeAliases } from './aliases'
 import { importArchiver } from './archive'
@@ -20,6 +21,7 @@ import type { FileReader } from './files'
 import { Formats } from './formats'
 import { Links } from './links'
 import { Review, toReviewResult } from './review'
+import { SavedChoices } from './savedChoices'
 import { Importer } from './run'
 import { IMPORT_SCHEMA, importMigrator } from './schema'
 import { IMPORT_SETTINGS, settingsContribution, tuningOf } from './settings'
@@ -59,6 +61,8 @@ export async function activate(context: PluginContext, options: ActivateOptions 
   })
   const review = new Review({ session, accounts, prompts, aliases, changed, log: context.logger, tuning })
   const flow = new ImportFlow({ importer, formats, prompts, commands: context.commands, log: context.logger })
+  const saved = new SavedChoices({ db, accounts, formats, log: context.logger })
+  const idOf = (msg: IpcMessage<unknown>) => String((msg.data as { id?: unknown } | undefined)?.id ?? '')
   const reviewing = `${LEDGER_CONTEXT_KEYS.isOpen} && !${LEDGER_CONTEXT_KEYS.isReadOnly}`
 
   const publishFormats = () => context.contextKeys.set(IMPORT_CONTEXT_KEYS.hasFormats, formats.all().length > 0)
@@ -99,7 +103,19 @@ export async function activate(context: PluginContext, options: ActivateOptions 
     context.commands.register(IMPORT_COMMANDS.change, (args: unknown) => review.change(args as ChangeArgs), { enablement: reviewing }),
     // The Change Match dialog's list
     context.ipc.register(IMPORT_CHANNELS.matchCandidates, (msg: IpcMessage<MatchCandidatesRequest>) =>
-      toReviewResult(() => review.candidates(msg.data)))
+      toReviewResult(() => review.candidates(msg.data))),
+    // File › Saved Import Choices…: everything imports remember, to see, change and forget
+    context.commands.register(IMPORT_COMMANDS.manageLinks, async () => {
+      await prompts.show(IMPORT_DIALOGS.links, {})
+    }, { enablement: `${LEDGER_CONTEXT_KEYS.isOpen} && !${LEDGER_CONTEXT_KEYS.isReadOnly} && !${IMPORT_CONTEXT_KEYS.isRunning}` }),
+    context.ipc.register(IMPORT_CHANNELS.links, () => toImportResult(() => saved.links())),
+    context.ipc.register(IMPORT_CHANNELS.updateLink, (msg: IpcMessage<LinkUpdateRequest>) => toImportResult(() => saved.updateLink(msg.data))),
+    context.ipc.register(IMPORT_CHANNELS.forgetLink, msg => toImportResult(() => saved.forgetLink(idOf(msg)))),
+    context.ipc.register(IMPORT_CHANNELS.aliases, () => toImportResult(() => saved.aliases())),
+    context.ipc.register(IMPORT_CHANNELS.forgetAlias, msg => toImportResult(() => saved.forgetAlias(idOf(msg)))),
+    context.ipc.register(IMPORT_CHANNELS.remembered, () => toImportResult(() => saved.remembered())),
+    context.ipc.register(IMPORT_CHANNELS.forgetRemembered, msg => toImportResult(() => saved.forgetRemembered(idOf(msg)))),
+    context.ipc.register(IMPORT_CHANNELS.updateRemembered, (msg: IpcMessage<RememberedUpdateRequest>) => toImportResult(() => saved.updateRemembered(msg.data)))
   )
   context.contextKeys.set(IMPORT_CONTEXT_KEYS.isRunning, false)
   publishFormats()

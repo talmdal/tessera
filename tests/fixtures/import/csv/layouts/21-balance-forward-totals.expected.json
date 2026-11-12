@@ -1,0 +1,20 @@
+{
+  "about": "A balance forward row under the header, a totals row and trailing blank lines",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "debit": 2,
+      "credit": 3,
+      "balance": 4
+    },
+    "dateOrder": "YMD",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

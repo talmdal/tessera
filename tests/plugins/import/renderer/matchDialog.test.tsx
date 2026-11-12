@@ -2,7 +2,7 @@
 // account, and the options for a proposed match, an accepted one, a row added as new and a line that lost its match.
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Account, Transaction } from '@tessera/accounts-api'
 import { IMPORT_CHANNELS, type MatchCandidate, type MatchCandidatesRequest, type MatchCandidatesResponse } from '@tessera/import-api'
 import MatchDialog from '../../../../plugins/import/src/renderer/MatchDialog'
@@ -51,8 +51,6 @@ function setup(over: Partial<MatchCandidatesResponse> = {}, failure?: string) {
   render(<MatchDialog input={{ lineId: 'line1' }} close={close} setBusy={vi.fn()} />)
   return { close, requests }
 }
-
-afterEach(() => { delete (window as any).api })
 
 const apply = () => userEvent.click(screen.getByRole('button', { name: 'Apply' }))
 
@@ -187,5 +185,22 @@ describe('the Change Match dialog', () => {
     await screen.findByTestId('bank-line')
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(close).toHaveBeenCalledWith()
+  })
+
+  it('for a line that looks already imported: starts on that transaction, and offers adding it as a new one, not leaving it out', async () => {
+    const earlier = candidate(tx('csv', '2026-10-05', -8412, { status: 'reconciled', externalId: 'fp:0123456789abcdef' }), 'Costco', { score: 0.95, differences: ['1 day earlier'], payeeKnown: false })
+    const { close } = setup({ state: 'duplicate', currentId: 'csv', candidates: [earlier, ...NEAR.slice(1)] })
+    expect(await screen.findByText('It looks like the transaction marked below, imported before from another file, so nothing was added for it.')).toBeInTheDocument()
+    expect(screen.getByText('It is the same as:')).toBeInTheDocument()
+    expect(within(screen.getAllByRole('row')[1]).getAllByRole('cell')[2]).toHaveTextContent('Costcoalready imported')
+    expect(screen.getByRole('radio', { name: 'Oct 5, 2026 Costco 84.12 (current)' })).toBeChecked()
+    expect(screen.queryByRole('radio', { name: /Don’t import/ })).toBeNull()
+    // Confirming it teaches nothing: no box to remember the payee
+    expect(screen.queryByRole('checkbox', { name: /Remember that/ })).toBeNull()
+    await apply()
+    expect(close).toHaveBeenLastCalledWith({ kind: 'match', transactionId: 'csv', rememberPayee: false })
+    await userEvent.click(screen.getByRole('radio', { name: 'It’s a different transaction: add the bank line as a new one' }))
+    await apply()
+    expect(close).toHaveBeenLastCalledWith({ kind: 'unmatch' })
   })
 })

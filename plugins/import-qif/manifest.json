@@ -1,0 +1,15 @@
+{
+  "id": "import-qif",
+  "name": "QIF statements",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./OptionsDialog": "src/renderer/OptionsDialog.tsx"
+    }
+  },
+  "services": {
+    "provides": ["import-qif.format"]
+  }
+}

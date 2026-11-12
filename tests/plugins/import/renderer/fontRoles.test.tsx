@@ -1,6 +1,6 @@
 // The import plugin's amounts are drawn in the Amounts and figures font role.
 import { screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Account, Transaction } from '@tessera/accounts-api'
 import { IMPORT_CHANNELS, type MatchCandidatesResponse } from '@tessera/import-api'
 import { Amount } from '../../../../plugins/import/src/renderer/display'
@@ -13,8 +13,6 @@ const account: Account = {
   openingBalance: 0, order: 0, closed: false
 }
 const costco: Transaction = { id: 'costco', rev: 1, accountId: 'c', date: '2026-10-05', amount: -8400, status: 'uncleared', voided: false, createdAt: '', updatedAt: '' }
-
-afterEach(() => { delete (window as any).api })
 
 describe('the import plugin and the font roles', () => {
   it('draws an amount as a figure, and in the error colour when negative', () => {

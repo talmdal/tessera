@@ -1,0 +1,19 @@
+{
+  "about": "No header, newest first, a signed amount and a running balance",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": false,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "amount": 2,
+      "balance": 3
+    },
+    "dateOrder": "YMD",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

@@ -1,0 +1,33 @@
+{
+  "about": "A Description column of kinds of transaction (pos purchase, deposit) and a Sub-description column of names: the names are the payee. A Filter column with text in the first row only; a Debit/Credit column beside signed amounts; newest first",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 1,
+      "memo": [
+        2
+      ],
+      "payee": 3,
+      "direction": {
+        "column": 4,
+        "debit": [
+          "Debit"
+        ],
+        "credit": [
+          "Credit"
+        ]
+      },
+      "amount": 5,
+      "balance": 6
+    },
+    "dateOrder": "YMD",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": [
+    "column:3"
+  ]
+}

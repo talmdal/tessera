@@ -1,0 +1,28 @@
+{
+  "about": "A preamble line and a blank line before the header; a masked card number in apostrophes; a DEBIT/CREDIT column; compact dates (YYYYMMDD)",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 2,
+    "header": true,
+    "columns": {
+      "account": 0,
+      "direction": {
+        "column": 1,
+        "debit": [
+          "DEBIT"
+        ],
+        "credit": [
+          "CREDIT"
+        ]
+      },
+      "date": 2,
+      "amount": 3,
+      "payee": 4
+    },
+    "dateOrder": "YMD",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

@@ -40,12 +40,24 @@ function decodeWindows1252(bytes: Uint8Array): string {
   return text
 }
 
-/** Text from bytes: a byte-order mark says the encoding; otherwise `encoding` (default UTF-8). */
+/**
+ * Text from bytes: a byte-order mark says the encoding; otherwise `encoding` (default UTF-8). 'auto' is for files
+ * that don't say (CSV, QIF): UTF-8 when the bytes are valid UTF-8, otherwise windows-1252. Text written as
+ * windows-1252 with accents or curly quotes is almost never valid UTF-8, and plain ASCII reads the same either way.
+ */
 export function decode(bytes: Uint8Array, encoding = 'utf-8'): string {
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return new TextDecoder('utf-8').decode(bytes.subarray(3))
   if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes.subarray(2))
   if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes.subarray(2))
-  if (WINDOWS_1252_LABELS.has(encoding.trim().toLowerCase())) return decodeWindows1252(bytes)
+  const label = encoding.trim().toLowerCase()
+  if (label === 'auto') {
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    } catch {
+      return decodeWindows1252(bytes)
+    }
+  }
+  if (WINDOWS_1252_LABELS.has(label)) return decodeWindows1252(bytes)
   return new TextDecoder(encoding).decode(bytes)
 }
 

@@ -4,7 +4,8 @@ import type { CommandRegistry, Event, Logger, ShellPrompts } from '@tessera/type
 import { ACCOUNTS_COMMANDS } from '@tessera/accounts-api'
 import {
   IMPORT_DIALOGS,
-  type ImportManager, type ImportReport, type ParsedStatement, type SummaryDialogInput, type SummaryDialogResult
+  type CategoriesDialogInput, type CategoriesDialogResult, type ImportManager, type ImportReport, type ParsedStatement,
+  type SummaryDialogInput, type SummaryDialogResult
 } from '@tessera/import-api'
 import type { Formats } from './formats'
 import type { Importer } from './run'
@@ -42,8 +43,24 @@ export class ImportFlow {
         await this.deps.commands.execute(ACCOUNTS_COMMANDS.openRegister, { id: answer.review }).catch(err =>
           this.deps.log.error('[import] Could not show the register', err))
       }
+      if (answer?.changeCategories !== undefined) await this.changeCategories(report, answer.changeCategories)
     }
     return report
+  }
+
+  /** The summary's Change… beside a statement's categories: the same question, answered again, for the next import. */
+  private async changeCategories(report: ImportReport, index: number) {
+    const result = report.results[index]
+    const categories = result?.categories
+    if (!categories) return
+    const input: CategoriesDialogInput = {
+      fileName: result.source, sourceLabel: categories.sourceLabel, accountName: result.accountName ?? '',
+      offered: categories.offered, differing: categories.differing, examples: categories.examples, current: categories.source
+    }
+    const answer = await this.deps.prompts.show<CategoriesDialogResult, CategoriesDialogInput>(IMPORT_DIALOGS.categories, input)
+    if (!answer || (answer.source !== 'file' && answer.source !== 'payee')) return
+    await this.deps.importer.changeCategoryChoice(categories.key, answer.source, categories.sourceLabel, answer.remember === true)
+      .catch(err => this.deps.log.error('[import] Could not keep the answer about the file’s categories', err))
   }
 
   async importStatements(statements: ParsedStatement[], source: Parameters<ImportManager['importStatements']>[1], options?: { interactive?: boolean }): Promise<ImportReport> {

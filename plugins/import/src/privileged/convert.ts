@@ -17,7 +17,14 @@ import { normalizePayee } from './matching/payees'
 export interface ConvertedLine {
   importId: string
   bank: BankLine
+  /** Where it is in the statement, from 1, for warnings. */
+  line: number
+  /** The file's category for it, as given ('Food:Groceries'): a hint for its draft, not kept with the bank line. */
+  category?: string
 }
+
+/** The longest category path kept as a hint: longer ones aren't categories. */
+const CATEGORY_HINT_MAX_LENGTH = 200
 
 export type Minor = { ok: true, value: number } | { ok: false, problem: string }
 
@@ -60,14 +67,18 @@ export interface Converted {
   warnings: string[]
 }
 
+/** True for an import id made from a line's content, not given by the bank. */
+export const isFingerprint = (importId: string) => importId.startsWith(FINGERPRINT_PREFIX)
+
 /**
  * Converts a statement's lines. `stableIds` false means the format's bank ids may change between downloads, so lines
- * are known by fingerprint instead.
+ * are known by fingerprint instead. `distrust` names bank ids not to use, as they named other transactions before
+ * (see collisions.ts): those lines are known by fingerprint too.
  */
-export function convertLines(lines: StatementLine[], currency: string, options: { stableIds?: boolean } = {}): Converted {
+export function convertLines(lines: StatementLine[], currency: string, options: { stableIds?: boolean, distrust?: ReadonlySet<string> } = {}): Converted {
   const warnings: string[] = []
   let invalid = 0
-  const bankLines: { bank: BankLine, externalId?: string }[] = []
+  const bankLines: { bank: BankLine, externalId?: string, line: number, category?: string }[] = []
   lines.forEach((line, i) => {
     const where = `Line ${i + 1}`
     if (!isIsoDate(line.date)) { invalid++; warnings.push(`${where}: “${line.date}” isn't a date, so the line was left out.`); return }
@@ -92,8 +103,11 @@ export function convertLines(lines: StatementLine[], currency: string, options: 
       ...(kind !== undefined && { kind })
     }
     const id = typeof line.externalId === 'string' && line.externalId !== '' && line.externalId.length <= EXTERNAL_ID_MAX_LENGTH
-      ? line.externalId : undefined
-    bankLines.push({ bank, ...(id !== undefined && { externalId: id }) })
+      && !options.distrust?.has(line.externalId) ? line.externalId : undefined
+    // A category hint: a path, never a transfer ('[Savings]'), and never so long it can't be one
+    const category = typeof line.category === 'string' ? line.category.replace(/\s+/g, ' ').trim() : ''
+    const hint = category !== '' && !category.startsWith('[') && category.length <= CATEGORY_HINT_MAX_LENGTH ? category : undefined
+    bankLines.push({ bank, line: i + 1, ...(id !== undefined && { externalId: id }), ...(hint !== undefined && { category: hint }) })
   })
 
   // Identities: the bank's id when it can be trusted; otherwise a fingerprint, numbered when the same line repeats
@@ -105,7 +119,7 @@ export function convertLines(lines: StatementLine[], currency: string, options: 
   const ids = new Set<string>()
   const converted: ConvertedLine[] = []
   let repeated = 0
-  bankLines.forEach(({ bank, externalId }, i) => {
+  bankLines.forEach(({ bank, externalId, line, category }, i) => {
     const print = prints[i]
     let importId: string
     if (print === undefined) importId = externalId!
@@ -116,7 +130,7 @@ export function convertLines(lines: StatementLine[], currency: string, options: 
     }
     if (ids.has(importId)) { repeated++; return }        // the bank sent the same id twice
     ids.add(importId)
-    converted.push({ importId, bank })
+    converted.push({ importId, bank, line, ...(category !== undefined && { category }) })
   })
   return { lines: converted, invalid, repeated, warnings }
 }

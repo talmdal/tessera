@@ -1,0 +1,20 @@
+{
+  "about": "Every day 12 or less: day-first or month-first, guessed from the shorter span",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "amount": 2
+    },
+    "dateOrder": "DMY",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": [
+    "dateOrder"
+  ]
+}

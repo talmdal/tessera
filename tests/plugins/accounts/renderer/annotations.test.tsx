@@ -2,7 +2,7 @@
 // buttons, the row menu, the review bar with Next, and the keys. The marks arrive merged in the register.load reply.
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   ACCOUNTS_CHANNELS, ACCOUNTS_EVENTS, type Account, type AnnotationAction, type RegisterAnnotations, type RegisterView,
   type ResolvedRowAnnotation, type Transaction
@@ -88,8 +88,6 @@ function setup(options: { view?: RegisterView, answers?: Record<string, (data: a
   return { ...remote, calls, executed, setView: (next: RegisterView) => { current = next } }
 }
 
-afterEach(() => { delete (window as any).api })
-
 const table = () => screen.findByRole('table', { name: 'Register of Chequing' })
 const line = (id: string) => document.querySelector(`[data-row="${id}"]`) as HTMLElement
 const secondLine = (id: string) => document.querySelector(`[data-annotation="${id}"]`) as HTMLElement | null
@@ -117,6 +115,8 @@ describe('marks on register rows', () => {
     const { executed } = setup()
     const grid = await table()
     expect(within(grid).getAllByRole('columnheader').map(h => h.textContent)).toContain('Review')
+    // Wider at the least, so Payee and Category keep their room beside the Review column in a narrow window
+    expect(grid.style.minWidth || getComputedStyle(grid).minWidth).toBe('79.2308em')
     // Named by their labels: a tooltip describes a button, it doesn't rename it
     expect(within(line('keg')).getAllByRole('button').map(b => b.textContent)).toEqual(['Accept', 'Change…'])
     expect(within(line('keg')).getByRole('button', { name: 'Accept' })).toHaveAccessibleDescription('Use the bank’s amount, 57.50')

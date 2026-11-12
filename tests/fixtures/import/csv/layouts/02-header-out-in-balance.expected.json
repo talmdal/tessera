@@ -1,0 +1,20 @@
+{
+  "about": "Withdrawals and Deposits columns and a running balance; month-first dates (a day past 12 decides); CRLF",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "debit": 2,
+      "credit": 3,
+      "balance": 4
+    },
+    "dateOrder": "MDY",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

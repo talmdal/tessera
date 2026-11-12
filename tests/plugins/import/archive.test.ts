@@ -206,6 +206,34 @@ describe('importing after an archive', () => {
     expect(await balancesOf(env, chq.id)).toEqual(was)
   })
 
+  it.each([
+    ['accepted', true],
+    ['still waiting for review', false]
+  ])('prunes the lines that looked already imported from another file (%s), and adds nothing when both files come again', async (_how, accept) => {
+    const { env, chq, t, reconcileAll } = await imported()
+    await env.manager.importFiles([sample('maple-trust-chequing-2026-10-converted.qbo')])   // October, known by content
+    const november = await env.manager.importFiles([NOVEMBER])                              // the bank's ids
+    expect(november!.results[0].counts).toMatchObject({ added: 5, alreadyImported: 5 })
+    if (accept) {
+      env.prompts.confirm.mockResolvedValueOnce(true)
+      expect(await env.runtime.commands.execute(IMPORT_COMMANDS.acceptAll, { accountId: chq.id })).toMatchObject({ ok: true })
+    }
+    await reconcileAll('2026-11-01')
+    const was = await balancesOf(env, chq.id)
+
+    const outcome = await env.archive('2026-11-01')
+    // October's 17 lines, and November's five that looked like five of them: left out (accepted), or proposed on them
+    expect(outcome.summaries).toEqual(['17 transactions from 1 account', '22 imported bank lines'])
+
+    const again = await env.manager.importFiles([sample('maple-trust-chequing-2026-10-converted.qbo'), NOVEMBER])
+    expect(again!.results.map(r => r.counts)).toEqual([
+      { lines: 17, added: 0, matched: 0, possible: 0, duplicates: 0, invalid: 0, archived: 17 },
+      { lines: 10, added: 0, matched: 0, possible: 0, duplicates: 5, invalid: 0, archived: 5 }
+    ])
+    expect(await t.list()).toHaveLength(5)
+    expect(await balancesOf(env, chq.id)).toEqual(was)
+  })
+
   it('keeps the record of a line the bank posted after the archive date, for a transaction dated before it', async () => {
     const { env, chq, t, importLines, counts } = await imported()
     await importLines([bankLine('A', '2024-12-10', '-20.00', 'COFFEE'), bankLine('B', '2025-01-02', '-1200.00', 'CHEQUE 104', { number: '104' })])

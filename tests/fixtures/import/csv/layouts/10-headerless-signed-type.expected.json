@@ -1,0 +1,23 @@
+{
+  "about": "No header: date, signed amount, a '-' placeholder column, a type, the description",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": false,
+    "columns": {
+      "date": 0,
+      "amount": 1,
+      "memo": [
+        3
+      ],
+      "payee": 4
+    },
+    "dateOrder": "MDY",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": [
+    "column:4"
+  ]
+}

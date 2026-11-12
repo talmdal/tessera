@@ -2,7 +2,7 @@
 import './mockElectron'
 
 import '@testing-library/jest-dom/vitest'
-import { afterEach, beforeAll } from 'vitest'
+import { afterEach, beforeAll, beforeEach } from 'vitest'
 import { checkSingleTestingLibraryDom } from './singleDomCopy'
 
 // Before anything else: with two copies of @testing-library/dom, React tests fail with act(...) errors that hide the
@@ -62,8 +62,23 @@ beforeAll(() => {
 // Unmount what each test rendered. Testing Library does this by itself only in the first file of a worker that imports
 // it: its afterEach is registered when the module is first evaluated, and a shared worker evaluates it once. Later files
 // would then find the previous test's dialogs still in the page. Loaded only where there is a DOM.
+//
+// Then put `window.api` back as it was before the test: the fake privileged side a test put there goes, and one that was
+// there already (the preload's own, exposed once for its whole file) stays. Only after unmounting: unmounting runs a
+// component's effect cleanups and any effects still pending, and they may still call it. A test file's own afterEach
+// runs before this one (hooks run last-registered first), so a file that deleted `window.api` itself made a dialog whose
+// effect was still pending throw "Cannot read properties of undefined (reading 'invoke')", on machines where the effect
+// came late. Files leave it to this (tests/setup/bridgeCleanup.test.tsx).
+let bridgeBefore: { had: boolean, api: unknown } = { had: false, api: undefined }
+beforeEach(() => {
+  if (typeof window === 'undefined') return
+  bridgeBefore = { had: 'api' in window, api: (window as { api?: unknown }).api }
+})
 afterEach(async () => {
   if (typeof document === 'undefined') return
   const { cleanup } = await import('@testing-library/react')
   cleanup()
+  const bridge = window as { api?: unknown }
+  if (bridgeBefore.had) bridge.api = bridgeBefore.api
+  else delete bridge.api
 })

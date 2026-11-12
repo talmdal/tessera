@@ -3,7 +3,7 @@
 // re-renders the whole dialog.
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   LEDGER_CHANNELS, LEDGER_EVENTS, displayDate, type BackupInfo, type RestorePlan, type RestoreRequest
 } from '@tessera/ledger-api'
@@ -41,8 +41,6 @@ function setup(options: { backups?: BackupInfo[], plans?: Record<string, Restore
   const calls = (channel: string) => remote.bridge.invoke.mock.calls.filter((c: unknown[]) => c[0] === channel).map((c: unknown[]) => c[1])
   return { ...remote, answers, close, setBusy, calls }
 }
-
-afterEach(() => { delete (window as any).api })
 
 /**
  * For waits on what the fake privileged side answers. Testing Library's default is 1 s, which the whole suite's load

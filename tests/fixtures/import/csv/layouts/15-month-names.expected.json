@@ -1,0 +1,19 @@
+{
+  "about": "Dates with month names (02-Oct-2026), Debit and Credit columns",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "debit": 2,
+      "credit": 3
+    },
+    "dateOrder": "DMY",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

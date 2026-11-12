@@ -253,10 +253,23 @@ export class Review {
       .catch(err => this.deps.log.warn(`[import] Could not save a payee alias: ${(err as Error)?.message ?? err}`))
   }
 
-  /** Accepts one line's row: a proposal is applied; a new row is acknowledged. */
+  /**
+   * The line is the transaction imported before that it looks like (Already imported?): it is left out, as the same
+   * bank line from another file, and nothing in the account changes. The earlier line is acknowledged too, if it was
+   * still waiting: its row showed this one's mark.
+   */
+  private async confirmDuplicate(line: Line): Promise<void> {
+    const { proposedId: _p, transactionId: _t, before: _b, intent: _i, ...rest } = line
+    await this.save({ ...rest, outcome: 'skipped', review: 'done' })
+    const earlier = line.duplicateOf !== undefined ? await this.lines.get(line.duplicateOf) : undefined
+    if (earlier && earlier.outcome === 'added' && earlier.review === 'pending') await this.lines.updateOne({ id: earlier.id }, { $set: { review: 'done' } })
+  }
+
+  /** Accepts one line's row: a proposal is applied; a new row is acknowledged; an already-imported line is left out. */
   private async acceptLine(stored: Line): Promise<void> {
     const { line, view } = await this.stand(stored, true)
     if (view.state === 'accepted') return
+    if (view.state === 'duplicate') return this.confirmDuplicate(line)
     if (view.state === 'new') {
       if (view.pending) await this.lines.updateOne({ id: line.id }, { $set: { review: 'done' } })
       return
@@ -294,22 +307,31 @@ export class Review {
       const pending: { line: Line, view: LineView }[] = []
       for (const stored of await this.lines.find({ accountId, review: 'pending' })) {
         const stood = await this.stand(stored as Line, true)
-        if (stood.view.state === 'proposed' || (stood.view.state === 'new' && stood.view.pending)) pending.push(stood)
+        if (stood.view.state === 'proposed' || stood.view.state === 'duplicate' || (stood.view.state === 'new' && stood.view.pending)) pending.push(stood)
       }
       if (pending.length === 0) return
       const matches = pending.filter(p => p.view.state === 'proposed')
-      const news = pending.length - matches.length
+      const duplicates = pending.filter(p => p.view.state === 'duplicate').length
+      // A new line whose transaction another line looks like is acknowledged with it, and isn't counted twice
+      const duplicated = new Set(pending.filter(p => p.view.state === 'duplicate').map(p => transactionOf(p.view)!.id))
+      const news = pending.filter(p => p.view.state === 'new' && !duplicated.has(p.view.transaction.id)).length
       const changes = matches.filter(({ line, view }) => {
         const t = transactionOf(view)!
         return t.date !== line.bank.date || t.amount !== line.bank.amount
       }).length
-      const what = [
+      const parts = [
         matches.length > 0 && `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}`,
-        news > 0 && `${news} new ${news === 1 ? 'transaction' : 'transactions'}`
-      ].filter(Boolean).join(' and ')
+        news > 0 && `${news} new ${news === 1 ? 'transaction' : 'transactions'}`,
+        duplicates > 0 && `${duplicates} ${duplicates === 1 ? 'line' : 'lines'} already imported`
+      ].filter((p): p is string => typeof p === 'string')
+      const what = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0]
+      const details = [
+        changes > 0 && `${changes} ${changes === 1 ? 'match changes' : 'matches change'} a date or an amount to the bank’s.`,
+        duplicates > 0 && `The ${duplicates === 1 ? 'line' : `${duplicates} lines`} already imported from another file won’t be added again.`
+      ].filter((d): d is string => typeof d === 'string')
       const yes = await this.deps.prompts.confirm({
         message: `Accept ${what}?`,
-        ...(changes > 0 && { detail: `${changes} ${changes === 1 ? 'match changes' : 'matches change'} a date or an amount to the bank’s.` }),
+        ...(details.length > 0 && { detail: details.join(' ') }),
         confirmLabel: 'Accept All'
       })
       if (!yes) return
@@ -357,6 +379,8 @@ export class Review {
       case 'match': {
         const target = await this.target(line, view, answer.transactionId)
         if (target.id === current?.id) {
+          // The transaction it looks like, chosen: it is the same, as Accept says
+          if (view.state === 'duplicate') return this.confirmDuplicate(line)
           // The proposal itself: as Accept, but the dialog's box says whether to learn the payee
           if (view.state === 'proposed') {
             await this.matchTo(line, target)
@@ -374,6 +398,7 @@ export class Review {
         if (view.state === 'new') throw new ImportError('REFUSED', 'This bank line is a transaction of its own already.')
         return this.addAsNew(line, view.state === 'accepted' ? view.transaction : undefined)
       case 'skip':
+        if (view.state === 'duplicate') return this.confirmDuplicate(line)
         if (view.state === 'accepted') return this.leaveOut(line, { release: view.transaction })
         if (view.state === 'new') {
           const yes = await this.deps.prompts.confirm({
@@ -401,7 +426,7 @@ export class Review {
     if (!t) throw new ImportError('NOT_FOUND', 'That transaction no longer exists.')
     const current = transactionOf(view)
     if (view.state === 'new' && t.id === current?.id) throw new ImportError('REFUSED', 'That is the transaction this bank line was added as.')
-    if (view.state === 'accepted' && t.id === current?.id) return t
+    if ((view.state === 'accepted' || view.state === 'duplicate') && t.id === current?.id) return t
     if (Math.sign(t.amount) !== Math.sign(line.bank.amount)) throw new ImportError('REFUSED', 'That transaction goes the other way: money in can’t match money out.')
     if (t.voided) throw new ImportError('REFUSED', 'That transaction is void.')
     if (t.status === 'reconciled') throw new ImportError('REFUSED', 'That transaction is reconciled: it was on an earlier statement.')

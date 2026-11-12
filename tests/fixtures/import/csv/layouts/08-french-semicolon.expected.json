@@ -1,0 +1,20 @@
+{
+  "about": "French headers, semicolons, day-first dates, comma decimals and spaces grouping thousands",
+  "layout": {
+    "version": 1,
+    "delimiter": ";",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "debit": 2,
+      "credit": 3,
+      "balance": 4
+    },
+    "dateOrder": "DMY",
+    "decimal": ",",
+    "reversed": false
+  },
+  "uncertain": []
+}

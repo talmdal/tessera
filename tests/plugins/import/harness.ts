@@ -14,6 +14,10 @@ import { createPluginContext, createPluginRuntime } from '../../../core/plugins/
 import { activate as activateAccounts } from '../../../plugins/accounts/src/privileged/index'
 import { activate as activateImport, type ActivateOptions } from '../../../plugins/import/src/privileged/index'
 import { activate as activateOfx } from '../../../plugins/import-ofx/src/privileged/index'
+import { activate as activateCsv } from '../../../plugins/import-csv/src/privileged/index'
+import { LAYOUT_DIALOG, type LayoutDialogInput } from '../../../plugins/import-csv/src/shared/dialog'
+import { activate as activateQif } from '../../../plugins/import-qif/src/privileged/index'
+import { OPTIONS_DIALOG, type OptionsDialogInput } from '../../../plugins/import-qif/src/shared/options'
 import { activate as activateLedger } from '../../../plugins/ledger/src/privileged/index'
 import { LedgerSessionImpl } from '../../../plugins/ledger/src/privileged/LedgerSessionImpl'
 import { SAMPLES } from '../../helpers/importFile'
@@ -26,7 +30,12 @@ type Answer = unknown | ((input: any, options?: any) => unknown)
 /** The clock every plugin sees: the import's dates, and what "today" is for an archive. */
 export const NOW = () => new Date('2026-11-06T12:00:00Z')
 
-export async function setupImport(options: ActivateOptions & { ofx?: boolean } = {}) {
+/**
+ * The import plugin, with the OFX format unless `ofx: false`, and the CSV and QIF formats when `csv: true` and
+ * `qif: true`. The CSV Columns and QIF Options dialogs are answered by confirming what they show, unless a test queues
+ * another answer.
+ */
+export async function setupImport(options: ActivateOptions & { ofx?: boolean, csv?: boolean, qif?: boolean } = {}) {
   const log = logger()
   const runtime = createPluginRuntime(undefined, log)
   const driver = memoryDriver()
@@ -56,6 +65,8 @@ export async function setupImport(options: ActivateOptions & { ofx?: boolean } =
   const importLog = logger()
   await activateImport({ ...createPluginContext('import', runtime).context, logger: importLog }, { now: NOW, ...options })
   if (options.ofx !== false) await activateOfx(createPluginContext('import-ofx', runtime).context)
+  if (options.csv === true) activateCsv(createPluginContext('import-csv', runtime).context, { now: NOW })
+  if (options.qif === true) activateQif(createPluginContext('import-qif', runtime).context, { now: NOW })
 
   files.showSaveDialog.mockResolvedValueOnce(file('Home.tessera'))
   await runtime.commands.execute(LEDGER_COMMANDS.new)
@@ -63,13 +74,16 @@ export async function setupImport(options: ActivateOptions & { ofx?: boolean } =
   const manager = runtime.services.get<ImportManager>(IMPORT_MANAGER_SERVICE)
 
   // Dialogs: answers queued per id, then the defaults: the summary closes, the New Account form creates what it shows
+  // (a chequing account named Chequing when the statement doesn't say, as a CSV file doesn't: the user would fill them in)
   const queued = new Map<string, Answer[]>()
   const shown: { id: string, input: any, options?: any }[] = []
   const defaults: Record<string, Answer> = {
     [IMPORT_DIALOGS.summary]: {},
+    [LAYOUT_DIALOG]: (input: LayoutDialogInput) => ({ kind: 'layout', layout: input.layout }),
+    [OPTIONS_DIALOG]: (input: OptionsDialogInput) => ({ kind: 'options', dateOrder: input.dates?.value, decimal: input.decimal?.value }),
     [ACCOUNTS_DIALOGS.account]: async (input: NewAccountInput) => {
       if (input.mode !== 'create') return undefined
-      const created = await accounts.createAccount({ subLedgerId: input.subLedgerId, ...input.initial } as AccountInput)
+      const created = await accounts.createAccount({ subLedgerId: input.subLedgerId, type: 'chequing', name: 'Chequing', ...input.initial } as AccountInput)
       return { id: created.id }
     }
   }

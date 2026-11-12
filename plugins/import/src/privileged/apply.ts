@@ -27,6 +27,8 @@ export interface ApplyRequest {
   drafts: TransactionDraft[]
   /** The lines proposed as matches for transactions already in the account: recorded, nothing added. */
   matched?: { line: ConvertedLine, proposedId: string, score: number }[]
+  /** The lines that look like lines imported before from another file: recorded (Already imported?), nothing added. */
+  duplicates?: { line: ConvertedLine, proposedId: string, duplicateOf: string, score: number }[]
 }
 
 /** Step 3: each line points at the transaction it became; the batch is done. */
@@ -72,6 +74,10 @@ export async function applyImport(db: () => Database, accounts: AccountsService,
       ...(request.matched ?? []).map(({ line, proposedId, score }) => ({
         batchId: batch.id, accountId: request.accountId, importId: line.importId, bank: line.bank,
         outcome: 'matched' as const, review: 'pending' as const, proposedId, score
+      })),
+      ...(request.duplicates ?? []).map(({ line, proposedId, duplicateOf, score }) => ({
+        batchId: batch.id, accountId: request.accountId, importId: line.importId, bank: line.bank,
+        outcome: 'matched' as const, review: 'pending' as const, proposedId, duplicateOf, score
       }))
     ]
     if (records.length > 0) await c.lines.insertMany(records)

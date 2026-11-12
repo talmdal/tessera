@@ -50,6 +50,11 @@ export type StatementOutcome =
   | 'failed'
   /** Non-interactive only: no account could be found without asking. */
   | 'needsAccount'
+  /**
+   * Non-interactive only: the statement's amounts look the wrong way round for its account, so it wasn't imported; its
+   * warnings say why. Importing a statement whose signs may be wrong is never silent. (Since import-api 1.5.)
+   */
+  | 'needsConfirmation'
 
 export interface ImportCounts {
   /** Lines in the statement. */
@@ -70,6 +75,53 @@ export interface ImportCounts {
    * match for a transaction that stayed.) Absent when none, and in batches recorded before archiving existed.
    */
   archived?: number
+  /**
+   * Lines whose bank id had been used before for a different transaction (dated more than 3 days from what the id named
+   * then, or with both another amount and another payee): imported by their content (a fingerprint) instead of being
+   * dropped as duplicates. Absent when none. (Since import-api 1.3.)
+   */
+  idConflicts?: number
+  /**
+   * Lines that look like transactions already imported from another file (the same amount, dates within 3 days,
+   * payees alike, known by other ids): proposed as *Already imported?* on those transactions, and not added. Absent
+   * when none. (Since import-api 1.4.)
+   */
+  alreadyImported?: number
+}
+
+/**
+ * Which category a new line takes when its file gives one: the file's ('file'), or the payee's usual one, with the
+ * file's left unused ('payee'). The user chooses, per source; nothing in a file is used until they have.
+ */
+export type CategorySource = 'file' | 'payee'
+
+/** A line whose file gives a category, as the Categories from the File dialog shows it. */
+export interface CategoryExample {
+  /** The payee the new transaction will have. */
+  payee: string
+  /** The file's category, as the ledger names it: 'Food : Groceries'. */
+  file: string
+  /** The payee's usual category, when it has one. */
+  usual?: string
+}
+
+/** What a statement's categories did: present when some of its new lines' file categories name categories the ledger has. */
+export interface StatementCategories {
+  /** New lines whose file category names a category the ledger has. */
+  offered: number
+  /** Of those, how many have a different usual category for their payee. */
+  differing: number
+  /** The rule the new lines followed. */
+  source: CategorySource
+  /** 'asked': the user answered now; 'remembered': as they answered before for this source; 'default': not asked (a non-interactive import), so the file's weren't used. */
+  decidedBy: 'asked' | 'remembered' | 'default'
+  /** The answer is kept for the source, so the summary offers to change it. */
+  remembered: boolean
+  /** The source: its key (`StatementAccount.key`, or the file-name key), and how the file names it. */
+  key: string
+  sourceLabel: string
+  /** A few of the lines, the differing ones first. */
+  examples: CategoryExample[]
 }
 
 /** One statement's result. A file with several statements has several. */
@@ -87,6 +139,13 @@ export interface StatementReport {
   lastArchiveDate?: string
   /** The import's record, for the history and Undo Import. */
   batchId?: string
+  /** Present when the file gave categories the ledger has. (Since import-api 1.3.) */
+  categories?: StatementCategories
+  /**
+   * Present when the statement's amounts were reversed: 'asked', by the user's answer now; 'remembered', by a correction
+   * kept from an earlier answer. `remembered` says whether the correction is kept for the next file. (Since import-api 1.5.)
+   */
+  reversed?: { decidedBy: 'asked' | 'remembered', remembered: boolean }
   error?: { code: ImportErrorCode, message: string }
   warnings: string[]
 }
