@@ -1,0 +1,22 @@
+{
+  "about": "No header, a card: charges and payments columns, and the masked card number on every row",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": false,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "debit": 2,
+      "credit": 3,
+      "account": 4
+    },
+    "dateOrder": "YMD",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": [
+    "column:2"
+  ]
+}

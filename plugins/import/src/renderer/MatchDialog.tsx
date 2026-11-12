@@ -1,6 +1,7 @@
 // Change Match: which transaction a bank line is, chosen from the account's transactions near its date (best first,
 // with what differs in words), or any of them by searching; or Unmatch, which makes the bank line a transaction of its
-// own; or leaving the line out. The options depend on where the line stands. The list comes from the plugin
+// own; or leaving the line out. The options depend on where the line stands. A line that looks already imported from
+// another file starts on that transaction: choosing it says they are the same; adding it says they aren't. The list comes from the plugin
 // (import:match.candidates); the plugin makes the change. See docs/import-manager-design.md, "The Change Match dialog".
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import type { DialogProps } from '@tessera/types'
@@ -33,6 +34,7 @@ function unmatchLabel(data: MatchCandidatesResponse): string | undefined {
   switch (data.state) {
     case 'proposed': return 'Unmatch: keep my transaction as it is, and add the bank line as a new one'
     case 'unresolved': return 'Add the bank line as a new transaction'
+    case 'duplicate': return 'It’s a different transaction: add the bank line as a new one'
     case 'accepted': {
       const back = [
         data.restores?.date !== undefined && showDate(data.restores.date),
@@ -50,7 +52,8 @@ const NOW: Record<MatchCandidatesResponse['state'], string> = {
   proposed: 'Proposed as a match for the transaction marked below, not yet accepted.',
   accepted: 'Matched to the transaction marked below.',
   new: 'Added as a new transaction.',
-  unresolved: 'It lost its match: the transaction it was matched to was deleted, voided or reconciled.'
+  unresolved: 'It lost its match: the transaction it was matched to was deleted, voided or reconciled.',
+  duplicate: 'It looks like the transaction marked below, imported before from another file, so nothing was added for it.'
 }
 
 export default function MatchDialog({ input, close }: DialogProps<ChangeArgs, MatchDialogResult>) {
@@ -97,7 +100,9 @@ export default function MatchDialog({ input, close }: DialogProps<ChangeArgs, Ma
   const unmatch = unmatchLabel(data)
   const isCurrent = candidate !== undefined && candidate.transaction.id === data.currentId
   const unchanged = state === 'accepted' && isCurrent
+  // (Confirming a line already imported teaches nothing: it changes nothing)
   const learns = candidate !== undefined && !candidate.payeeKnown && data.bankName !== undefined && candidate.payeeName !== undefined && !unchanged
+    && !(state === 'duplicate' && isCurrent)
   const rememberPayee = learns && (remember ?? true)
 
   const choose = (value: string) => {
@@ -132,7 +137,7 @@ export default function MatchDialog({ input, close }: DialogProps<ChangeArgs, Ma
 
           <RadioGroup aria-label="What the bank line is" value={choice ?? ''} onChange={event => choose(event.target.value)}>
             <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-              <Typography id="match-to">{state === 'new' ? 'It is one I entered:' : 'Match it to:'}</Typography>
+              <Typography id="match-to">{state === 'new' ? 'It is one I entered:' : state === 'duplicate' ? 'It is the same as:' : 'Match it to:'}</Typography>
               <TextField
                 size="small" placeholder="Search payee or amount" value={query} onChange={event => setQuery(event.target.value)}
                 slotProps={{
@@ -166,7 +171,7 @@ export default function MatchDialog({ input, close }: DialogProps<ChangeArgs, Ma
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>{showDate(t.date)}</TableCell>
                         <TableCell>
                           {c.payeeName ?? ''}
-                          {current && <Typography component="span" variant="caption" color="primary.main" sx={{ ml: 1 }}>{state === 'proposed' ? 'proposed' : 'current'}</Typography>}
+                          {current && <Typography component="span" variant="caption" color="primary.main" sx={{ ml: 1 }}>{state === 'proposed' ? 'proposed' : state === 'duplicate' ? 'already imported' : 'current'}</Typography>}
                         </TableCell>
                         <TableCell sx={{ color: 'text.secondary' }}>{c.categoryLabel ?? ''}</TableCell>
                         <TableCell align="right" sx={{ typography: 'numeric' }}>{unsigned(t.amount, account.currency)}</TableCell>
@@ -189,8 +194,10 @@ export default function MatchDialog({ input, close }: DialogProps<ChangeArgs, Ma
               label="Show transactions from the whole account" />
 
             {unmatch && <FormControlLabel value={UNMATCH} control={<Radio size="small" />} label={unmatch} />}
-            <FormControlLabel value={SKIP} control={<Radio size="small" />}
-              label={state === 'new' ? 'Don’t import this bank line (the transaction added for it is deleted)' : 'Don’t import this bank line'} />
+            {state !== 'duplicate' && (
+              <FormControlLabel value={SKIP} control={<Radio size="small" />}
+                label={state === 'new' ? 'Don’t import this bank line (the transaction added for it is deleted)' : 'Don’t import this bank line'} />
+            )}
           </RadioGroup>
 
           {learns && (

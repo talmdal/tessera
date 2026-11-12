@@ -1,6 +1,6 @@
 // The Settings Inspector draws paths and file contents in the Fixed-width text font role.
 import { screen } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import InspectorDialog from '../../../../plugins/settings-inspector/src/renderer/InspectorDialog'
 import { INSPECTOR, type InspectorReport } from '../../../../plugins/settings-inspector/src/shared'
 import { createFakeRemote } from '../../../helpers/fakeBridge'
@@ -14,8 +14,6 @@ const report: InspectorReport = {
     note: 'Every setting is at its default.', changed: []
   }]
 }
-
-afterEach(() => { delete (window as any).api })
 
 it('draws the folder and the settings in the Fixed-width text font', async () => {
   const remote = createFakeRemote({})

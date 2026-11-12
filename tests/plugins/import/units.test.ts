@@ -41,6 +41,16 @@ describe('decoding a file’s text', () => {
     expect(decode(bytes(0xfe, 0xff, 0, 0x43, 0, 0xe9))).toBe('Cé')
     expect(decode(bytes(0x43, 0xe9), 'iso-8859-2')).toBe('Cé')                                // other encodings: the runtime's
   })
+
+  it("reads files that don't say their encoding ('auto') as UTF-8 when they are, and as windows-1252 when not", () => {
+    const cafe = [...new TextEncoder().encode('Café “Dépôt”')]
+    expect(decode(bytes(...cafe), 'auto')).toBe('Café “Dépôt”')
+    expect(decode(bytes(0x43, 0x61, 0x66, 0xe9, 0x20, 0x93, 0x44, 0x94), 'auto')).toBe('Café “D”')   // not UTF-8: windows-1252
+    expect(decode(bytes(0x54, 0x69, 0x6d, 0x20, 0x48, 0x6f, 0x72, 0x74, 0x6f, 0x6e, 0x92, 0x73), 'auto')).toBe('Tim Horton’s')
+    expect(decode(bytes(0x41, 0x42), 'auto')).toBe('AB')
+    expect(decode(bytes(0xef, 0xbb, 0xbf, ...cafe), 'auto')).toBe('Café “Dépôt”')            // a byte-order mark still wins
+    expect(decode(bytes(0xff, 0xfe, 0x43, 0, 0xe9, 0), 'AUTO')).toBe('Cé')
+  })
 })
 
 describe('payees', () => {
@@ -57,6 +67,14 @@ describe('payees', () => {
       ['#123 456', '#123 456']                                  // nothing left: the text as it was
     ]
     for (const [bank, tidy] of cases) expect(tidyPayee(bank), bank).toBe(tidy)
+  })
+
+  it('leave out the words a pending line adds, in a new payee’s name and the bank’s name shown, not in the normalised one', () => {
+    expect(tidyPayee('PENDING - CANADIAN TIRE #0385')).toBe('Canadian Tire')
+    expect(tidyPayee('PREAUTH SHELL C12345')).toBe('Shell')
+    expect(bankName('PENDING - SQ *BYTOWN COFFEE')).toBe('SQ BYTOWN COFFEE')
+    expect(normalizePayee('PENDING - CANADIAN TIRE #0385')).toBe('pending canadian tire')          // fingerprints unchanged
+    expect(tidyPayee('PENDING')).toBe('PENDING')                                                   // nothing else left: as it was
   })
 
   it('keep the bank’s words, as written, for naming the bank’s text to the user', () => {
@@ -132,6 +150,29 @@ describe('converting lines', () => {
     // Bank ids win, unless the format says they can't be trusted
     expect(convertLines([{ ...coffee, externalId: 'X1' }], 'CAD').lines[0].importId).toBe('X1')
     expect(convertLines([{ ...coffee, externalId: 'X1' }], 'CAD', { stableIds: false }).lines[0].importId).toBe(base)
+  })
+
+  it('keeps a category the file gives as a hint for the draft, never a transfer, and numbers each line', () => {
+    const { lines } = convertLines([
+      { date: '2026-10-05', amount: '-84.12', payee: 'COSTCO', category: '  Food:Groceries ' },
+      { date: '2026-10-06', amount: '-500.00', payee: 'TO SAVINGS', category: '[Savings]' },
+      { date: '2026-10-07', amount: '-1.00', category: 'x'.repeat(201) },
+      { date: 'bad', amount: '-1.00' },
+      { date: '2026-10-08', amount: '-2.00' }
+    ], 'CAD')
+    expect(lines.map(l => [l.line, l.category])).toEqual([[1, 'Food:Groceries'], [2, undefined], [3, undefined], [5, undefined]])
+    expect(lines[0].bank).not.toHaveProperty('category')                          // a hint, not part of the bank's line
+  })
+
+  it('knows a line by its fingerprint when its bank id is distrusted, numbering repeats as usual', () => {
+    const statement = [
+      { date: '2026-10-05', amount: '-5.00', payee: 'COFFEE', externalId: '1' },
+      { date: '2026-10-05', amount: '-5.00', payee: 'COFFEE', externalId: '2' },
+      { date: '2026-10-06', amount: '-9.00', payee: 'LUNCH', externalId: '3' }
+    ]
+    const { lines } = convertLines(statement, 'CAD', { distrust: new Set(['1', '2']) })
+    const print = fingerprint({ date: '2026-10-05', amount: -500, payee: 'COFFEE' })
+    expect(lines.map(l => l.importId)).toEqual([`${print}#1`, `${print}#2`, '3'])
   })
 
   it('counts the same bank id twice in a file as one line', () => {
@@ -210,8 +251,8 @@ describe('drafts', () => {
     { id: 'p1', rev: 1, name: 'Costco', lastCategoryId: 'groc', lastAmount: -8400 },
     { id: 'p2', rev: 1, name: 'Savings transfer', lastTransferAccountId: 's' }
   ]
-  const line = (payee: string | undefined, extra: object = {}) =>
-    ({ importId: 'X', bank: { date: '2026-10-06', amount: -100, ...(payee && { payee }), ...extra } })
+  const line = (payee: string | undefined, extra: object = {}, category?: string) =>
+    ({ importId: 'X', bank: { date: '2026-10-06', amount: -100, ...(payee && { payee }), ...extra }, ...(category !== undefined && { category }) })
 
   it("uses an existing payee named almost the same, with its category; otherwise tidies the bank's text", () => {
     const drafts = new Drafts({ payees: [...payees], categories, liability: false })
@@ -256,6 +297,62 @@ describe('drafts', () => {
   })
 })
 
+describe('categories a file gives', () => {
+  const categories: Category[] = [
+    { id: 'food', parentId: null, name: 'Food', kind: 'expense', rev: 1 },
+    { id: 'groc', parentId: 'food', name: 'Groceries', kind: 'expense', rev: 1 },
+    { id: 'home', parentId: null, name: 'Household', kind: 'expense', rev: 1 },
+    { id: 'fees', parentId: null, name: 'Bank fees', kind: 'expense', rev: 1 }
+  ]
+  const payees: PayeeSuggestion[] = [
+    { id: 'p1', rev: 1, name: 'Costco', lastCategoryId: 'home', lastAmount: -8400 },
+    { id: 'p2', rev: 1, name: 'Loblaws', lastCategoryId: 'groc', lastAmount: -5000 },
+    { id: 'p3', rev: 1, name: 'Savings transfer', lastTransferAccountId: 's' }
+  ]
+  const line = (payee: string, category?: string, extra: object = {}) =>
+    ({ importId: payee, bank: { date: '2026-10-06', amount: -100, payee, ...extra }, ...(category !== undefined && { category }) })
+  const drafts = () => new Drafts({ payees: [...payees], categories, liability: false })
+
+  it('are found at their path as the ledger names them, ignoring case and spaces, and only when the ledger has them', () => {
+    const d = drafts()
+    expect([d.categoryAt('Food:Groceries'), d.categoryAt('food : groceries'), d.categoryAt(' FOOD:Groceries ')]).toEqual(['groc', 'groc', 'groc'])
+    expect([d.categoryAt('Food'), d.categoryAt('Groceries'), d.categoryAt('Food:Dining out'), d.categoryAt('Shopping'), d.categoryAt(undefined)])
+      .toEqual(['food', undefined, undefined, undefined, undefined])
+  })
+
+  it('are never used until the source says so: by default the payee’s usual category, as before', () => {
+    const d = drafts()
+    expect(d.categorySource).toBe('payee')
+    expect(d.draftFor(line('COSTCO', 'Food:Groceries')).categoryId).toBe('home')
+    expect(d.draftFor(line('NEW SHOP', 'Food:Groceries'))).not.toHaveProperty('categoryId')
+    expect(d.draftFor(line('MONTHLY FEE', 'Food:Groceries', { kind: 'fee' })).categoryId).toBe('fees')
+  })
+
+  it("take the file's category, where the ledger has it, once the source says to; otherwise as before", () => {
+    const d = drafts()
+    d.categorySource = 'file'
+    expect(d.draftFor(line('COSTCO', 'Food:Groceries')).categoryId).toBe('groc')
+    expect(d.draftFor(line('NEW SHOP', 'Food:Groceries')).categoryId).toBe('groc')
+    expect(d.draftFor(line('COSTCO', 'Shopping')).categoryId).toBe('home')                     // not in the ledger: the payee's
+    expect(d.draftFor(line('SAVINGS TRANSFER', 'Food:Groceries')).categoryId).toBe('groc')     // a category, not a transfer
+    expect(d.draftFor(line('SAVINGS TRANSFER'))).not.toHaveProperty('categoryId')
+    expect(d.draftFor(line('MONTHLY FEE', undefined, { kind: 'fee' })).categoryId).toBe('fees')
+  })
+
+  it('are offered for the lines whose file category the ledger has, with the payee’s usual category beside each', () => {
+    const d = drafts()
+    const offers = d.offers([line('COSTCO', 'Food:Groceries'), line('LOBLAWS', 'Food:Groceries'), line('NEW SHOP', 'Food'), line('OTHER', 'Shopping'), line('NONE')])
+    expect(offers.map(o => [o.payee, o.file, o.usual])).toEqual([['Costco', 'groc', 'home'], ['Loblaws', 'groc', 'groc'], ['New Shop', 'food', undefined]])
+    // Shown by name, those whose payee usually has another category first, one per payee
+    expect(d.examples([...offers, ...d.offers([line('COSTCO #2', 'Food:Groceries')])])).toEqual([
+      { payee: 'Costco', file: 'Food : Groceries', usual: 'Household' },
+      { payee: 'Loblaws', file: 'Food : Groceries', usual: 'Food : Groceries' },
+      { payee: 'New Shop', file: 'Food' }
+    ])
+    expect(d.examples(offers, 1)).toHaveLength(1)
+  })
+})
+
 describe('the Account dialog’s choices', () => {
   const account = (over: Partial<Account>): Account => ({
     id: 'x', rev: 1, name: 'X', type: 'chequing', subLedgerId: null, currency: 'CAD', openingDate: '2026-01-01', openingBalance: 0, order: 0, closed: false, ...over
@@ -293,6 +390,9 @@ describe('the Account dialog’s choices', () => {
     })
     const card = accountFromStatement({ account: { accountNumber: 'XXXX3456', numberIsPartial: true, label: 'Visa •••• 3456', type: 'creditCard' }, lines: [] }, 'CAD', '2026-11-06')
     expect(card).toEqual({ name: 'Visa •••• 3456', type: 'creditCard', currency: 'CAD', accountNumber: '3456', openingDate: '2026-11-06', openingBalance: 0 })
+    // A weak key's label describes the file, not an account: the user names it
+    const csv = accountFromStatement({ account: { key: 'csv:layout:1', keyStrength: 'weak', label: 'CSV file with columns Date, Description, Amount' }, lines: [] }, 'CAD', '2026-11-06')
+    expect(csv).not.toHaveProperty('name')
   })
 
   it('knows a statement by its key, or by its file’s name when the format gives none', () => {

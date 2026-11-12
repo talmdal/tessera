@@ -4,7 +4,7 @@
 import { channelFor } from '@tessera/types'
 import type { Account } from '@tessera/accounts-api'
 import type { KeyStrength } from './contract'
-import type { ImportReport } from './manager'
+import type { CategoryExample, CategorySource, ImportReport } from './manager'
 import type { AccountLink, BankLine, MatchCandidate, MatchState } from './model'
 
 export const IMPORT_PLUGIN_ID = 'import'
@@ -70,7 +70,10 @@ export const IMPORT_COMMANDS = {
   change: 'import.review.change',
   /** File › Import History (phase 4). */
   showHistory: 'import.history.show',
-  /** File › Saved Account Matches… (phase 4). */
+  /**
+   * File › Saved Import Choices…: everything imports remember, in one place: saved account matches, payee names learnt
+   * from the bank's text, and each source's file settings and choices. (Since import-api 1.7.)
+   */
   manageLinks: 'import.links.manage',
   /** Undo Import…, from the history view (phase 4). Argument: `UndoImportArgs`. */
   undoImport: 'import.batch.undo'
@@ -120,7 +123,20 @@ export const IMPORT_DIALOGS = {
   match: 'import.dialog.match',
   /** What an import did. Input `ImportReport`, result `SummaryDialogResult`. */
   summary: 'import.dialog.summary',
-  /** Saved account matches and payee aliases (phase 4). */
+  /**
+   * Whether new lines take the categories a file gives, for a source that hasn't said. Input `CategoriesDialogInput`,
+   * result `CategoriesDialogResult`. (Since import-api 1.3.)
+   */
+  categories: 'import.dialog.categories',
+  /**
+   * Whether a statement's amounts are the wrong way round, when the sign cross-check says they may be. Input
+   * `SignsDialogInput`, result `SignsDialogResult`. (Since import-api 1.5.)
+   */
+  signs: 'import.dialog.signs',
+  /**
+   * Saved Import Choices: saved account matches, payee aliases, and what imports remember about each source. No input,
+   * no result: it changes what it shows as the user goes. (Since import-api 1.7.)
+   */
   links: 'import.dialog.links'
 } as const
 
@@ -201,9 +217,73 @@ export type MatchDialogResult =
   /** Don't import this bank line. */
   | { kind: 'skip' }
 
-/** The summary dialog's answer: Review in Register names the account to show. */
+/**
+ * The summary dialog's answer: Review in Register names the account to show; Change… beside a statement's categories
+ * names that statement (its index in the report's results), to change the source's answer.
+ */
 export interface SummaryDialogResult {
   review?: string
+  changeCategories?: number
+}
+
+/** The Categories from the File dialog: what the file offers, and the question. */
+export interface CategoriesDialogInput {
+  fileName: string
+  /** How the file names its source: 'Maple Chequing'. The answer is remembered for it. */
+  sourceLabel: string
+  accountName: string
+  /** New lines whose file category names a category the ledger has. */
+  offered: number
+  /** Of those, how many have a different usual category for their payee. */
+  differing: number
+  examples: CategoryExample[]
+  /**
+   * Set when changing a remembered answer from the summary: the answer to start from. When asking during an import,
+   * nothing is chosen to begin with: the user decides.
+   */
+  current?: CategorySource
+}
+
+/** A line of the statement shown both ways in the Amounts Reversed? dialog. */
+export interface SignExample {
+  date: string
+  payee?: string
+  /** As the file has it, in minor units; reversed is its negation. */
+  amount: number
+}
+
+/** The Amounts Reversed? dialog: why the amounts look the wrong way round, and a line or two both ways. */
+export interface SignsDialogInput {
+  fileName: string
+  accountName: string
+  /** The account's type, as the accounts plugin names it: 'Credit card'. */
+  accountTypeLabel: string
+  currency: string
+  /** The register's names for money each way ('Charge' and 'Payment' for a card), for the examples. */
+  columns: { decrease: string, increase: string }
+  /** Each piece of evidence that points at reversed amounts, in words. */
+  reasons: string[]
+  /** A line that lowers the balance as read, and one that raises it, when the statement has them. */
+  examples: SignExample[]
+  /** The checkbox's label: 'Remember for files like this one going into “Visa”'. */
+  rememberLabel: string
+  /**
+   * Set when a correction kept from an earlier answer already reverses this source's files: the amounts shown are after
+   * it, and reversing them again takes the correction off.
+   */
+  correctedSince?: string
+}
+
+export interface SignsDialogResult {
+  reverse: boolean
+  /** Keep the answer for this source's next files. */
+  remember: boolean
+}
+
+export interface CategoriesDialogResult {
+  source: CategorySource
+  /** Keep the answer for files from this source. Unticked when changing from the summary: forget it, and ask next time. */
+  remember: boolean
 }
 
 const channel = (event: string) => channelFor(IMPORT_PLUGIN_ID, event)
@@ -214,12 +294,22 @@ export const IMPORT_CHANNELS = {
   matchCandidates: channel('match.candidates'),
   /** → the imports, newest first, for the history view (phase 4). */
   history: channel('history'),
-  /** → `AccountLinkView[]` (phase 4). */
+  /** → `ImportResult<SavedLinks>`: saved account matches, and the accounts they may point at. (Since 1.7.) */
   links: channel('links'),
-  /** `LinkUpdateRequest` → `ImportResult<void>` (phase 4). */
+  /** `LinkUpdateRequest` → `ImportResult<void>`. (Since 1.7.) */
   updateLink: channel('links.update'),
-  /** `{ id }` → `ImportResult<void>` (phase 4). */
-  forgetLink: channel('links.forget')
+  /** `{ id }` → `ImportResult<void>`. (Since 1.7.) */
+  forgetLink: channel('links.forget'),
+  /** → `ImportResult<PayeeAliasView[]>`: payee names learnt from the bank's text. (Since 1.7.) */
+  aliases: channel('aliases'),
+  /** `{ id }` → `ImportResult<void>`. (Since 1.7.) */
+  forgetAlias: channel('aliases.forget'),
+  /** → `ImportResult<RememberedChoice[]>`: what imports remember about each source, described. (Since 1.7.) */
+  remembered: channel('remembered'),
+  /** `{ id }` → `ImportResult<void>`: forgets one; the next file from its source is read, or asked about, afresh. (Since 1.7.) */
+  forgetRemembered: channel('remembered.forget'),
+  /** `RememberedUpdateRequest` → `ImportResult<void>`: a category choice changed in place. (Since 1.7.) */
+  updateRemembered: channel('remembered.update')
 } as const
 
 /** Push events, main → renderer. */
@@ -257,16 +347,55 @@ export interface MatchCandidatesResponse {
   restores?: { date?: string, amount?: number }
 }
 
-/** A saved account match with its account's name, for the Saved Account Matches dialog (phase 4). */
+/** A saved account match with its account's name, for Saved Import Choices. */
 export interface AccountLinkView extends AccountLink {
   accountName: string
+  /** The format's label, when it is installed: 'OFX / QFX / QBO statement (…)'. */
+  formatLabel?: string
 }
 
-/** `import:links.update` (phase 4). */
+/** `import:links`: the saved matches, and the open accounts one may be pointed at. (Since 1.7.) */
+export interface SavedLinks {
+  links: AccountLinkView[]
+  accounts: { id: string, name: string, currency: string }[]
+}
+
+/** `import:links.update`: point a match at another account, or switch whether it is used without asking. */
 export interface LinkUpdateRequest {
   id: string
   accountId?: string
   autoApply?: boolean
+}
+
+/** A payee name learnt from the bank's text, for Saved Import Choices. (Since 1.7.) */
+export interface PayeeAliasView {
+  id: string
+  /** The bank's text, as it is compared (lower case, without store numbers). */
+  bankText: string
+  payeeName: string
+  /** How many imports used it. */
+  uses: number
+  createdAt: string
+}
+
+/** Something imports remember about a source, described, for Saved Import Choices. (Since 1.7.) */
+export interface RememberedChoice {
+  id: string
+  /** What it is: 'CSV columns', 'QIF options', 'Categories from the file', 'Amounts reversed'. */
+  what: string
+  /** What it is for: a source's name, a file's columns. */
+  source: string
+  detail?: string
+  /** Who keeps it: the format's label, or 'Import' for the import manager's own choices. */
+  owner: string
+  /** For a category choice, the answer, which can be changed in place. */
+  categories?: CategorySource
+}
+
+/** `import:remembered.update`: a category choice's new answer. */
+export interface RememberedUpdateRequest {
+  id: string
+  categories: CategorySource
 }
 
 /** The summary dialog's input is the report itself. */

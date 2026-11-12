@@ -1,0 +1,20 @@
+{
+  "about": "A card's export with charges positive: amounts guessed reversed",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "amount": 2
+    },
+    "dateOrder": "YMD",
+    "decimal": ".",
+    "reversed": true
+  },
+  "uncertain": [
+    "reversed"
+  ]
+}

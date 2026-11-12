@@ -11,7 +11,7 @@ export type Line = StoredLine & { id: string, rev: number }
 
 /** The line with no review fields set: it lost its transaction, and waits for the user. */
 function unresolved(line: Line): Line {
-  const { transactionId: _t, proposedId: _p, before: _b, intent: _i, ...rest } = line
+  const { transactionId: _t, proposedId: _p, before: _b, intent: _i, duplicateOf: _d, ...rest } = line
   return { ...rest, outcome: 'matched', review: 'pending' }
 }
 
@@ -31,7 +31,8 @@ export function settle(line: Line, carrier: Pick<Transaction, 'id'> | undefined)
     : intended.kind === 'id' ? carrier?.id === intended.id
     : carrier !== undefined && carrier.id !== line.transactionId
   if (happened) {
-    const { transactionId: _t, proposedId: _p, before: _b, ...kept } = rest
+    // (A line that looked already imported, now added or matched elsewhere, is no longer that)
+    const { transactionId: _t, proposedId: _p, before: _b, duplicateOf: _d, ...kept } = rest
     const transactionId = intended.kind === 'new' ? carrier!.id : next.transactionId
     return { ...kept, ...next, ...(transactionId !== undefined && { transactionId }) }
   }
@@ -49,6 +50,12 @@ export type LineView =
   | { state: 'proposed', transaction: Transaction }
   | { state: 'accepted', transaction: Transaction }
   | { state: 'unresolved' }
+  /**
+   * It looks like a line imported before from another file, whose transaction this is: nothing was added for it. The
+   * transaction may be reconciled (last month's import was, most likely); if it was deleted or voided, the line is
+   * unresolved.
+   */
+  | { state: 'duplicate', transaction: Transaction }
 
 /** Where a settled line stands, given its transactions (`byId`). */
 export function viewOf(line: Line, byId: (id: string) => Transaction | undefined): LineView {
@@ -61,6 +68,10 @@ export function viewOf(line: Line, byId: (id: string) => Transaction | undefined
     const transaction = byId(line.transactionId)
     if (!transaction) return { state: 'gone' }
     return transaction.externalId === line.importId ? { state: 'accepted', transaction } : { state: 'unresolved' }
+  }
+  if (line.duplicateOf !== undefined && line.proposedId !== undefined) {
+    const transaction = byId(line.proposedId)
+    return transaction && !transaction.voided ? { state: 'duplicate', transaction } : { state: 'unresolved' }
   }
   if (line.proposedId !== undefined) {
     const transaction = byId(line.proposedId)
@@ -80,13 +91,14 @@ export function matchStateOf(view: LineView): MatchState | undefined {
     case 'proposed': return 'proposed'
     case 'accepted': return 'accepted'
     case 'unresolved': return 'unresolved'
+    case 'duplicate': return 'duplicate'
     default: return undefined
   }
 }
 
 /** The transaction a view shows the line on, if any. */
 export const transactionOf = (view: LineView): Transaction | undefined =>
-  view.state === 'new' || view.state === 'proposed' || view.state === 'accepted' ? view.transaction : undefined
+  view.state === 'new' || view.state === 'proposed' || view.state === 'accepted' || view.state === 'duplicate' ? view.transaction : undefined
 
 /**
  * The date a transaction takes when a bank line is matched to it: the bank's, unless that would move it before the

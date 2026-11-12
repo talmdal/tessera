@@ -77,12 +77,27 @@ platform.
   add ways to reconcile through `accounts.reconcile.actions`
   ([how](docs/plugin-creation.md#adding-a-way-to-reconcile)).
 
-- **Importing statements** (the `import` plugin, with `import-ofx`): *File › Import…*
+- **Importing statements** (the `import` plugin, with `import-ofx`, `import-csv` and `import-qif`): *File › Import…*
   imports bank and card statements into their accounts:
-  - OFX and QFX files, from Microsoft Money or Quicken downloads;
+  - OFX, QFX and QBO files, from Microsoft Money, Quicken or QuickBooks (Web Connect) downloads. Ids a conversion
+    tool made up (numbering each file's lines 1, 2, 3…) are recognised, and those lines are known by their content;
+  - banks' CSV exports, with a header or without, in English or French, with one amount column or money out and
+    money in. Every file's columns are shown for checking (**CSV Columns**), with a preview of what will be imported:
+    recognised or guessed the first time, remembered after. Pending rows are left out, and a file with an account
+    number column finds each account by its number. A CSV export named `.txt` imports through *All files*;
+  - QIF files, to bring accounts over from Microsoft Money or Quicken: an account's history with its opening balance,
+    payees, memos, cheque numbers and categories (where the ledger has them, once the user says so), or a whole
+    Quicken file, an account at a time. Splits come in as their totals, investment accounts are left out, and a file
+    whose dates or amounts read two ways is asked about once (**QIF Options**);
   - the account is found by a remembered match or its number, or the user picks it,
     or creates it from the statement;
-  - the same bank line is never added twice, even across overlapping files;
+  - the same bank line is never added twice, even across overlapping files, and a bank id reused for a different
+    transaction (as some banks and conversion tools do) doesn't hide the new one;
+  - a line that looks like a transaction already imported from another kind of file (the bank's CSV, then its OFX)
+    is proposed as **Already imported?** instead of being added: *Accept* says it is the same, *Change…* adds it
+    after all;
+  - a statement whose amounts look the wrong way round for its account (a card's charges written as positive) is
+    asked about before it is imported (**Amounts Reversed?**), and the answer is remembered for its source;
   - lines the user already entered are matched to them, fuzzily, by date, amount
     and payee, and proposed for review. The register shows the bank's version
     under each row, with **Accept** and **Change…**; the Change Match dialog moves
@@ -91,7 +106,10 @@ platform.
     is a setting (Tools › Options… › Import): Strict, Balanced or Lenient, each a
     consistent set of tolerances;
   - how the bank writes a payee is learnt from the user's choices, for matching
-    and for new lines.
+    and for new lines;
+  - everything imports remember (saved account matches, payee names learnt, CSV
+    columns, QIF options, category and sign choices) is listed in one place,
+    *File › Saved Import Choices…*, to change or forget.
 
   Other file types are plugins of their own
   ([how](docs/plugin-creation.md#adding-an-import-format),
@@ -279,6 +297,7 @@ try.
 | `npm run dev` | Build main, preload and bundled plugins, start the renderer dev server, launch Electron |
 | `npm run build:plugins` | Build `plugins/<id>/` into `modules/<id>/` |
 | `npm run sample:archive -- [folder] [--replace]` | Make a sample ledger and its archive file to try archives by hand (default folder `samples/archive`, not kept in git) |
+| `npm run anonymise -- <files…> [options]` | Take the personal data out of real statement files (OFX, QFX, QBO, CSV, QIF), keeping their dialect, so they can be added to the tests; refuses a file in which anything still looks personal. `--check` scans files without changing them. See [tests/fixtures/import/real/README.md](tests/fixtures/import/real/README.md) |
 | `npm test` | Run the test suite once (Vitest) |
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:ui` | Vitest UI |
@@ -306,6 +325,7 @@ shell/preload/        window.api bridge
 shell/renderer/       React host and view loading
 scripts/dev.mts       Development launcher used by npm run dev
 scripts/build-plugins.mts  Builds bundled plugins from plugins/ into modules/
+scripts/anonymise.mts Takes the personal data out of real statement files (npm run anonymise)
 tests/                Vitest suites, mirroring the source folders, plus
                       architecture boundary tests and fixtures
 docs/                 Plugin guide, design notes and open-work list
@@ -316,8 +336,10 @@ packages/             Libraries plugins bundle: storage-kit (the shared half
 plugins/              Source of bundled (built-in) plugins, one folder each:
                       accounts (accounts and the navigator), app-state
                       (application state), ledger (ledger files
-                      and sub-ledgers), import (File › Import…) and
-                      import-ofx (OFX and QFX statements), storage-sqlite (the default
+                      and sub-ledgers), import (File › Import…),
+                      import-ofx (OFX, QFX and QBO statements),
+                      import-csv (CSV exports) and import-qif (QIF files
+                      from banks, Quicken and Money), storage-sqlite (the default
                       storage engine), storage-loki (LokiJS storage
                       engine), test-layout (exercises every layout
                       slot) and settings-inspector (Tools › Settings

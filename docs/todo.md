@@ -142,7 +142,75 @@ The storage engine it builds on is done ([storage-engine-redesign.md](storage-en
       entered, proposals reviewed in the register (*Accept*, *Change…*, *Accept
       All…*), the Change Match dialog with *Unmatch*, and payee aliases.
       Results: [import-manager-design.md](import-manager-design.md#phase-2-results).
-- [ ] **Statement import, later phases:** CSV (phase 3), history and undo (phase 4).
+- [ ] **Statement import, more formats**
+      ([import-formats-design.md](import-formats-design.md), reviewed
+      2026-11-11; it replaces phase 3):
+  - [x] **F0:** `@tessera/import-api` 1.3 (format dialogs without the parse
+        time limit, `CANCELLED`, per-statement `stableIds`, category hints
+        with a remembered choice per source, `text('auto')`, date helpers)
+        and the bank-id collision guard. Results:
+        [import-formats-design.md](import-formats-design.md#phase-f0-results).
+  - [x] **F0, by hand:** the Cedar Credit Union samples in `npm run dev`
+        ([walkthrough](../samples/statements/README.md#ids-a-bank-used-before)):
+        seen in the dark theme. The light theme is still to look at.
+  - [x] **F1:** QBO (QuickBooks Web Connect) in `import-ofx`, with made-up
+        bank ids detected; `npm run anonymise` for OFX, QFX and QBO, and the
+        fixtures' privacy test. Results:
+        [import-formats-design.md](import-formats-design.md#phase-f1-results).
+  - [x] **F1, by hand:** the QBO walkthroughs, seen on Windows in the dark
+        theme, and `npm run anonymise` on two real downloads, now fixtures
+        (`tests/fixtures/import/real/ofx/`).
+  - [x] **F2:** *Already imported?* proposals for a line seen before from
+        another source. Results:
+        [import-formats-design.md](import-formats-design.md#phase-f2-results).
+  - [x] **F2, by hand:** the walkthrough
+        [The same transactions from another file](../samples/statements/README.md#the-same-transactions-from-another-file),
+        seen on Windows in the dark theme.
+  - [x] **F3:** the sign cross-check (*Amounts Reversed?*), with what it
+        needs retained per source and account. Results:
+        [import-formats-design.md](import-formats-design.md#phase-f3-results).
+  - [ ] **F3, by hand:** the walkthrough
+        [Amounts the wrong way round](../samples/statements/README.md#amounts-the-wrong-way-round),
+        in light and dark themes.
+  - [x] **F4:** the `import-csv` plugin: guessed layouts, the CSV Columns
+        dialog on every file, remembered layouts; the anonymiser for CSV.
+        Results:
+        [import-formats-design.md](import-formats-design.md#phase-f4-results).
+  - [ ] **F4, by hand:** the rest of the walkthrough
+        [CSV files](../samples/statements/README.md#csv-files) (the October
+        chequing and French files were seen on Windows, dark theme), in light
+        and dark themes; the role pickers' menus since they replaced native
+        selects; and the CSV Columns dialog with a wide file.
+  - [x] **F5:** the `import-qif` plugin, including Money and Quicken
+        exports; the anonymiser for QIF. Results:
+        [import-formats-design.md](import-formats-design.md#phase-f5-results).
+  - [ ] **F5, by hand:** the walkthrough
+        [Bringing accounts over from Money or Quicken](../samples/statements/README.md#bringing-accounts-over-from-money-or-quicken),
+        in light and dark themes, and QIF Options.
+  - [x] **F6:** *Remembered choices*: *File › Saved Import Choices…*, with
+        the saved account matches and payee names too (ahead of phase 4's
+        history and undo). Results:
+        [import-formats-design.md](import-formats-design.md#phase-f6-results).
+  - [ ] **F6, by hand:** *File › Saved Import Choices…* after the samples'
+        walkthroughs, in light and dark themes.
+  - [ ] **Real files:** anonymise real downloads
+        ([how](../tests/fixtures/import/real/README.md)). Two banks' QBO and
+        CSV files are in, and a Money account exported as loose and as strict
+        QIF. Next: a Quicken export (a whole file, if possible); a bank's CSV
+        and QBO anonymised together, to test *Already imported?* on a real
+        pair.
+  - [ ] **Decide:** a QIF file's categories beyond exact paths (Money's
+        *Groceries* isn't Tessera's *Food : Groceries*): match by the last
+        part when unique, or offer to create them. See
+        [Later](import-formats-design.md#later).
+- [ ] **Statement import, phase 4:** history and undo, and navigator badges.
+      (Its Saved Account Matches dialog is built, as Saved Import Choices, in
+      F6.)
+- [ ] **Native file dialogs follow Windows, not Tessera's theme:** with Windows
+      in dark mode and Tessera light, *File › Import…*'s file dialog is still
+      dark. The shell sets Electron's `nativeTheme.themeSource` to Tessera's
+      mode, which themes menus and the title bar, but Windows 11 draws its file
+      dialogs in the system's mode. Check whether anything else can be done.
 - [ ] **Statement import, by hand:** go through the matching walkthrough in
       [samples/statements](../samples/statements/README.md#matching-and-review) in
       `npm run dev`, in light and dark themes: the register's marks, buttons and
@@ -572,7 +640,20 @@ shrinks the file.
 - [ ] **Slow dialog tests.** Tests that type into MUI forms key by key take 1 to 4 seconds each in jsdom, because
       every keystroke re-renders the whole form. The full suite flaked at Vitest's default 5-second timeout, so it is
       now 15 seconds (`vitest.config.ts`). Making those forms cheaper to re-render, or typing only where per-key
-      behaviour is what is tested (`userEvent.paste` elsewhere), would let the limit come back down.
+      behaviour is what is tested (`userEvent.paste` elsewhere), would let the limit come back down. Now the suite has
+      grown, the account dialog's tests in `tests/plugins/accounts/renderer/views.test.tsx` and `accountDialog.test.tsx`
+      (*creates an account where it was asked to…*, *relabels the balance for a liability…*, *saves both, in minor
+      units*) sometimes pass 15 seconds under a full run on a 4-core machine, and pass alone and on the next run: the
+      first candidates for pasting. The Fonts page (`tests/renderer/fontsPage.test.tsx`, *shows what the window's
+      theme sets…*, *cannot be changed when the settings are read-only*) has done the same once, and so have the
+      reconcile statement dialog (`tests/plugins/accounts/renderer/reconcile.test.tsx`) and the ledger's start view
+      (`tests/plugins/ledger/renderer/views.test.tsx`). Which ones time out varies from run to run on a 4-core
+      machine. The CSV Columns tests were brought well under the limit by finding elements by label and text
+      rather than by role and accessible name (see import-formats-design.md, phase F4): the same would help here.
+- [ ] **A SQLite snapshot failed once under a full run:** *lets writes carry on, and copies one committed state*
+      (`tests/plugins/storage.sqlite/SqliteStorageEngine.test.ts`) gave `could not snapshot database … : not an error`,
+      and passed alone and on the next run. SQLite's online backup can return BUSY while a write holds the database;
+      the snapshot may need to retry a step then, rather than report it.
 - [x] **React `act(...)` warnings fail the test.** They were noise that came and went with timing: a test asserted
       before the component had settled (a click's reply, a load on mount). `tests/setup/setupTests.ts` now fails the
       test that caused one, naming the component. Wait for what the user sees (`findBy…`, `waitFor`); when nothing

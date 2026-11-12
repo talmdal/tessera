@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseAmount } from '@tessera/accounts-api'
 import {
-  ImportError, canonicalDecimal, isCanonicalDecimal, isImportError, isoDate, toImportResult
+  ImportError, canonicalDecimal, fileNameStem, guessDateOrder, guessDecimal, isCanonicalDecimal, isImportError, isoDate, monthOf, toImportResult
 } from '@tessera/import-api'
 
 describe('canonicalDecimal', () => {
@@ -151,6 +151,112 @@ describe('isoDate', () => {
       expect(isoDate(text, 'YMD'), text).toBeUndefined()
       expect(isoDate(text, 'MDY'), text).toBeUndefined()
     }
+  })
+})
+
+describe('isoDate, with two-digit years', () => {
+  it('reads them only with a pivot, as the latest year ending so that is not after it', () => {
+    expect(isoDate('10/05/26', 'MDY')).toBeUndefined()
+    expect(isoDate('10/05/26', 'MDY', { pivot: 2036 })).toBe('2026-10-05')
+    expect(isoDate('05/10/36', 'DMY', { pivot: 2036 })).toBe('2036-10-05')
+    expect(isoDate('05/10/37', 'DMY', { pivot: 2036 })).toBe('1937-10-05')
+    expect(isoDate('05/10/00', 'DMY', { pivot: 2036 })).toBe('2000-10-05')
+    expect(isoDate('26-10-05', 'YMD', { pivot: 2036 })).toBeUndefined()          // only a year written last
+    expect(guessDateOrder(['10/05/26', '03/04/26'], { pivot: 2036 })).toEqual(['MDY', 'DMY'])
+    expect(isoDate('02/29/28', 'MDY', { pivot: 2036 })).toBe('2028-02-29')          // leap years still checked
+    expect(isoDate('02/29/27', 'MDY', { pivot: 2036 })).toBeUndefined()
+  })
+
+  it('still refuses years of one or three digits', () => {
+    expect(isoDate('10/05/6', 'MDY', { pivot: 2036 })).toBeUndefined()
+    expect(isoDate('10/05/026', 'MDY', { pivot: 2036 })).toBeUndefined()
+  })
+})
+
+describe('isoDate, with months by name', () => {
+  it('reads English and French names, in full or cut short, wherever they stand', () => {
+    const cases: [string, string][] = [
+      ['5 Oct 2026', '2026-10-05'],
+      ['05-Oct-2026', '2026-10-05'],
+      ['Oct 5, 2026', '2026-10-05'],
+      ['October 5 2026', '2026-10-05'],
+      ['2026-Oct-05', '2026-10-05'],
+      ['5 octobre 2026', '2026-10-05'],
+      ['5 oct. 2026', '2026-10-05'],
+      ['1 févr. 2026', '2026-02-01'],
+      ['14 août 2026', '2026-08-14'],
+      ['3 Sept 2026', '2026-09-03'],
+      ['3 déc 2026', '2026-12-03'],
+      ['Oct 5, 2026 10:30 AM', '2026-10-05']
+    ]
+    for (const [text, iso] of cases) expect(isoDate(text, 'DMY', { monthNames: true }), text).toBe(iso)
+  })
+
+  it('lets the name say the order, whatever order is given', () => {
+    expect(isoDate('Oct 5, 2026', 'DMY', { monthNames: true })).toBe('2026-10-05')
+    expect(isoDate('5 Oct 2026', 'MDY', { monthNames: true })).toBe('2026-10-05')
+  })
+
+  it('reads two-digit years only with a pivot, and refuses names it can’t tell apart, or none', () => {
+    expect(isoDate('5-Oct-26', 'DMY', { monthNames: true })).toBeUndefined()
+    expect(isoDate('5-Oct-26', 'DMY', { monthNames: true, pivot: 2036 })).toBe('2026-10-05')
+    expect(isoDate('5 jui 2026', 'DMY', { monthNames: true })).toBeUndefined()   // juin or juillet
+    expect(isoDate('5 Oct 2026', 'DMY')).toBeUndefined()                          // names only when asked
+    expect(isoDate('31 Feb 2026', 'DMY', { monthNames: true })).toBeUndefined()
+    expect(isoDate('Oct Nov 2026', 'DMY', { monthNames: true })).toBeUndefined()
+    expect(isoDate('5 Octopus 2026', 'DMY', { monthNames: true })).toBeUndefined()
+  })
+
+  it('knows a month by the start of its name when only one month starts so', () => {
+    expect([monthOf('Jan'), monthOf('janv.'), monthOf('MAR'), monthOf('mai'), monthOf('Jul'), monthOf('juil'), monthOf('aout')]).toEqual([1, 1, 3, 5, 7, 7, 8])
+    expect([monthOf('ju'), monthOf('jui'), monthOf('xyz'), monthOf('12')]).toEqual([undefined, undefined, undefined, undefined])
+  })
+})
+
+describe('guessDateOrder', () => {
+  it('says which orders read every date in a file: one decides, several are ambiguous', () => {
+    expect(guessDateOrder(['03/04/2026', '13/04/2026'])).toEqual(['DMY'])
+    expect(guessDateOrder(['04/13/2026', '03/04/2026'])).toEqual(['MDY'])
+    expect(guessDateOrder(['03/04/2026', '05/06/2026'])).toEqual(['MDY', 'DMY'])
+    expect(guessDateOrder(['2026-10-05', '2026-10-31'])).toEqual(['YMD'])
+    expect(guessDateOrder(['20261005'])).toEqual(['YMD'])
+    expect(guessDateOrder(['13/04/2026', '04/13/2026'])).toEqual([])              // no one order reads both
+    expect(guessDateOrder(['TOTAL'])).toEqual([])
+  })
+
+  it('ignores empty samples, and has nothing to say without any', () => {
+    expect(guessDateOrder(['', '  ', '13/04/2026'])).toEqual(['DMY'])
+    expect(guessDateOrder([])).toEqual([])
+  })
+
+  it('takes two-digit years and names only when asked, a name allowing only the order it is written in', () => {
+    expect(guessDateOrder(['13/04/26'])).toEqual([])
+    expect(guessDateOrder(['13/04/26'], { pivot: 2036 })).toEqual(['DMY'])
+    expect(guessDateOrder(['5 Oct 2026', '12 Oct 2026'], { monthNames: true })).toEqual(['DMY'])
+    expect(guessDateOrder(['Oct 5, 2026'], { monthNames: true })).toEqual(['MDY'])
+    expect(guessDateOrder(['5 Oct 2026', 'Oct 5, 2026'], { monthNames: true })).toEqual([])
+    expect(guessDateOrder(['5 Oct 2026', '03/04/2026'], { monthNames: true })).toEqual(['DMY'])
+  })
+})
+
+describe('guessDecimal', () => {
+  it('says which separators read every amount: grouping alone fits both', () => {
+    expect(guessDecimal(['1,234', '12'])).toEqual(['.', ','])
+    expect(guessDecimal(['1,234.56', '12.00'])).toEqual(['.'])
+    expect(guessDecimal(['12,50', '1 234,56'])).toEqual([','])
+    expect(guessDecimal(['12,50', '1,234.56'])).toEqual([])
+    expect(guessDecimal(['', '-84.12'])).toEqual(['.'])
+    expect(guessDecimal([])).toEqual([])
+  })
+})
+
+describe('fileNameStem', () => {
+  it('keeps what names the source, without dates, numbers, copies or the extension', () => {
+    expect(fileNameStem('Checking 2026-10 (2).qif')).toBe('checking')
+    expect(fileNameStem('Checking 2026-11 - Copy.qif')).toBe('checking')
+    expect(fileNameStem('Visa_Card-Export.CSV')).toBe('visa-card-export')
+    expect(fileNameStem('Épargne 2026.qif')).toBe('épargne')
+    expect(fileNameStem('2026-10.qif')).toBe('')
   })
 })
 

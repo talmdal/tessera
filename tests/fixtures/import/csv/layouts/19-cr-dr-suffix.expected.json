@@ -1,0 +1,18 @@
+{
+  "about": "Amounts written with CR or DR after them",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "amount": 2
+    },
+    "dateOrder": "YMD",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

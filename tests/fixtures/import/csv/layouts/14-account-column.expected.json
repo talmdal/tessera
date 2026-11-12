@@ -1,0 +1,19 @@
+{
+  "about": "An account number column with two accounts",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "account": 0,
+      "date": 1,
+      "payee": 2,
+      "amount": 3
+    },
+    "dateOrder": "YMD",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

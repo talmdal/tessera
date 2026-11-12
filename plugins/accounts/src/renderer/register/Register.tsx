@@ -385,8 +385,10 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
         ? <ReconcileList state={reconciling} withConfirmation={withConfirmation} onProblem={setNotice} entry={entryRow} />
         : <TableContainer ref={tableRef} tabIndex={0} onKeyDown={onKeyDown} aria-label={`Transactions in ${account.name}`}
         sx={{ flex: 1, minHeight: 0, overflow: 'auto', '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 } }}>
-        {/* Widths in em, so they grow with the Tables and registers font and never cut an amount short (see `em`) */}
-        <Table size="small" stickyHeader aria-label={`Register of ${account.name}`} sx={{ tableLayout: 'fixed', minWidth: em(820) }}>
+        {/* Widths in em, so they grow with the Tables and registers font and never cut an amount short (see `em`). The
+            minimum leaves Payee and Category, the two columns without a width, 97 each beside the others, the review
+            column included: without it, a narrow window gave them nothing */}
+        <Table size="small" stickyHeader aria-label={`Register of ${account.name}`} sx={{ tableLayout: 'fixed', minWidth: em(reviewColumn ? 1030 : 820) }}>
           <colgroup>
             <col style={{ width: em(36) }} /><col style={{ width: em(80) }} /><col style={{ width: em(150) }} /><col /><col />
             <col style={{ width: em(115) }} /><col style={{ width: em(115) }} /><col style={{ width: em(130) }} />

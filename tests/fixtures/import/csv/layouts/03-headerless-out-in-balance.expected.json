@@ -1,0 +1,22 @@
+{
+  "about": "No header: date, description, money out, money in, balance. The pair's order is the one guess",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": false,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "debit": 2,
+      "credit": 3,
+      "balance": 4
+    },
+    "dateOrder": "MDY",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": [
+    "column:2"
+  ]
+}

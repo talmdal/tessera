@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   LEDGER_CHANNELS, LEDGER_COMMANDS, LEDGER_EVENTS, type LedgerTree as Tree, type RecentLedger, type SubLedger
 } from '@tessera/ledger-api'
@@ -31,8 +31,6 @@ function bridge(answers: Record<string, (data: any) => unknown> = {}, commands: 
   const executed = () => calls(EXECUTE) as { id: string, args: unknown[] }[]
   return { ...remote, calls, executed }
 }
-
-afterEach(() => { delete (window as any).api })
 
 describe('the start view', () => {
   const recent: RecentLedger[] = [

@@ -10,6 +10,7 @@
     "dev:electron": "electron .",
     "build:plugins": "ts-node-esm --transpile-only scripts/build-plugins.mts",
     "sample:archive": "ts-node-esm --transpile-only scripts/sample-archive.mts",
+    "anonymise": "ts-node-esm --transpile-only scripts/anonymise.mts",
     "dev": "ts-node-esm --transpile-only scripts/dev.mts",
     "test": "vitest run",
     "test:ui": "vitest --ui",

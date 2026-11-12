@@ -9,7 +9,7 @@ import {
   type Chart
 } from '@tessera/accounts-api'
 import {
-  IMPORT_DIALOGS,
+  IMPORT_DIALOGS, fileNameStem,
   type AccountChoice, type AccountDialogInput, type AccountDialogResult, type KeyStrength, type ParsedStatement
 } from '@tessera/import-api'
 import { toMinor } from './convert'
@@ -25,11 +25,7 @@ export interface StatementIdentity {
 
 /** A key from a file's name, for formats that give none: without digits, dates and copy suffixes ('Checking 2026-10 (2).qif' → 'checking'). */
 export function fileNameKey(formatId: string, fileName: string): string {
-  const stem = fileName.replace(/\.[^.]*$/, '').toLowerCase()
-    .replace(/\(\d+\)|\bcopy\b/g, ' ')
-    .replace(/\d+/g, ' ')
-    .replace(/[^\p{L}]+/gu, ' ').trim().replace(/\s+/g, '-')
-  return `${formatId}:file:${stem || 'statement'}`
+  return `${formatId}:file:${fileNameStem(fileName) || 'statement'}`
 }
 
 export function identityOf(statement: ParsedStatement, formatId: string, fileName: string): StatementIdentity {
@@ -88,7 +84,9 @@ function dayBefore(date: string): string {
 
 /**
  * A new account as the statement describes it, for the New Account form: its name, type, currency, bank and number,
- * opened the day before its first line, with the opening balance that, with the lines, gives the bank's balance.
+ * opened the day before its first line, with the opening balance that, with the lines, gives the bank's balance. A
+ * weak key's label describes the file ('CSV file with columns Date, Description, …'), not an account, so it isn't
+ * offered as the name: the user types one.
  */
 export function accountFromStatement(statement: ParsedStatement, currency: string, today: string): Partial<AccountInput> {
   const { account } = statement
@@ -110,7 +108,7 @@ export function accountFromStatement(statement: ParsedStatement, currency: strin
   const number = account.accountNumber
   const name = account.name
     ?? (account.institution && number ? `${account.institution} ${lastFour(number)}` : undefined)
-    ?? account.label
+    ?? (account.keyStrength === 'weak' ? undefined : account.label)
   return {
     ...(name !== undefined && { name: name.slice(0, 100) }),
     ...(account.type !== undefined && { type: account.type }),

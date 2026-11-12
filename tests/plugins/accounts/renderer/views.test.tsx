@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   ACCOUNTS_CHANNELS, ACCOUNTS_COMMANDS as C, ACCOUNTS_EVENTS, type Account, type AccountDialogInput, type Chart
 } from '@tessera/accounts-api'
@@ -45,8 +45,6 @@ function bridge(answers: Record<string, (data: any) => unknown> = {}) {
   const calls = (channel: string) => remote.bridge.invoke.mock.calls.filter((c: unknown[]) => c[0] === channel).map((c: unknown[]) => c[1])
   return { ...remote, calls, executed: () => calls(EXECUTE) as { id: string, args: unknown[] }[] }
 }
-
-afterEach(() => { delete (window as any).api })
 
 describe('the navigator', () => {
   const setup = (chart: Chart = CHART) => {

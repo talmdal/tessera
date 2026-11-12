@@ -60,19 +60,59 @@ function lineOf(trn: OfxNode, where: string, warnings: ParseWarning[]): Statemen
   }
 }
 
+/** Lines alike in everything the bank says about them: the same line sent twice, not two transactions. */
+const sameLine = (a: StatementLine, b: StatementLine) =>
+  a.date === b.date && a.amount === b.amount && a.payee === b.payee && a.memo === b.memo && a.number === b.number
+
+/**
+ * Why a statement's bank ids can't be trusted to name the same transaction in another file, or undefined when they
+ * can. Conversion tools (PDF or CSV to QBO, most often) make ids up:
+ * - 'counter': they number the lines, 1, 2, 3… in every file. At least 3 lines, every id a plain number of at most
+ *   6 digits, and the ids, sorted, one after another;
+ * - 'reused': two different lines share an id. (One line sent twice, alike in everything, is just a repeat.)
+ * Real FITIDs are long, or dated, or sparse, so a bank's own ids pass. See docs/import-formats-design.md, "Made-up
+ * bank ids".
+ */
+export function madeUpIds(lines: readonly StatementLine[]): { why: 'counter' | 'reused', example: string } | undefined {
+  const byId = new Map<string, StatementLine>()
+  for (const line of lines) {
+    if (line.externalId === undefined) continue
+    const seen = byId.get(line.externalId)
+    if (seen && !sameLine(seen, line)) return { why: 'reused', example: line.externalId }
+    byId.set(line.externalId, line)
+  }
+  if (lines.length < 3 || !lines.every(line => line.externalId !== undefined && /^\d{1,6}$/.test(line.externalId))) return undefined
+  const numbers = [...new Set(lines.map(line => Number(line.externalId)))].sort((a, b) => a - b)
+  if (numbers[numbers.length - 1] - numbers[0] !== numbers.length - 1) return undefined
+  return { why: 'counter', example: numbers.slice(0, 3).join(', ') }
+}
+
 function statementOf(rs: OfxNode, account: StatementAccount, where: string, warnings: ParseWarning[]): ParsedStatement {
   const list = findAll(rs, 'BANKTRANLIST')[0]
   const currency = valueOf(rs, 'CURDEF')?.toUpperCase()
-  const from = ofxDate(valueOf(list, 'DTSTART'))
-  const to = ofxDate(valueOf(list, 'DTEND'))
+  let from = ofxDate(valueOf(list, 'DTSTART'))
+  let to = ofxDate(valueOf(list, 'DTEND'))
+  // A period that ends before it starts isn't one (a bank seen giving the download's date as its start): the lines' own
+  // dates say what the statement covers
+  if (from !== undefined && to !== undefined && from > to) { from = undefined; to = undefined }
   const ledgerBalance = findAll(rs, 'LEDGERBAL')[0]
   const balance = ofxAmount(valueOf(ledgerBalance, 'BALAMT'))
   const asOf = ofxDate(valueOf(ledgerBalance, 'DTASOF'))
   const lines = (list ? findAll(list, 'STMTTRN') : [])
     .map(trn => lineOf(trn, where, warnings))
     .filter((line): line is StatementLine => line !== undefined)
+  // Ids a tool made up would drop the next file's lines as duplicates: the lines are known by their content instead
+  const madeUp = madeUpIds(lines)
+  if (madeUp) {
+    warnings.push({
+      message: madeUp.why === 'counter'
+        ? `${where}: the transaction ids look made up (${madeUp.example}…), so its lines are recognised by their content instead.`
+        : `${where}: the same transaction id (“${madeUp.example}”) is given to different transactions, so its lines are recognised by their content instead.`
+    })
+  }
   return {
     account,
+    ...(madeUp && { stableIds: false }),
     ...(currency !== undefined && { currency }),
     ...((from !== undefined || to !== undefined) && { period: { ...(from && { from }), ...(to && { to }) } }),
     ...(balance !== undefined && asOf !== undefined && { balance: { amount: balance, asOf } }),

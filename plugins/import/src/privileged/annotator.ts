@@ -1,7 +1,9 @@
 // `import.annotator`: the import's marks on register rows (accounts.register.annotations). A proposed match shows the
 // bank's version under the row, with what differs emphasised; a row added as new says it is new from the bank. Both
-// have Accept and Change…. An accepted row looks like any other, with Change Match… in its menu; a bank line that lost
-// its transaction is counted in the review bar, with Resolve…. The marks are worked out from the lines and the
+// have Accept and Change…. A transaction that a new bank line looks like, imported before from another file, is marked
+// Already imported?, with Accept (it is the same) and Change…. An accepted row looks like any other, with Change Match…
+// in its menu; a bank line that lost its transaction is counted in the review bar, with Resolve…. The marks are worked
+// out from the lines and the
 // account's transactions each time, so they never show buttons for a change already made. Reads only.
 // See docs/import-manager-design.md, "What the import plugin annotates".
 import type { Event } from '@tessera/types'
@@ -15,7 +17,7 @@ import {
   type AcceptAllArgs, type AcceptArgs, type ChangeArgs
 } from '@tessera/import-api'
 import type { PayeeAliases } from './aliases'
-import { matchedDate, settle, viewOf, type Line } from './lineState'
+import { matchedDate, settle, transactionOf, viewOf, type Line } from './lineState'
 import { payeeScore, prepareLine, prepareTarget, scorePair, type PreparedLine } from './matching/score'
 import { BALANCED, type MatchTuning } from './matching/tuning'
 import { collectionsOf } from './store'
@@ -82,7 +84,8 @@ export class ImportAnnotator {
     const current = this.deps.session.current
     if (!current) return { rows: [] }
     const c = collectionsOf(this.deps.session.database(IMPORT_PLUGIN_ID))
-    const lines = (await c.lines.find({ accountId })).filter(l => l.outcome !== 'skipped') as Line[]
+    const all = await c.lines.find({ accountId }) as Line[]
+    const lines = all.filter(l => l.outcome !== 'skipped')
     if (lines.length === 0) return { rows: [] }
     const tuning = this.deps.tuning?.() ?? BALANCED
     const { accounts } = this.deps
@@ -102,9 +105,20 @@ export class ImportAnnotator {
     const sources = new Set<string>()
     let matches = 0
     let news = 0
-    for (const stored of lines) {
+    let duplicates = 0
+    const settled = lines.map(stored => {
       const line = settle(stored, byImportId.get(stored.importId))
-      const view = viewOf(line, id => byId.get(id))
+      return { line, view: viewOf(line, id => byId.get(id)) }
+    })
+    // A transaction a new line looks like (Already imported?) shows that, rather than its own line's marks: it says more,
+    // and accepting it acknowledges both
+    const duplicated = new Set(settled.filter(s => s.view.state === 'duplicate').map(s => transactionOf(s.view)!.id))
+    const linesById = new Map(all.map(l => [l.id, l]))
+    const batchIds = new Set(settled.filter(s => s.view.state === 'duplicate').flatMap(s => [s.line.batchId, linesById.get(s.line.duplicateOf!)?.batchId]))
+    const fileOf = new Map((await c.batches.getMany([...batchIds].filter((id): id is string => id !== undefined))).map(b => [b.id, b.fileName]))
+    for (const { line, view } of settled) {
+      const shown = transactionOf(view)
+      if (shown && duplicated.has(shown.id) && view.state !== 'duplicate') continue
       const change: AnnotationAction = {
         id: 'import.change', label: 'Change…', icon: 'CompareArrows', placement: 'button', command: IMPORT_COMMANDS.change,
         args: { lineId: line.id } satisfies ChangeArgs,
@@ -149,6 +163,26 @@ export class ImportAnnotator {
         case 'accepted':
           rows.push(acceptedRow(view.transaction, line, actionable))
           break
+        case 'duplicate': {
+          duplicates++
+          sources.add(line.batchId)
+          const t = view.transaction
+          const from = fileOf.get(linesById.get(line.duplicateOf!)?.batchId ?? '')
+          const parts: { text: string, emphasis?: boolean }[] = [
+            { text: 'Already imported? ' },
+            { text: shortDate(line.bank.date), ...(t.date !== line.bank.date && { emphasis: true }) },
+            ...(line.bank.payee ? [{ text: ` · ${line.bank.payee}` }] : []),
+            { text: ` · ${formatAmount(line.bank.amount, account.currency, { sign: 'never', currency: false })}` },
+            { text: ` in ${fileOf.get(line.batchId) ?? 'the last import'} looks like this one${from ? `, from ${from}` : ''}` }
+          ]
+          rows.push({
+            transactionId: t.id, review: true, tone: 'warning', detail: { icon: 'ContentCopy', parts },
+            actions: actionable ? [accept('It’s the same transaction: don’t add it again'), {
+              ...change, tooltip: 'Add it as a new transaction after all, or match it to another'
+            }] : []
+          })
+          break
+        }
         case 'unresolved':
           unresolved.push(line)
           sources.add(line.batchId)
@@ -156,13 +190,16 @@ export class ImportAnnotator {
       }
     }
 
-    const toReview = matches + news
+    const toReview = matches + news + duplicates
     if (toReview === 0 && unresolved.length === 0) return { rows }
     const files = [...new Set((await c.batches.getMany([...sources])).map(b => b.fileName))]
     const from = files.length === 1 ? `, from ${files[0]}` : files.length > 1 ? `, from ${files.length} imports` : ''
     const messages: string[] = []
     if (toReview > 0) {
-      const kinds = [matches > 0 && plural(matches, 'match', 'matches'), news > 0 && `${news.toLocaleString()} new`].filter(Boolean)
+      const kinds = [
+        matches > 0 && plural(matches, 'match', 'matches'), news > 0 && `${news.toLocaleString()} new`,
+        duplicates > 0 && `${duplicates.toLocaleString()} possibly already imported`
+      ].filter(Boolean)
       messages.push(`${plural(toReview, 'imported transaction')} to review (${kinds.join(', ')})${from}.`)
     }
     if (unresolved.length > 0) {

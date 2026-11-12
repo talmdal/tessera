@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   ACCOUNTS_CHANNELS, ACCOUNTS_EVENTS, formatAmount, type Account, type Category, type Chart, type RegisterSnapshot, type Transaction
 } from '@tessera/accounts-api'
@@ -81,8 +81,6 @@ function setup(options: { snapshot?: RegisterSnapshot | null, answers?: Record<s
   const calls = (channel: string) => remote.bridge.invoke.mock.calls.filter((c: unknown[]) => c[0] === channel).map((c: unknown[]) => c[1]) as any[]
   return { ...remote, calls }
 }
-
-afterEach(() => { delete (window as any).api })
 
 const table = () => screen.findByRole('table', { name: 'Register of Chequing' })
 const line = (id: string) => document.querySelector(`[data-row="${id}"]`) as HTMLElement

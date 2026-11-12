@@ -1,35 +1,26 @@
 // The OFX format plugin: statement files in Open Financial Exchange, as banks offer them for Microsoft Money
-// (.ofx) and Quicken (.qfx, which is OFX with a few Intuit tags the reader ignores), in both OFX 1.x (SGML) and 2.x
-// (XML). It turns a file into neutral statements; the import manager does everything else.
-// See docs/import-manager-design.md, "Writing a format plugin".
+// (.ofx), Quicken (.qfx) and QuickBooks (.qbo, Web Connect). QFX and QBO are OFX with a few Intuit tags the reader
+// ignores. Both OFX 1.x (SGML) and 2.x (XML) are read. It turns a file into neutral statements; the import manager
+// does everything else.
+// See docs/import-manager-design.md, "Writing a format plugin", and docs/import-formats-design.md, "QBO".
 import type { PluginContext } from '@tessera/types'
 import {
   IMPORT_FORMATS_POINT, ImportError,
   type ImportFile, type ImportFormat, type ImportFormatContribution, type ImportSample, type ParseResult
 } from '@tessera/import-api'
-import { parseOfx } from './sgml'
+import { declaredEncoding, parseOfx } from './sgml'
 import { errorOf, statementsOf } from './statements'
 
 export const OFX_FORMAT: ImportFormatContribution = {
   id: 'import-ofx.ofx',
-  label: 'OFX / QFX statement (Microsoft Money, Quicken)',
-  extensions: ['ofx', 'qfx'],
+  label: 'OFX / QFX / QBO statement (Microsoft Money, Quicken, QuickBooks)',
+  extensions: ['ofx', 'qfx', 'qbo'],
   service: 'import-ofx.format',
-  description: 'The statement files banks offer for Microsoft Money and Quicken.'
+  description: 'The statement files banks offer for Microsoft Money, Quicken and QuickBooks (Web Connect).'
 }
 
-/** The encoding the file declares: OFX 1.x's CHARSET (1252 for most banks), or 2.x's XML declaration. */
-function encodingOf(file: ImportFile): string {
-  // The header is plain ASCII in every OFX version, so reading it as Latin-1 first is safe
-  const head = new TextDecoder('latin1').decode(file.bytes.subarray(0, 2048))
-  const declared = /encoding\s*=\s*"([^"]+)"/i.exec(head)?.[1]
-  if (declared) return declared
-  const charset = /^\s*CHARSET\s*:\s*(\S+)/im.exec(head)?.[1]?.toUpperCase()
-  if (/^(UTF-?8|CSUNICODE)$/.test(charset ?? '')) return 'utf-8'
-  if (charset === undefined || charset === 'NONE') return 'utf-8'
-  if (/^ISO-?8859-?1$/.test(charset)) return 'latin1'
-  return /^\d+$/.test(charset) ? `windows-${charset}` : charset.toLowerCase()
-}
+/** The encoding the file declares. The header is plain ASCII in every OFX version, so reading it as Latin-1 is safe. */
+const encodingOf = (file: ImportFile): string => declaredEncoding(new TextDecoder('latin1').decode(file.bytes.subarray(0, 2048)))
 
 export const ofxFormat: ImportFormat = {
   sniff: ({ head }: ImportSample) => /OFXHEADER|<OFX>/i.test(new TextDecoder('latin1').decode(head)),

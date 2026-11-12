@@ -53,7 +53,9 @@ export interface LineFields {
  * - matched, proposed: `proposedId` is the transaction it may be, unchanged; `review` 'pending'.
  * - matched, accepted: `transactionId` carries the line; `before` is what Accept changed; `review` 'done'.
  * - matched with neither: unresolved, it lost its transaction; the user says where it goes.
- * - skipped: the user chose not to import it.
+ * - matched, with `duplicateOf`: it looks like a line imported before from another file; `proposedId` is that line's
+ *   transaction, unchanged; `review` 'pending' (Already imported?).
+ * - skipped: the user chose not to import it, or confirmed it was already imported (`duplicateOf` kept).
  */
 export interface StoredLine extends LineFields {
   batchId: string
@@ -65,6 +67,11 @@ export interface StoredLine extends LineFields {
   proposedId?: string
   /** The proposal's score when it was made, 0 to 1. The register scores it again as the transaction is edited. */
   score?: number
+  /**
+   * The line imported before (from another file) that this one looks like: the proposal is "already imported", not a
+   * match to apply. See docs/import-formats-design.md, "Duplicates across sources".
+   */
+  duplicateOf?: string
   intent?: LineIntent
 }
 

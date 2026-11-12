@@ -40,9 +40,12 @@ export interface AccountLink {
  * - 'accepted': matched, and accepted (the transaction took the bank's date, amount and id);
  * - 'new': added as a new transaction, whether acknowledged or not;
  * - 'unresolved': it lost its transaction (the proposed one was deleted, voided or reconciled, or moving an accepted
- *   match was interrupted), so it is in the register nowhere until the user says where it goes.
+ *   match was interrupted), so it is in the register nowhere until the user says where it goes;
+ * - 'duplicate': it looks like a transaction already imported from another file (a CSV export, say, where this is the
+ *   bank's OFX), so nothing was added for it; Accept confirms it is the same, Change… can add it after all
+ *   (since import-api 1.4).
  */
-export type MatchState = 'proposed' | 'accepted' | 'new' | 'unresolved'
+export type MatchState = 'proposed' | 'accepted' | 'new' | 'unresolved' | 'duplicate'
 
 /** A transaction the Change Match dialog offers for a bank line. */
 export interface MatchCandidate {

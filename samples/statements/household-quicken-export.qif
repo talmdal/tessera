@@ -1,0 +1,236 @@
+!Option:AutoSwitch
+!Account
+NEveryday Chequing
+TBank
+DJoint chequing
+^
+NHigh Interest Savings
+TBank
+^
+NNorthwind Visa
+TCCard
+^
+NRRSP
+TInvst
+DRetirement savings
+^
+!Clear:AutoSwitch
+!Type:Cat
+NFood
+E
+^
+NFood:Groceries
+E
+^
+NFood:Dining out
+E
+^
+NSalary
+I
+^
+NUtilities
+E
+^
+NUtilities:Internet
+E
+^
+NInterest
+I
+^
+!Type:Class
+NBusiness
+DBusiness expenses
+^
+!Account
+NEveryday Chequing
+TBank
+^
+!Type:Bank
+D9/30'26
+U2,400.00
+T2,400.00
+CX
+POpening Balance
+L[Everyday Chequing]
+^
+D10/ 1'26
+U3,000.00
+T3,000.00
+CR
+PNorthern Lights Payroll
+LSalary
+^
+D10/ 2'26
+U-1,400.00
+T-1,400.00
+CR
+N102
+PHarbourview Properties
+MRent
+LHousing:Rent
+^
+D10/ 3'26
+U-500.00
+T-500.00
+CR
+NTXFR
+PTransfer to savings
+L[High Interest Savings]
+^
+D10/ 6'26
+U-96.45
+T-96.45
+CR
+PMetro
+LFood:Groceries
+^
+D10/ 9'26
+U-60.00
+T-60.00
+CR
+NATM
+PCash
+^
+D10/14'26
+U-540.00
+T-540.00
+CR
+NEFT
+PNorthwind Visa payment
+L[Northwind Visa]
+^
+D10/17'26
+U-74.80
+T-74.80
+CR
+PBytown Bistro
+MClient lunch
+LFood:Dining out/Business
+^
+D10/20'26
+U-120.35
+T-120.35
+CR
+PCanadian Tire
+SHousehold
+EPaint
+$-85.10
+STransportation:Car maintenance
+EWipers
+$-35.25
+^
+D10/24'26
+U-65.00
+T-65.00
+CR
+PBell Canada
+LUtilities:Internet
+^
+D10/31'26
+U-3.95
+T-3.95
+CR
+PEveryday Bank
+MMonthly fee
+LBank fees
+^
+!Account
+NHigh Interest Savings
+TBank
+^
+!Type:Bank
+D9/30'26
+U8,000.00
+T8,000.00
+CX
+POpening Balance
+L[High Interest Savings]
+^
+D10/ 3'26
+U500.00
+T500.00
+CR
+PTransfer from chequing
+L[Everyday Chequing]
+^
+D10/31'26
+U4.12
+T4.12
+CR
+PEveryday Bank
+LInterest
+^
+!Account
+NNorthwind Visa
+TCCard
+^
+!Type:CCard
+D9/30'26
+U-540.00
+T-540.00
+CX
+POpening Balance
+L[Northwind Visa]
+^
+D10/ 5'26
+U-36.80
+T-36.80
+CR
+PNetflix
+LEntertainment
+^
+D10/11'26
+U-214.67
+T-214.67
+CR
+PCanadian Tire
+LTransportation:Car maintenance
+^
+D10/14'26
+U540.00
+T540.00
+CR
+PPayment - thank you
+L[Everyday Chequing]
+^
+D10/19'26
+U-17.25
+T-17.25
+CR
+PBytown Coffee
+LFood:Dining out
+^
+D10/26'26
+U-89.10
+T-89.10
+CR
+PMetro
+LFood:Groceries
+^
+!Account
+NRRSP
+TInvst
+^
+!Type:Invst
+D10/15'26
+NBuy
+YMaple Index Fund
+I25.00
+Q10
+U250.00
+T250.00
+CR
+^
+D10/31'26
+NDiv
+YMaple Index Fund
+U3.40
+T3.40
+^
+!Type:Memorized
+KC
+U-65.00
+T-65.00
+PBell Canada
+LUtilities:Internet
+^

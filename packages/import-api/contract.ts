@@ -44,6 +44,40 @@ export interface ImportFormat {
    * can't read: the message is shown to the user.
    */
   parse(file: ImportFile, context: ParseContext): Promise<ParseResult | undefined>
+  /**
+   * Optional: the user corrected a statement this format read (the sign cross-check found its amounts the wrong way
+   * round, and the user chose to reverse them and remember it). Update what the format remembers for the statement's
+   * `key`, so its next file is read the right way round (a CSV layout's "amounts are reversed", say), and resolve true.
+   * Resolve false, or leave this out, when the format can't: the import manager then keeps the correction itself and
+   * applies it to the next file. A correction has one owner, so a file is never reversed twice. (Since import-api 1.5.)
+   */
+  correct?(correction: FormatCorrection, context: { memory: FormatMemory }): Promise<boolean>
+  /**
+   * Optional: how one of the values this format keeps in `context.memory` reads to the user, for *File › Saved Import
+   * Choices…*, where each can be forgotten: `{ what: 'CSV columns', source: 'Date, Description, Amount', detail:
+   * 'Dates month first' }`. Return undefined for values that aren't choices the user made (an index the format keeps
+   * for itself): they aren't listed. Without this method, none of the format's values are listed. Forgetting one
+   * deletes it, so the format must read a missing value as "nothing remembered". (Since import-api 1.7.)
+   */
+  describeMemory?(key: string, value: unknown): RememberedDescription | undefined
+}
+
+/** A remembered value, as *Saved Import Choices* lists it. */
+export interface RememberedDescription {
+  /** What it is: 'CSV columns', 'QIF options'. */
+  what: string
+  /** What it is for: the columns, the account's name, the file. */
+  source: string
+  /** What it says, in a few words: 'Dates day first · amounts reversed'. */
+  detail?: string
+}
+
+/** A correction the user made to what a format read. */
+export interface FormatCorrection {
+  /** Every amount (and the balance) the other way round. */
+  kind: 'signsReversed'
+  /** The statement's `StatementAccount.key` (or the key the import manager made from the file's name). */
+  key: string
 }
 
 /** The start of a file, for `sniff`. */
@@ -65,9 +99,10 @@ export interface ImportFile extends ImportSample {
   /**
    * The bytes as text. A byte-order mark wins; otherwise `encoding` (default 'utf-8'; 'windows-1252' for OFX 1.x
    * files that say CHARSET:1252). Windows-1252 is decoded as the Encoding Standard says, with € and curly quotes,
-   * which Node's own `TextDecoder` gets wrong.
+   * which Node's own `TextDecoder` gets wrong. 'auto', for files that don't say (CSV, QIF): UTF-8 when the bytes are
+   * valid UTF-8, otherwise windows-1252.
    */
-  text(encoding?: string): string
+  text(encoding?: string | 'auto'): string
 }
 
 /** A small key/value store for one format, kept in the open ledger (a CSV column layout, say). */
@@ -81,9 +116,21 @@ export interface ParseContext {
   /** Aborted if the ledger closes, the user cancels the import, or parsing takes too long. */
   signal: AbortSignal
   memory: FormatMemory
-  /** The window the import was started from, for the format's own dialogs. */
+  /** The window the import was started from. `prompt` uses it; a format needn't. */
   windowId?: number
   log: Logger
+  /**
+   * Opens a dialog this format contributed to `shell.dialogs`, in the window the import was started from, and
+   * resolves with what it closed with, or undefined if the user cancelled it. `parse`'s time limit
+   * (`IMPORT_LIMITS.parseTimeoutMs`) is paused while the dialog is open, so the user can take as long as they like:
+   * only the format's own work counts. Resolves undefined without opening anything once `signal` is aborted, and
+   * ignores the answer of a dialog that closes after it was.
+   *
+   * For the dialog's answers: resolve `parse` with undefined for "Skip This File", and throw
+   * `ImportError('CANCELLED', …)` for "Cancel Import", which stops this file and every file after it.
+   * (Since import-api 1.3.)
+   */
+  prompt<TResult = unknown, TInput = unknown>(dialogId: string, input: TInput, options?: { title?: string }): Promise<TResult | undefined>
 }
 
 /** Something the format left out or guessed, shown in the import summary. */
@@ -108,6 +155,12 @@ export interface ParsedStatement {
   period?: { from?: string, to?: string }
   /** The ledger balance the bank reports (OFX LEDGERBAL), as a canonical decimal string, and its date. */
   balance?: { amount: string, asOf: string }
+  /**
+   * False when this statement's bank ids (`StatementLine.externalId`) can't be trusted to name the same transaction in
+   * another file (ids a conversion tool numbered 1, 2, 3…): its lines are then known by fingerprint. Overrides the
+   * contribution's `stableIds`, for this statement only. (Since import-api 1.3.)
+   */
+  stableIds?: boolean
   lines: StatementLine[]
 }
 
@@ -168,4 +221,11 @@ export interface StatementLine {
   /** The bank's own id for the line (OFX FITID). Absent for CSV. */
   externalId?: string
   kind?: StatementLineKind
+  /**
+   * The category the file gives the line, as a path from the top, parts separated by ':' ('Food:Groceries'), as QIF
+   * and some CSV exports write them. A hint, never applied on its own: it is used only when it names a category the
+   * ledger already has, and only for sources whose files the user has said to take categories from. Never a transfer
+   * (QIF's '[Savings]'). (Since import-api 1.3.)
+   */
+  category?: string
 }

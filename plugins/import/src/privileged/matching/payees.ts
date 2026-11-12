@@ -16,6 +16,13 @@ const REGIONS = new Set([
   'sd', 'tn', 'tx', 'ut', 'vt', 'va', 'wa', 'wv', 'wi', 'wy', 'dc'
 ])
 
+/**
+ * Words a pending or pre-authorised card line adds before the merchant ('PENDING - CANADIAN TIRE #0385'), which the
+ * posted line drops. Left out of a new payee's name and of the bank's name shown to the user, but not of the normalised
+ * name, which fingerprints are made from: changing that would change the ids of lines already imported.
+ */
+const PENDING_WORDS = new Set(['pending', 'preauth', 'preauthorized', 'preauthorised'])
+
 const fold = (text: string) => text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()
 
 /**
@@ -59,7 +66,7 @@ const titleCase = (word: string) => word === '&' ? '&' : word.charAt(0).toLocale
  * The bank's text as it was if nothing is left.
  */
 export function tidyPayee(text: string): string {
-  const kept = meaningful(words(text))
+  const kept = meaningful(words(text)).filter(w => !PENDING_WORDS.has(fold(w)))
   return kept.length > 0 ? kept.map(titleCase).join(' ') : text.trim().replace(/\s+/g, ' ')
 }
 
@@ -73,7 +80,7 @@ export function normalizeSearch(text: string): string {
  * ('POS PURCHASE COSTCO WHSE #0123' → 'COSTCO WHSE'). The text as it was if nothing is left.
  */
 export function bankName(text: string): string {
-  const kept = meaningful(words(text))
+  const kept = meaningful(words(text)).filter(w => !PENDING_WORDS.has(fold(w)))
   return kept.length > 0 ? kept.join(' ') : text.trim().replace(/\s+/g, ' ')
 }
 

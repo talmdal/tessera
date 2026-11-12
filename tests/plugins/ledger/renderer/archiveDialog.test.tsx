@@ -2,7 +2,7 @@
 // date or an option last changes), and the archive's steps. The privileged side is faked by channel.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   LEDGER_CHANNELS, LEDGER_EVENTS, displayDate,
   type ArchiveDialogInput, type ArchiveOutcome, type ArchivePreview, type ArchivePreviewPart, type ArchiveRunRequest
@@ -51,8 +51,6 @@ function setup(options: { input?: Partial<ArchiveDialogInput>, preview?: (reques
   const calls = (channel: string) => remote.bridge.invoke.mock.calls.filter((c: unknown[]) => c[0] === channel).map((c: unknown[]) => c[1])
   return { ...remote, answers, close, setBusy, calls }
 }
-
-afterEach(() => { delete (window as any).api })
 
 const dateField = () => screen.getByLabelText(LABEL) as HTMLInputElement
 const archiveButton = () => screen.getByRole('button', { name: 'Archive' })

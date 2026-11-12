@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ThemeSnapshot } from '@tessera/types'
 import { ACCOUNTS_CHANNELS, formatAmount, type Account, type AccountDialogInput, type Chart } from '@tessera/accounts-api'
 import { DEFAULT_THEME, THEME_GET } from '../../../../shared/theme/types'
@@ -37,8 +37,6 @@ function showDialog(input: AccountDialogInput, save: (data: any) => unknown = da
   const calls = (channel: string) => remote.bridge.invoke.mock.calls.filter((c: unknown[]) => c[0] === channel).map((c: unknown[]) => c[1]) as any[]
   return { close, calls }
 }
-
-afterEach(() => { delete (window as any).api })
 
 describe('the account dialog: layout', () => {
   it('keeps the currency field level with its row: it must not take the theme\'s dense top margin', () => {

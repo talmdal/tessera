@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   ACCOUNTS_CHANNELS, ACCOUNTS_EVENTS, todayIso,
   type Account, type Category, type ReconcileDialogInput, type ReconcileState, type RegisterSnapshot, type Transaction
@@ -47,8 +47,6 @@ function bridge(answers: Record<string, (data: any) => unknown>) {
   const calls = (channel: string) => remote.bridge.invoke.mock.calls.filter((c: unknown[]) => c[0] === channel).map((c: unknown[]) => c[1]) as any[]
   return { ...remote, calls }
 }
-
-afterEach(() => { delete (window as any).api })
 
 describe('the statement dialog', () => {
   const categories: Category[] = [

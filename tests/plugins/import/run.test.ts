@@ -7,6 +7,9 @@ import { ACCOUNTS_DIALOGS, categoryLabel, type AccountInput } from '@tessera/acc
 import { IMPORT_COMMANDS, IMPORT_DIALOGS, IMPORT_FORMATS_POINT, IMPORT_STATE_KEYS, isImportError, type AccountDialogInput, type ImportReport } from '@tessera/import-api'
 import { LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_SESSION_SERVICE, type LedgerSession } from '@tessera/ledger-api'
 import { createPluginContext } from '../../../core/plugins/PluginContext'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { sample, setupImport, type ImportEnv } from './harness'
 
 const OCTOBER = sample('maple-trust-chequing-2026-10.ofx')
@@ -35,7 +38,7 @@ describe('importing a statement for the first time', () => {
     // The Account dialog said what the file is, and offered to create the account (there was none)
     const [{ input }] = env.dialogs(IMPORT_DIALOGS.account) as { input: AccountDialogInput }[]
     expect(input).toMatchObject({
-      fileName: 'maple-trust-chequing-2026-10.ofx', formatLabel: 'OFX / QFX statement (Microsoft Money, Quicken)',
+      fileName: 'maple-trust-chequing-2026-10.ofx', formatLabel: 'OFX / QFX / QBO statement (Microsoft Money, Quicken, QuickBooks)',
       statement: { institution: 'Maple Trust Bank', accountNumber: '•••• 5678', typeLabel: 'Chequing', currency: 'CAD', lineCount: 17, period: { from: '2026-10-01', to: '2026-10-31' } },
       choices: [], remember: { strength: 'strong', label: 'Remember this account for “Maple Trust Bank •••• 5678”', checked: true }
     })
@@ -192,7 +195,7 @@ describe('files that go wrong', () => {
   it('says when no installed format can read a file', async () => {
     const env = await setupImport()
     const report = await env.manager.importFiles([sample('../../README.md')])
-    expect(report!.results[0]).toMatchObject({ outcome: 'failed', error: { code: 'NO_FORMAT', message: "Tessera can't read README.md. It can import: OFX / QFX statement (Microsoft Money, Quicken)." } })
+    expect(report!.results[0]).toMatchObject({ outcome: 'failed', error: { code: 'NO_FORMAT', message: "Tessera can't read README.md. It can import: OFX / QFX / QBO statement (Microsoft Money, Quicken, QuickBooks)." } })
   })
 
   it('stops at Cancel: the file and those after it are left, what was imported stays', async () => {
@@ -238,7 +241,7 @@ describe('the file dialog and the service', () => {
     await env.manager.importFiles()
     const [options] = env.files.showOpenFilesDialog.mock.calls[0] as unknown as [{ defaultPath: string, filters: unknown[] }]
     expect(options.defaultPath).toBe(env.files.downloadsPath())
-    expect(options.filters[0]).toEqual({ name: 'All supported statements', extensions: ['ofx', 'qfx'] })
+    expect(options.filters[0]).toEqual({ name: 'All supported statements', extensions: ['ofx', 'qfx', 'qbo'] })
     // Kept in the import's context.state, stored as import.lastFolder in app.state
     expect(await env.appState.get(`import.${IMPORT_STATE_KEYS.lastFolder}`)).toBe(sample('').replace(/\/$/, ''))
     // Cancelling the file dialog imports nothing, and shows no summary
@@ -257,7 +260,7 @@ describe('the file dialog and the service', () => {
     env.answer(IMPORT_DIALOGS.account, { kind: 'account', accountId: mine.id, remember: true })
     const asked = await env.manager.importStatements([statement], { label: 'Bank connection' })
     expect(asked.results[0]).toMatchObject({ outcome: 'imported', counts: { added: 1 } })
-    expect(env.manager.formats()).toEqual([{ id: 'import-ofx.ofx', label: 'OFX / QFX statement (Microsoft Money, Quicken)', extensions: ['ofx', 'qfx'], description: 'The statement files banks offer for Microsoft Money and Quicken.' }])
+    expect(env.manager.formats()).toEqual([{ id: 'import-ofx.ofx', label: 'OFX / QFX / QBO statement (Microsoft Money, Quicken, QuickBooks)', extensions: ['ofx', 'qfx', 'qbo'], description: 'The statement files banks offer for Microsoft Money, Quicken and QuickBooks (Web Connect).' }])
   })
 
   it("remembers a statement that doesn't name its account by its file's name, and suggests it next time", async () => {
@@ -274,6 +277,61 @@ describe('the file dialog and the service', () => {
     const [first, second] = env.dialogs(IMPORT_DIALOGS.account)
     expect(first.input.remember).toEqual({ strength: 'weak', label: 'Don\'t ask again for files named like “README.md”', checked: false })
     expect(second.input.choices[0]).toMatchObject({ account: { id: mine.id }, hint: 'Used last time' })
+  })
+})
+
+describe('QBO files (QuickBooks Web Connect)', () => {
+  const LAKESIDE_OCT = sample('lakeside-business-2026-10.qbo')
+  const LAKESIDE_NOV = sample('lakeside-business-2026-11.qbo')
+  const CONVERTED = sample('maple-trust-chequing-2026-10-converted.qbo')
+  const fixture = (name: string) => path.resolve(__dirname, '../../fixtures/import/qbo', name)
+
+  it('imports like OFX: the account asked for once and remembered, and next month’s overlap not doubled', async () => {
+    const env = await setupImport()
+    env.answer(IMPORT_DIALOGS.account, { kind: 'create', remember: true })
+    const first = await env.manager.importFiles([LAKESIDE_OCT])
+    expect(outcome(first)).toEqual([{ source: 'lakeside-business-2026-10.qbo', outcome: 'imported', added: 10, duplicates: 0, account: 'Lakeside Credit Union 0117' }])
+    const second = await env.manager.importFiles([LAKESIDE_NOV])
+    expect(outcome(second)).toEqual([{ source: 'lakeside-business-2026-11.qbo', outcome: 'imported', added: 7, duplicates: 3, account: 'Lakeside Credit Union 0117' }])
+    expect(env.dialogs(IMPORT_DIALOGS.account)).toHaveLength(1)
+    const account = await env.account('Lakeside Credit Union 0117')
+    const [{ balances }] = (await env.accounts.chart()).accounts.filter(s => s.account.id === account.id)
+    expect(balances.current).toBe(476415)                                          // the bank's balance on Nov 30
+  })
+
+  it('shares the saved account match and the bank ids of an OFX file for the same account', async () => {
+    const env = await setupImport()
+    const { account } = await firstImport(env)
+    // November's statement, as the bank's QuickBooks download would give it: the same ids, with Intuit's tags
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tessera-qbo-'))
+    const qbo = path.join(dir, 'maple-trust-chequing-2026-11.qbo')
+    fs.writeFileSync(qbo, fs.readFileSync(NOVEMBER, 'utf8').replace('</FI>', '</FI><INTU.BID>10101<INTU.USERID>demo'))
+    const report = await env.manager.importFiles([qbo])
+    expect(outcome(report)).toEqual([{ source: 'maple-trust-chequing-2026-11.qbo', outcome: 'imported', added: 5, duplicates: 5, account: account.name }])
+    expect(env.dialogs(IMPORT_DIALOGS.account)).toHaveLength(1)                  // only the first import asked
+  })
+
+  it("recognises a converter's made-up ids, imports every line, and knows them by their content next time", async () => {
+    const env = await setupImport()
+    env.answer(IMPORT_DIALOGS.account, { kind: 'create', remember: true })
+    const report = await env.manager.importFiles([CONVERTED])
+    expect(report!.results[0]).toMatchObject({ outcome: 'imported', counts: { added: 17 } })
+    expect(report!.results[0].warnings).toEqual(['Maple Trust Bank •••• 5678: the transaction ids look made up (1, 2, 3…), so its lines are recognised by their content instead.'])
+    const account = await env.account('Maple Trust Bank 5678')
+    expect((await env.transactions(account.id)).every(t => t.externalId?.startsWith('fp:'))).toBe(true)
+    const again = await env.manager.importFiles([CONVERTED])
+    expect(again!.results[0]).toMatchObject({ counts: { added: 0, duplicates: 17 } })
+  })
+
+  it('adds every line of two converted files whose ids both run 1, 2, 3, 4: none is dropped as a duplicate', async () => {
+    const env = await setupImport()
+    env.answer(IMPORT_DIALOGS.account, { kind: 'create', remember: true })
+    await env.manager.importFiles([fixture('converter-a.qbo')])
+    const report = await env.manager.importFiles([fixture('converter-b.qbo')])
+    expect(report!.results[0]).toMatchObject({ counts: { added: 4, duplicates: 0 } })
+    expect(report!.results[0].counts).not.toHaveProperty('idConflicts')             // known as made up before any clash
+    const account = await env.account('Pine Street Bank 0440')
+    expect(await env.transactions(account.id)).toHaveLength(8)
   })
 })
 

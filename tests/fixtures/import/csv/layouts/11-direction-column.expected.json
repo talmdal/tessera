@@ -1,0 +1,27 @@
+{
+  "about": "Unsigned amounts with a DR/CR column",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "amount": 2,
+      "direction": {
+        "column": 3,
+        "debit": [
+          "DR"
+        ],
+        "credit": [
+          "CR"
+        ]
+      }
+    },
+    "dateOrder": "YMD",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

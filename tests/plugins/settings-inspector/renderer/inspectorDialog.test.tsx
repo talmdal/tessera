@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import InspectorDialog from '../../../../plugins/settings-inspector/src/renderer/InspectorDialog'
 import { INSPECTOR, type InspectorReport } from '../../../../plugins/settings-inspector/src/shared'
 import { createFakeRemote } from '../../../helpers/fakeBridge'
@@ -36,8 +36,6 @@ function setup(answer: () => InspectorReport | Promise<InspectorReport> = () => 
   const asked = () => remote.bridge.invoke.mock.calls.filter((c: unknown[]) => c[0] === INSPECTOR.report).length
   return { ...remote, close, asked }
 }
-
-afterEach(() => { delete (window as any).api })
 
 const nav = () => screen.getByRole('navigation', { name: 'Settings namespaces' })
 

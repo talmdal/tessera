@@ -1,0 +1,24 @@
+{
+  "about": "A Status column with pending rows",
+  "layout": {
+    "version": 1,
+    "delimiter": ",",
+    "skip": 0,
+    "header": true,
+    "columns": {
+      "date": 0,
+      "payee": 1,
+      "amount": 2,
+      "status": {
+        "column": 3,
+        "pending": [
+          "Pending"
+        ]
+      }
+    },
+    "dateOrder": "YMD",
+    "decimal": ".",
+    "reversed": false
+  },
+  "uncertain": []
+}

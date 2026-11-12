@@ -1,7 +1,7 @@
 // The accounts plugin's views draw their text through the font roles: amounts in the Amounts and figures role, tables
 // sized in em of the Tables and registers role, names in the navigator that stay readable with large text.
 import { screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   ACCOUNTS_CHANNELS, type Account, type Chart, type ReconcileState, type RegisterSnapshot, type Transaction
 } from '@tessera/accounts-api'
@@ -56,8 +56,6 @@ function bridge(answers: Record<string, (data: any) => unknown> = {}) {
   })
   ;(window as any).api = remote.bridge
 }
-
-afterEach(() => { delete (window as any).api })
 
 const style = (el: Element) => getComputedStyle(el)
 

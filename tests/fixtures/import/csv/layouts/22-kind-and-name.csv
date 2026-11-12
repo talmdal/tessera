@@ -1,0 +1,9 @@
+Filter,Date,Description,Sub-description,Type of Transaction,Amount,Balance
+"Last 30 days","2026-11-12","pos purchase","Opos Bytown Coffee Ottawa","Debit","-4.75","3120.55"
+"","2026-11-10","deposit","Northern Lights Payroll","Credit","2150.00","3125.30"
+"","2026-11-09","pos purchase","Opos Loblaws #1001 Ottawa","Debit","-86.40","975.30"
+"","2026-11-07","withdrawal","Interac E-Transfer","Debit","-40.00","1061.70"
+"","2026-11-06","pos purchase","Opos Shell C12345 Kanata","Debit","-52.10","1101.70"
+"","2026-11-05","withdrawal","Hydro One Networks","Debit","-91.20","1153.80"
+"","2026-11-03","pos purchase","Opos Canadian Tire #0385","Debit","-23.99","1245.00"
+"","2026-11-02","deposit","Interac E-Transfer","Credit","35.00","1268.99"

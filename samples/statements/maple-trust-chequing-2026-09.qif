@@ -1,0 +1,119 @@
+!Type:Bank 
+D8/31'26
+T720.73
+CX
+POpening Balance
+L[Maple Trust Chequing]
+^
+D9/ 2'26
+T-1,200.00
+CX
+N100
+PLandlord
+MSeptember rent
+LHousing:Rent
+^
+D9/ 4'26
+T3,000.00
+CX
+PNorthern Lights Payroll
+LSalary
+^
+D9/ 5'26
+T-84.12
+CX
+PCostco
+MWeekly shop
+SFood:Groceries
+$-64.12
+SHousehold
+$-20.00
+^
+D9/ 8'26
+T-78.40
+CX
+PHydro One
+LUtilities:Electricity
+^
+D9/11'26
+T-100.00
+CX
+NATM
+PATM Withdrawal
+^
+D9/15'26
+T-131.62
+CX
+PLoblaws
+LFood:Groceries
+^
+D9/16'26
+T-65.00
+CX
+PBell Canada
+LUtilities:Internet
+^
+D9/18'26
+T3,000.00
+CX
+PNorthern Lights Payroll
+LSalary
+^
+D9/22'26
+T-4,000.00
+CX
+PTransfer to Maple Savings
+L[Maple Savings]
+^
+D9/26'26
+T-52.30
+CX
+PShell
+LTransportation:Fuel
+^
+D9/29'26
+T-4.75
+CX
+PTim Hortons
+LFood:Dining out
+^
+D9/30'26
+T-4.95
+CX
+PMaple Trust Bank
+MMonthly account fee
+LBank fees
+^
+D9/30'26
+T0.41
+CX
+PMaple Trust Bank
+MInterest paid
+LInterest
+^
+D10/ 2'26
+T-1,200.00
+C*
+N101
+PLandlord
+MOctober rent
+LHousing:Rent
+^
+D10/ 3'26
+T-57.50
+C*
+PThe Keg
+LFood:Dining out
+^
+D10/ 4'26
+T3,000.00
+C*
+PNorthern Lights Payroll
+LSalary
+^
+D10/ 5'26
+T-84.12
+C*
+PCostco
+LFood:Groceries
+^
