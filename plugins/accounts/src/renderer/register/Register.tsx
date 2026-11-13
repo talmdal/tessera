@@ -7,10 +7,11 @@ import {
   ACCOUNTS_CHANNELS, ACCOUNTS_COMMANDS, ACCOUNTS_EVENTS, ACCOUNTS_VIEWS, ACCOUNT_TYPE_LABELS, STATUS_LETTERS, formatAmount,
   maskAccountNumber, shownRunningBalance, showsAvailable, todayIso,
   type Account, type AccountsResult, type Category, type Chart, type Confirmation, type ReconcileActionArgs, type RegisterRow,
-  type RegisterSnapshot, type ResolvedReconcileAction, type SaveTransactionRequest, type Transaction, type TransactionsRequest
+  type RegisterFigure, type RegisterFigureArgs, type RegisterSnapshot, type ResolvedReconcileAction, type ResolvedRegisterFigure,
+  type ResolvedTransactionAction, type SaveTransactionRequest, type Transaction, type TransactionActionArgs, type TransactionsRequest
 } from '@tessera/accounts-api'
 import {
-  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Icon, ListItemIcon,
+  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Icon, ListItemIcon,
   ListItemText, Menu, MenuItem, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Toolbar, Tooltip, Typography
 } from '@tessera/ui'
 import { runCommand } from '../bridge'
@@ -76,21 +77,62 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
   const paused = reconciliation && reconciliation.reconciliation.paused ? reconciliation.reconciliation : undefined
 
   // The reconciliation options other plugins add (and the built-in statement one), for this account
-  const [actions, setActions] = useState<{ account: ResolvedReconcileAction[], transaction: ResolvedReconcileAction[] }>({ account: [], transaction: [] })
+  const [actions, setActions] = useState<{ account: ResolvedReconcileAction[] }>({ account: [] })
   useEffect(() => {
     let live = true
-    const load = (scope: 'account' | 'transaction') =>
-      window.api.invoke<ResolvedReconcileAction[]>(ACCOUNTS_CHANNELS.reconcileActions, { accountId: account.id, scope }).catch(() => [])
-    void Promise.all([load('account'), load('transaction')]).then(([forAccount, forTransaction]) => {
-      if (live) setActions({ account: forAccount ?? [], transaction: forTransaction ?? [] })
-    })
+    void window.api.invoke<ResolvedReconcileAction[]>(ACCOUNTS_CHANNELS.reconcileActions, { accountId: account.id, scope: 'account' })
+      .catch(() => [])
+      .then(forAccount => { if (live) setActions({ account: forAccount ?? [] }) })
     return () => { live = false }
   }, [account.id, account.closed, chart, reconciliation?.reconciliation.paused])
+
+  // What other plugins add to a row's context menu (`accounts.transaction.actions`), re-read each time it opens so
+  // enablement and the selection's size are current
+  const [rowActions, setRowActions] = useState<ResolvedTransactionAction[]>([])
+  const loadRowActions = (count: number) => {
+    setRowActions([])
+    void window.api.invoke<ResolvedTransactionAction[]>(ACCOUNTS_CHANNELS.transactionActions, { accountId: account.id, count })
+      .then(found => setRowActions(found ?? []), () => setRowActions([]))
+  }
 
   const runAction = (action: ResolvedReconcileAction, transactionIds?: string[]) => {
     setMenu(undefined)
     setReconcileMenu(undefined)
     const args: ReconcileActionArgs = { accountId: account.id, ...(transactionIds && { transactionIds }) }
+    runCommand(action.command, args).catch(err => setNotice(String((err as Error)?.message ?? err)))
+  }
+
+  // Figures other plugins add above the register (`accounts.register.figures`): each is a command, asked again
+  // whenever this register reloads and whenever the event a contribution names fires
+  const [figures, setFigures] = useState<ResolvedRegisterFigure[]>([])
+  const [figureValues, setFigureValues] = useState<Record<string, RegisterFigure | null>>({})
+  useEffect(() => {
+    let live = true
+    void window.api.invoke<ResolvedRegisterFigure[]>(ACCOUNTS_CHANNELS.registerFigures, { accountId: account.id })
+      .catch(() => [])
+      .then(found => { if (live) setFigures(found ?? []) })
+    return () => { live = false }
+  }, [account.id, account.type])
+  const [figureVersion, setFigureVersion] = useState(0)
+  useEffect(() => {
+    const stops = [...new Set(figures.map(f => f.refreshOn).filter((e): e is string => e !== undefined))]
+      .map(event => window.api.on(event, () => setFigureVersion(v => v + 1)))
+    return () => { for (const stop of stops) stop() }
+  }, [figures])
+  useEffect(() => {
+    let live = true
+    for (const figure of figures.filter(f => f.enabled)) {
+      const args: RegisterFigureArgs = { accountId: account.id }
+      runCommand<RegisterFigure | undefined>(figure.command, args).then(
+        value => { if (live) setFigureValues(was => ({ ...was, [figure.id]: value ?? null })) },
+        () => { if (live) setFigureValues(was => ({ ...was, [figure.id]: null })) })
+    }
+    return () => { live = false }
+  }, [figures, account.id, snapshot, figureVersion])
+
+  const runRowAction = (action: ResolvedTransactionAction, transactionIds: string[]) => {
+    setMenu(undefined)
+    const args: TransactionActionArgs = { accountId: account.id, transactionIds }
     runCommand(action.command, args).catch(err => setNotice(String((err as Error)?.message ?? err)))
   }
 
@@ -228,6 +270,7 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
   const onContextMenu = (event: MouseEvent, row: RegisterRow) => {
     event.preventDefault()
     void select(row.transaction.id)
+    loadRowActions(1)
     setMenu({ top: event.clientY, left: event.clientX })
   }
 
@@ -266,6 +309,13 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
         {account.minimumBalance !== undefined && (
           <Figure label={`Available (above ${formatAmount(account.minimumBalance, account.currency)})`} minor={balances.available} currency={account.currency} />
         )}
+        {figures.map(figure => {
+          const value = figureValues[figure.id]
+          return value ? (
+            <Figure key={figure.id} label={figure.label} minor={value.minor} currency={value.currency}
+              detail={value.detail} description={figure.description} id={figure.id} />
+          ) : null
+        })}
       </Stack>
 
       <Toolbar variant="dense" disableGutters role="toolbar" aria-label="Register actions"
@@ -387,8 +437,11 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
           <MenuItem key="delete" onClick={() => { setMenu(undefined); void remove() }}>
             <ListItemIcon><Icon name="Delete" fontSize="small" /></ListItemIcon><ListItemText>Delete…</ListItemText>
           </MenuItem>,
-          ...actions.transaction.map(action => (
-            <MenuItem key={action.id} disabled={!action.enabled} title={action.description} onClick={() => runAction(action, [selectedRow.transaction.id])}>
+          // What other plugins add: "Make Recurring…", and any transaction-scope reconcile option
+          ...(rowActions.length > 0 ? [<Divider key="contributed" />] : []),
+          ...rowActions.map(action => (
+            <MenuItem key={action.id} disabled={!action.enabled} title={action.description}
+              onClick={() => runRowAction(action, [selectedRow.transaction.id])}>
               <ListItemIcon>{action.icon && !action.icon.startsWith('./') && <Icon name={action.icon} fontSize="small" />}</ListItemIcon>
               <ListItemText>{action.label}</ListItemText>
             </MenuItem>
@@ -418,11 +471,14 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
   )
 }
 
-function Figure({ label, minor, currency }: { label: string, minor: number, currency: string }) {
+function Figure({ label, minor, currency, detail, description, id }: {
+  label: string, minor: number, currency: string, detail?: string, description?: string, id?: string
+}) {
   return (
-    <Box sx={{ textAlign: 'right' }}>
+    <Box sx={{ textAlign: 'right' }} title={description} data-figure={id}>
       <Typography variant="caption" color="text.secondary" component="div">{label}</Typography>
       <Typography variant="subtitle1" component="div"><Balance minor={minor} currency={currency} /></Typography>
+      {detail && <Typography variant="caption" color="text.secondary" component="div">{detail}</Typography>}
     </Box>
   )
 }

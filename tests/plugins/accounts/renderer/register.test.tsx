@@ -285,6 +285,33 @@ describe('the register', () => {
     for (const name of ['New', 'Edit', 'Mark Uncleared', 'Void', 'Delete', 'Reconcile…']) expect(within(bar).getByRole('button', { name })).toBeDisabled()
   })
 
+  it('shows a figure another plugin contributes, asks its command again when told to, and hides it when it has nothing', async () => {
+    let projected: { minor: number, currency: string, detail?: string } | undefined = { minor: 123456, currency: 'CAD', detail: 'after 2 scheduled transactions' }
+    const b = setup({
+      answers: {
+        [ACCOUNTS_CHANNELS.registerFigures]: () => [
+          { id: 'recurring.projected', label: 'Projected (30 days)', command: 'recurring.projectBalance', refreshOn: 'recurring:snapshot.changed', enabled: true }
+        ],
+        'shell:commands.execute': ({ id }) => id === 'recurring.projectBalance' ? projected : undefined
+      }
+    })
+    await table()
+    const figure = await waitFor(() => {
+      const found = document.querySelector('[data-figure="recurring.projected"]') as HTMLElement | null
+      expect(found).not.toBeNull()
+      return found!
+    })
+    expect(figure).toHaveTextContent('Projected (30 days)')
+    expect(figure).toHaveTextContent(/1,234\.56/)
+    expect(figure).toHaveTextContent('after 2 scheduled transactions')
+    expect(b.calls('shell:commands.execute').at(-1)).toEqual({ id: 'recurring.projectBalance', args: [{ accountId: 'c' }] })
+
+    // The event the contribution names makes the register ask again; nothing back means no figure
+    projected = undefined
+    act(() => { b.emit('recurring:snapshot.changed', null) })
+    await waitFor(() => expect(document.querySelector('[data-figure="recurring.projected"]')).toBeNull())
+  })
+
   it('reconciles from the toolbar: one option is a button, running its command with the account', async () => {
     const { calls } = setup()
     await table()
@@ -293,12 +320,20 @@ describe('the register', () => {
     expect(calls('shell:commands.execute')).toEqual([{ id: 'accounts.reconcile.statement', args: [{ accountId: 'c' }] }])
   })
 
-  it('lists several reconciliation options in a menu, and a plugin\'s row options in the row menu', async () => {
+  it('lists several reconciliation options in a menu, and a plugin\'s row actions in the row menu', async () => {
     const { calls } = setup({
       answers: {
-        [ACCOUNTS_CHANNELS.reconcileActions]: ({ scope }) => scope === 'account'
-          ? [STATEMENT_ACTION, { id: 'bank.sync', label: 'Match Downloaded…', scope: 'account', command: 'bank.match', enabled: false }]
-          : [{ id: 'bank.find', label: 'Find on Statement', scope: 'transaction', command: 'bank.find', enabled: true }]
+        [ACCOUNTS_CHANNELS.reconcileActions]: () =>
+          [STATEMENT_ACTION, { id: 'bank.sync', label: 'Match Downloaded…', scope: 'account', command: 'bank.match', enabled: false }],
+        // A row's contributed items come from `accounts.transaction.actions`, which also carries a reconciler's
+        // transaction-scope options; the register asks for them each time the menu opens
+        [ACCOUNTS_CHANNELS.transactionActions]: ({ count }) => count === 1
+          ? [
+            { id: 'bank.find', label: 'Find on Statement', command: 'bank.find', enabled: true },
+            // What the recurring plugin contributes, as the register receives it
+            { id: 'recurring.fromTransaction', label: 'Make Recurring…', command: 'recurring.fromTransaction', icon: 'Repeat', enabled: true }
+          ]
+          : []
       }
     })
     await table()
@@ -313,6 +348,16 @@ describe('the register', () => {
       { id: 'accounts.reconcile.statement', args: [{ accountId: 'c' }] },
       { id: 'bank.find', args: [{ accountId: 'c', transactionIds: ['a'] }] }
     ])
+
+    // The row's own items first, then a divider, then what other plugins added
+    await userEvent.pointer({ keys: '[MouseRight]', target: line('a') })
+    const rowMenu = await screen.findByRole('menu')
+    expect(within(rowMenu).getAllByRole('menuitem').map(i => i.textContent)).toEqual([
+      'Edit', 'Mark Uncleared', 'Void', 'Delete…', 'Find on Statement', 'Make Recurring…'
+    ])
+    await userEvent.click(within(rowMenu).getByRole('menuitem', { name: 'Make Recurring…' }))
+    expect(calls('shell:commands.execute').at(-1))
+      .toEqual({ id: 'recurring.fromTransaction', args: [{ accountId: 'c', transactionIds: ['a'] }] })
   })
 
   it('says when a reconciliation is paused, and resumes it', async () => {

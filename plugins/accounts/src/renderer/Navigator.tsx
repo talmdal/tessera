@@ -6,10 +6,11 @@ import { KeyboardEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 
 import {
   ACCOUNTS_CHANNELS, ACCOUNTS_COMMANDS as C, ACCOUNTS_EVENTS, ACCOUNT_TYPE_LABELS, formatAmount, maskAccountNumber,
   shownBalance, showsAvailable,
-  type Chart, type CurrencyTotals, type ReconcileActionArgs, type ResolvedReconcileAction, type Selection
+  type Chart, type CurrencyTotals, type ReconcileActionArgs, type ResolvedNavigatorItem, type ResolvedReconcileAction,
+  type Selection
 } from '@tessera/accounts-api'
 import {
-  Box, Checkbox, Divider, Icon, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography
+  Box, Checkbox, Chip, Divider, Icon, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography
 } from '@tessera/ui'
 import { runCommand, useFollowed } from './bridge'
 import { Balance, Totals, TYPE_ICONS } from './display'
@@ -68,6 +69,40 @@ export function rowsOf(chart: Chart, options: { collapsed: ReadonlySet<string>, 
   return rows
 }
 
+/**
+ * A row another plugin contributed (`accounts.navigator.items`). It runs a command and never becomes the
+ * navigator's selection, so the Accounts menu's enablement is unaffected by it. It sits outside the tree and is a
+ * button, not a tree node: it is no part of the book's structure, and inside the tree it could not be reached by
+ * keyboard, since the arrow keys walk the chart's rows.
+ */
+function ContributedRow({ item, onRun }: { item: ResolvedNavigatorItem, onRun(command: string): void }) {
+  const tone = item.badgeTone === 'default' ? undefined : item.badgeTone
+  return (
+    <Box
+      role="button" aria-label={item.label} aria-disabled={!item.enabled || undefined}
+      tabIndex={item.enabled ? 0 : -1} title={item.description} data-navigator-item={item.id}
+      onClick={() => { if (item.enabled) onRun(item.command) }}
+      onKeyDown={event => {
+        if ((event.key === 'Enter' || event.key === ' ') && item.enabled) { event.preventDefault(); onRun(item.command) }
+      }}
+      sx={{
+        display: 'flex', alignItems: 'center', gap: 0.5, pl: 0.5, pr: 1, py: 0.25, cursor: 'default', borderRadius: 1,
+        color: item.enabled ? undefined : 'text.disabled',
+        '&:hover': { bgcolor: item.enabled ? 'action.hover' : undefined },
+        '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 }
+      }}
+    >
+      <Box component="span" aria-hidden sx={{ display: 'inline-flex', width: 20 }} />
+      {item.icon && !item.icon.startsWith('./') && <Icon name={item.icon} fontSize="small" />}
+      <Typography variant="body2" noWrap sx={{ flex: 1 }}>{item.label}</Typography>
+      {item.badge !== undefined && (
+        <Chip size="small" label={item.badge} color={tone} variant={tone ? 'filled' : 'outlined'}
+          sx={{ height: 18, '& .MuiChip-label': { px: 0.75, fontSize: '0.7rem' } }} />
+      )}
+    </Box>
+  )
+}
+
 const selectionOf = (row: Row): Selection => row.kind === 'book' ? { kind: 'book' } : { kind: row.kind, id: row.id! }
 const keyOf = (selection: Selection | undefined) => !selection || selection.kind === 'book' ? BOOK_KEY : selection.id
 
@@ -81,6 +116,8 @@ export default function Navigator() {
   const [error, setError] = useState<string>()
   // The selected account's reconciliation options, for its context menu
   const [actions, setActions] = useState<ResolvedReconcileAction[]>([])
+  // Rows other plugins add (`accounts.navigator.items`), e.g. Recurring with its overdue badge
+  const items = useFollowed<ResolvedNavigatorItem[]>(ACCOUNTS_CHANNELS.navigatorItems, ACCOUNTS_EVENTS.navigatorItems) ?? []
   const rowRefs = useRef(new Map<string, HTMLElement>())
 
   const rows = useMemo(() => chart ? rowsOf(chart, { collapsed, showClosed }) : [], [chart, collapsed, showClosed])
@@ -213,7 +250,10 @@ export default function Navigator() {
       </Toolbar>
       {error && <Typography role="alert" color="error" variant="body2" sx={{ px: 1 }}>{error}</Typography>}
 
-      <Box role="tree" aria-label={`Accounts in ${chart.book.name}`} onKeyDown={onKeyDown} sx={{ flex: 1, overflow: 'auto', py: 0.5 }}>
+      <Box sx={{ flex: 1, overflow: 'auto', py: 0.5 }}>
+        {items.filter(i => i.placement === 'top').map(i => <ContributedRow key={i.id} item={i} onRun={run} />)}
+
+        <Box role="tree" aria-label={`Accounts in ${chart.book.name}`} onKeyDown={onKeyDown}>
         {rows.map(r => {
           const isSelected = r.key === row.key
           const open = !collapsed.has(r.key)
@@ -259,6 +299,9 @@ export default function Navigator() {
             </Box>
           )
         })}
+        </Box>
+
+        {items.filter(i => i.placement !== 'top').map(i => <ContributedRow key={i.id} item={i} onRun={run} />)}
       </Box>
 
       <Menu

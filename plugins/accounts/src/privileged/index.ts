@@ -5,16 +5,20 @@ import type { PluginContext, ShellPrompts } from '@tessera/types'
 import { SHELL_PROMPTS_SERVICE } from '@tessera/types'
 import { BOOK_SCHEMA_POINT, BOOK_SESSION_SERVICE, type BookSession } from '@tessera/book-api'
 import {
-  ACCOUNTS_MIGRATOR_SERVICE, ACCOUNTS_PLUGIN_ID, ACCOUNTS_SERVICE, ACCOUNTS_VIEWS, type AccountsService
+  ACCOUNTS_EVENTS, ACCOUNTS_MIGRATOR_SERVICE, ACCOUNTS_PLUGIN_ID, ACCOUNTS_SERVICE, ACCOUNTS_VIEWS,
+  type AccountsService
 } from '@tessera/accounts-api'
 import { AccountsServiceImpl } from './AccountsServiceImpl'
 import { registerCommands } from './commands'
 import { contributions } from './contributions'
 import { publishChange, registerIpc } from './ipc'
+import { NavigatorItems } from './navigatorItems'
 import { ReconcileActions } from './reconcileActions'
+import { RegisterFigures } from './registerFigures'
+import { TransactionActions } from './rowActions'
 import { RegisterState } from './register'
 import { ACCOUNTS_SCHEMA, accountsMigrator } from './schema'
-import { SelectionState } from './selection'
+import { local, SelectionState } from './selection'
 
 /** Exactly the `AccountsService` contract, so other plugins can't reach the implementation's internals. */
 export function publicService(service: AccountsServiceImpl): AccountsService {
@@ -44,6 +48,9 @@ export async function activate(context: PluginContext) {
   const selection = new SelectionState(context, service, session)
   const register = new RegisterState(context, service, session)
   const actions = new ReconcileActions(context.extensions, context.commands, context.logger)
+  const rowActions = new TransactionActions(context.extensions, context.commands, context.logger, actions)
+  const navigatorItems = new NavigatorItems(context.extensions, context.commands, context.contextKeys, context.logger)
+  const figures = new RegisterFigures(context.extensions, context.commands, context.logger)
 
   const reveal = async (viewId: string) => {
     if (context.commands.has('shell.layout.reveal')) await context.commands.execute('shell.layout.reveal', viewId).catch(() => undefined)
@@ -66,9 +73,11 @@ export async function activate(context: PluginContext) {
     session.onDidChange(change => {
       if (change.type === 'opened' && change.created) void reveal(ACCOUNTS_VIEWS.navigator)
     }),
+    // A contributed navigator row's badge comes from a context key, so the navigator re-reads the list when it moves
+    navigatorItems.watchBadges(() => context.events.emit(local(ACCOUNTS_EVENTS.navigatorItems), navigatorItems.resolved())),
     ...contributions().map(([point, id, impl]) => context.extensions.contribute(ACCOUNTS_PLUGIN_ID, point, id, impl)),
     ...registerCommands(context, service, selection, register, prompts),
-    ...registerIpc(context, service, session, selection, register, actions)
+    ...registerIpc(context, service, session, selection, register, actions, rowActions, navigatorItems, figures)
   )
 
   await selection.refresh()

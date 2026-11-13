@@ -23,15 +23,20 @@ import Info from '@mui/icons-material/Info'
 import LibraryAdd from '@mui/icons-material/LibraryAdd'
 import List from '@mui/icons-material/List'
 import MoreVert from '@mui/icons-material/MoreVert'
+import Pause from '@mui/icons-material/Pause'
+import PlayArrow from '@mui/icons-material/PlayArrow'
+import Repeat from '@mui/icons-material/Repeat'
 import Save from '@mui/icons-material/Save'
 import Savings from '@mui/icons-material/Savings'
 import Search from '@mui/icons-material/Search'
 import ShowChart from '@mui/icons-material/ShowChart'
+import SkipNext from '@mui/icons-material/SkipNext'
 import Warning from '@mui/icons-material/Warning'
 
 export const STANDARD_ICONS: Record<IconName, typeof SvgIcon> = {
   Add, AccountBalance, Block, CalendarToday, Check, ChevronLeft, ChevronRight, Circle, Close, CreditCard, Delete, Edit,
   // `Error` would shadow the global Error constructor in this module
   Error: ErrorIcon,
-  ExpandLess, ExpandMore, Folder, Home, Info, LibraryAdd, List, MoreVert, Save, Savings, Search, ShowChart, Warning
+  ExpandLess, ExpandMore, Folder, Home, Info, LibraryAdd, List, MoreVert, Pause, PlayArrow, Repeat, Save, Savings,
+  Search, ShowChart, SkipNext, Warning
 }

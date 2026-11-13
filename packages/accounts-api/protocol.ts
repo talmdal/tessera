@@ -62,6 +62,25 @@ export interface NewAccountArgs {
   subBookId?: string | null
 }
 
+/**
+ * The Accounts menu and its groups, published so another finance plugin can add an item to it without copying the
+ * strings. Contribute to `shell.menus` with `parent: ACCOUNTS_MENU.id` and `group: ACCOUNTS_MENU.groups.<name>`;
+ * the groups are declared by `accounts` itself, so the separators are drawn whether or not you are installed.
+ */
+export const ACCOUNTS_MENU = {
+  id: 'accounts.menu',
+  groups: {
+    /** New, Edit, Close, Reopen, Delete Account. */
+    account: 'accounts.menu.account',
+    subBook: 'accounts.menu.subBook',
+    move: 'accounts.menu.move',
+    /** Open Register, New Transaction, Reconcile. */
+    register: 'accounts.menu.register',
+    /** Reserved for the `recurring` plugin's items; declared here so the separator exists without it. */
+    recurring: 'accounts.menu.recurring'
+  }
+} as const
+
 export type SelectionKind = 'book' | 'subBook' | 'account'
 
 /** What the navigator has selected. The book itself has no id. */
@@ -122,7 +141,13 @@ export const ACCOUNTS_CHANNELS = {
   /** `{ accountId }` → `AccountsResult<void>`. */
   reconcileCancel: channel('reconcile.cancel'),
   /** `{ accountId, id, patch, expectedRev?, confirm? }` → `AccountsResult<Transaction>`: changes only the fields given. */
-  patchTransaction: channel('transaction.patch')
+  patchTransaction: channel('transaction.patch'),
+  /** `{ accountId, count }` → `ResolvedTransactionAction[]`, for a register row's context menu. */
+  transactionActions: channel('transaction.actions'),
+  /** → `ResolvedNavigatorItem[]`: the rows other plugins add to the navigator. */
+  navigatorItems: channel('navigator.items'),
+  /** `{ accountId }` → `ResolvedRegisterFigure[]`: the figures other plugins add above the register. */
+  registerFigures: channel('register.figures')
 } as const
 
 /** Push events, main → renderer. */
@@ -140,7 +165,12 @@ export const ACCOUNTS_EVENTS = {
   /** `{}`: New Transaction from the menu; the register focuses its entry row. */
   newTransaction: channel('transaction.new'),
   /** `Category[]`: categories were added. */
-  categories: channel('categories.changed')
+  categories: channel('categories.changed'),
+  /**
+   * `ResolvedNavigatorItem[]`: the whole list again. Emitted when the value of a context key a contribution named
+   * in `badgeKey` changes, so a badge stays live without the contributing plugin pushing anything of its own.
+   */
+  navigatorItems: channel('navigator.items.changed')
 } as const
 
 export const ACCOUNTS_VIEWS = {
@@ -291,4 +321,152 @@ export interface ReconcileActionArgs {
   accountId: string
   /** For transaction-scope actions: the selected rows. */
   transactionIds?: string[]
+}
+
+// ---- Register row actions (`accounts.transaction.actions`)
+
+/**
+ * Extension point for `TransactionActionContribution`s: items in a register row's context menu. Prefer it to a
+ * transaction-scope `ReconcileActionContribution`, which exists for reconcilers and is resolved into the same menu
+ * for compatibility.
+ */
+export const TRANSACTION_ACTIONS_POINT = 'accounts.transaction.actions'
+
+/**
+ * An item in a register row's context menu. Plain data: behaviour lives in the command it names. Contributed with
+ * `context.extensions.contribute(pluginId, TRANSACTION_ACTIONS_POINT, id, contribution)`.
+ */
+export interface TransactionActionContribution {
+  /** `<pluginId>.<name>`. */
+  id: string
+  /** 'Make Recurring…'. */
+  label: string
+  /** Run with one argument, `TransactionActionArgs`. Its enablement decides whether the item is enabled. */
+  command: string
+  /** Shown only for these account types. Default: all. */
+  accountTypes?: AccountType[]
+  /** Shown only when exactly one row is selected. Default false. */
+  singleOnly?: boolean
+  /** Hidden while the account is closed, as most actions change something. Default true. */
+  needsEditable?: boolean
+  /** A shell icon name, or a file in the plugin's renderer folder starting with `./`. */
+  icon?: string
+  /** Tooltip. */
+  description?: string
+  order?: number
+}
+
+/** A contribution as the register receives it: applicable to the account and the selection, with its command's state. */
+export interface ResolvedTransactionAction {
+  id: string
+  label: string
+  command: string
+  icon?: string
+  description?: string
+  enabled: boolean
+}
+
+export interface TransactionActionArgs {
+  accountId: string
+  /** The selected rows; at least one. */
+  transactionIds: string[]
+}
+
+// ---- Register figures (`accounts.register.figures`)
+
+/**
+ * Extension point for `RegisterFigureContribution`s: figures another plugin adds beside the register's Current,
+ * Cleared and Available balances — a projected balance, say.
+ */
+export const REGISTER_FIGURES_POINT = 'accounts.register.figures'
+
+/**
+ * A figure above the register. Plain data: the number comes from the command it names, run with
+ * `RegisterFigureArgs` and returning a `RegisterFigure` (or nothing, when the figure doesn't apply to the account).
+ */
+export interface RegisterFigureContribution {
+  /** `<pluginId>.<name>`. */
+  id: string
+  /** 'Projected (30 days)'. */
+  label: string
+  /** Run with one argument, `RegisterFigureArgs`; resolves a `RegisterFigure`, or undefined to show nothing. */
+  command: string
+  /** Shown only for these account types. Default: all. */
+  accountTypes?: AccountType[]
+  /** An event channel (`window.api.on`) after which the register asks the command again. */
+  refreshOn?: string
+  /** Tooltip. */
+  description?: string
+  order?: number
+}
+
+/** A contribution as the register receives it. */
+export interface ResolvedRegisterFigure {
+  id: string
+  label: string
+  command: string
+  refreshOn?: string
+  description?: string
+  enabled: boolean
+}
+
+export interface RegisterFigureArgs {
+  accountId: string
+}
+
+/** What a figure's command resolves with. */
+export interface RegisterFigure {
+  /** Minor units, signed like a balance. */
+  minor: number
+  currency: string
+  /** A line under the figure: 'after 3 scheduled payments'. */
+  detail?: string
+}
+
+// ---- Navigator rows (`accounts.navigator.items`)
+
+/** Extension point for `NavigatorItemContribution`s: rows another plugin adds to the Accounts navigator. */
+export const NAVIGATOR_ITEMS_POINT = 'accounts.navigator.items'
+
+export type NavigatorItemPlacement = 'top' | 'bottom'
+export type NavigatorBadgeTone = 'default' | 'warning' | 'error'
+
+/**
+ * A row in the Accounts navigator, above the book or below the whole tree. It runs a command and never becomes the
+ * navigator's `Selection`, so the Accounts menu's enablement is unaffected by it.
+ */
+export interface NavigatorItemContribution {
+  /** `<pluginId>.<name>`. */
+  id: string
+  label: string
+  /** Run with no argument when the row is clicked, or Enter is pressed on it. */
+  command: string
+  /** A shell icon name, or a file in the plugin's renderer folder starting with `./`. */
+  icon?: string
+  /** Default 'bottom'. */
+  placement?: NavigatorItemPlacement
+  /**
+   * A context key whose value is shown as a badge while it is truthy. The navigator re-reads it whenever it
+   * changes, so a count stays live without the contributing plugin pushing anything.
+   */
+  badgeKey?: string
+  /** Default 'default'. */
+  badgeTone?: NavigatorBadgeTone
+  /** Tooltip. */
+  description?: string
+  order?: number
+}
+
+/** A contribution as the navigator receives it, with its command's state and its badge resolved. */
+export interface ResolvedNavigatorItem {
+  id: string
+  label: string
+  command: string
+  icon?: string
+  placement: NavigatorItemPlacement
+  badgeTone: NavigatorBadgeTone
+  description?: string
+  enabled: boolean
+  /** The badge's text now, when `badgeKey` is set and its value is truthy. */
+  badge?: string
 }

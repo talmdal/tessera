@@ -13,6 +13,7 @@ export {
   Box,
   Button,
   Checkbox,
+  Chip,
   CircularProgress,
   Collapse,
   Dialog,

@@ -6,9 +6,13 @@ import {
   ACCOUNTS_CHANNELS, ACCOUNTS_EVENTS, AccountsError, CLEARING_STATUSES, isAccountsError, toAccountsResult,
   type AccountPatch, type Category, type Chart, type ClearingStatus, type MoveRequest, type RegisterSnapshot,
   type AccountsChange, type PatchTransactionRequest, type ReconcileRequest, type ReconcileState, type ResolvedReconcileAction,
+  type ResolvedNavigatorItem, type ResolvedRegisterFigure, type ResolvedTransactionAction,
   type SaveAccountRequest, type SaveTransactionRequest, type Selection, type TransactionPatch, type TransactionsRequest
 } from '@tessera/accounts-api'
+import type { NavigatorItems } from './navigatorItems'
+import type { RegisterFigures } from './registerFigures'
 import type { ReconcileActions } from './reconcileActions'
+import type { TransactionActions } from './rowActions'
 import type { AccountsServiceImpl } from './AccountsServiceImpl'
 import type { RegisterState } from './register'
 import { isSelection, local, type SelectionState } from './selection'
@@ -73,7 +77,10 @@ export function registerIpc(
   session: BookSession,
   selection: SelectionState,
   register: RegisterState,
-  actions: ReconcileActions
+  actions: ReconcileActions,
+  rowActions: TransactionActions,
+  navigatorItems: NavigatorItems,
+  figures: RegisterFigures
 ): Disposable[] {
   return [
     context.ipc.register(ACCOUNTS_CHANNELS.chart, () => chartOrNull(service, session)),
@@ -179,6 +186,26 @@ export function registerIpc(
       if (typeof accountId !== 'string') return []
       const account = await unlessClosed(session, () => service.get(accountId), undefined)
       return account ? actions.for(account.type, scope) : []
+    }),
+
+    // ---- A register row's context menu, and the navigator's contributed rows
+
+    context.ipc.register(ACCOUNTS_CHANNELS.transactionActions, async (msg: IpcMessage<{ accountId?: string, count?: number }>): Promise<ResolvedTransactionAction[]> => {
+      const accountId = msg.data?.accountId
+      if (typeof accountId !== 'string') return []
+      const account = await unlessClosed(session, () => service.get(accountId), undefined)
+      if (!account) return []
+      const count = typeof msg.data?.count === 'number' && msg.data.count > 0 ? msg.data.count : 1
+      return rowActions.for({ type: account.type, closed: account.closed, count })
+    }),
+
+    context.ipc.register(ACCOUNTS_CHANNELS.navigatorItems, (): ResolvedNavigatorItem[] => navigatorItems.resolved()),
+
+    context.ipc.register(ACCOUNTS_CHANNELS.registerFigures, async (msg: IpcMessage<{ accountId?: string }>): Promise<ResolvedRegisterFigure[]> => {
+      const accountId = msg.data?.accountId
+      if (typeof accountId !== 'string') return []
+      const account = await unlessClosed(session, () => service.get(accountId), undefined)
+      return account ? figures.for(account.type) : []
     }),
 
     context.ipc.register(ACCOUNTS_CHANNELS.reconcileState, async (msg: IpcMessage<{ accountId?: string }>) => {
