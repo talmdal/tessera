@@ -1,4 +1,4 @@
-// QIF files, anonymised in place. The QIF plugin's own reader (plugins/import-qif/src/privileged/qif.ts) says where
+// QIF files, anonymised in place. The QIF plugin's own reader (plugins/format-qif/src/privileged/qif.ts) says where
 // each field's value is; only values are rewritten, and every other byte (headers, codes, '^', line ends) is kept, so
 // the file is still the dialect Money or Quicken wrote.
 //
@@ -16,8 +16,8 @@
 // See docs/import-formats-design.md, "What is replaced, by format".
 import { guessDecimal, type DateOrder, type DecimalSeparator } from '@tessera/import-api'
 import { STARTER_CATEGORIES } from '../../plugins/accounts/src/privileged/schema'
-import { likeliestOrder, qifDate, qifDateOrders } from '../../plugins/import-qif/src/privileged/dates'
-import { parseQif, type QifField, type QifSection } from '../../plugins/import-qif/src/privileged/qif'
+import { likeliestOrder, qifDate, qifDateOrders } from '../../plugins/format-qif/src/privileged/dates'
+import { parseQif, type QifField, type QifSection } from '../../plugins/format-qif/src/privileged/qif'
 import { Amounts, readAmount, rewrite, writeSigned, type WrittenAmount } from './amounts'
 import type { OfxCounts } from './ofx'
 import type { Scannable } from './scan'

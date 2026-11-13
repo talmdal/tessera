@@ -658,6 +658,8 @@ export interface Account {
   institution?: string
   /** As entered, unencrypted (ledger encryption is not in the first release); shown masked (•••• 1234). */
   accountNumber?: string
+  bankId?: string              // OFX's BANKID, for OFX, QFX and QBO exports; filled in by OFX imports (export-design.md, X3)
+  intuitBankId?: string        // QFX and QBO's INTU.BID, likewise
   openingDate: string          // 'YYYY-MM-DD'; when the account opened: archiving never changes it
   openingBalance: number       // minor units; the opening balance of the current period (see below)
   creditLimit?: number         // minor units; credit cards and lines of credit

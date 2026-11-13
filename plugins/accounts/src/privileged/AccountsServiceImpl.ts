@@ -4,7 +4,7 @@ import type { Collection, Database, Disposable, Event, Logger, Transaction } fro
 import { descendantIds, type ArchiveParticipant, type LedgerSession, type LedgerTree, type SubLedgerParticipant } from '@tessera/ledger-api'
 import {
   ACCOUNT_CLASS, ACCOUNT_NOTES_MAX_LENGTH, ACCOUNT_NUMBER_MAX_LENGTH, ACCOUNT_TEXT_MAX_LENGTH, AccountsError,
-  CREDIT_LIMIT_TYPES, MINIMUM_BALANCE_TYPES, accountNameKey, accountNumberKey, formatAmount, isAccountType, isAmount,
+  BANK_ID_MAX_LENGTH, INTUIT_BANK_ID_MAX_LENGTH, CREDIT_LIMIT_TYPES, MINIMUM_BALANCE_TYPES, accountNameKey, accountNumberKey, formatAmount, isAccountType, isAmount,
   isCurrencyCode, isIsoDate, todayIso, validateAccountName,
   type Account, type AccountBalances, type AccountFilter, type AccountInput, type AccountPatch, type AccountsChange,
   type AccountsService, type AccountSummary, type CategoryDirectory, type Chart, type ClearingStatus, type CurrencyTotals,
@@ -23,7 +23,7 @@ import * as core from './transactionsCore'
 export { translate }
 
 /** The fields a patch clears with `null`. Elsewhere `null` is a value: `subLedgerId: null` is the ledger itself. */
-const CLEARABLE: ReadonlySet<string> = new Set(['institution', 'accountNumber', 'notes', 'creditLimit', 'minimumBalance', 'showAvailableBalance'])
+const CLEARABLE: ReadonlySet<string> = new Set(['institution', 'accountNumber', 'bankId', 'intuitBankId', 'notes', 'creditLimit', 'minimumBalance', 'showAvailableBalance'])
 
 /** What only archiving sets: a form, or another plugin, can't. */
 const SET_BY_ARCHIVING = ['lastArchiveDate', 'archived'] as const
@@ -66,6 +66,9 @@ export function checkAccountInput(input: AccountInput): Omit<StoredAccount, 'ord
   const name = input.name.trim()
   const institution = optionalText(input.institution, 'institution', ACCOUNT_TEXT_MAX_LENGTH)
   const accountNumber = optionalText(input.accountNumber, 'accountNumber', ACCOUNT_NUMBER_MAX_LENGTH)
+  const bankId = optionalText(input.bankId, 'bankId', BANK_ID_MAX_LENGTH)
+  if (bankId !== undefined && !/^[0-9A-Za-z]+$/.test(bankId)) throw invalid('bankId', 'Use letters and digits only, as in the bank’s own files.')
+  const intuitBankId = optionalText(input.intuitBankId, 'intuitBankId', INTUIT_BANK_ID_MAX_LENGTH)
   const notes = optionalText(input.notes, 'notes', ACCOUNT_NOTES_MAX_LENGTH, true)
   return {
     name, nameKey: accountNameKey(name), type: input.type, subLedgerId: input.subLedgerId, currency,
@@ -75,6 +78,8 @@ export function checkAccountInput(input: AccountInput): Omit<StoredAccount, 'ord
     ...(input.showAvailableBalance === true && { showAvailableBalance: true }),
     ...(institution !== undefined && { institution }),
     ...(accountNumber !== undefined && { accountNumber, numberKey: accountNumberKey(accountNumber) }),
+    ...(bankId !== undefined && { bankId }),
+    ...(intuitBankId !== undefined && { intuitBankId }),
     ...(notes !== undefined && { notes })
   }
 }
@@ -86,7 +91,8 @@ function applyPatch(account: Account, patch: AccountPatch): AccountInput {
     name: account.name, type: account.type, subLedgerId: account.subLedgerId, currency: account.currency,
     openingDate: account.openingDate, openingBalance: account.openingBalance,
     creditLimit: account.creditLimit, minimumBalance: account.minimumBalance, showAvailableBalance: account.showAvailableBalance,
-    institution: account.institution, accountNumber: account.accountNumber, notes: account.notes
+    institution: account.institution, accountNumber: account.accountNumber, bankId: account.bankId,
+    intuitBankId: account.intuitBankId, notes: account.notes
   }
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue

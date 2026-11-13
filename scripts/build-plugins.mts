@@ -46,7 +46,7 @@ const sharedUiRange = () => {
  * Plugins' published contracts (types and constants), which other plugins import. Each plugin bundles what it uses,
  * in both halves, since they hold no state. Resolved against the working directory, like the other aliases.
  */
-const API_PACKAGES = ['ledger-api', 'accounts-api', 'import-api']
+const API_PACKAGES = ['ledger-api', 'accounts-api', 'import-api', 'export-api']
 const API_PACKAGE_ALIASES = (): Record<string, string> => Object.fromEntries(
   API_PACKAGES.map(name => [`@tessera/${name}`, path.resolve(process.cwd(), 'packages', name, 'index.ts')]))
 

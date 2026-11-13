@@ -1,0 +1,15 @@
+{
+  "id": "export",
+  "name": "Export",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./ExportDialog": "src/renderer/ExportDialog.tsx"
+    }
+  },
+  "services": {
+    "requires": ["accounts.service", "ledger.session", "shell.files", "shell.prompts", "app.state"]
+  }
+}

@@ -9,8 +9,8 @@ const fresh = (date: string, amount: number, payee?: string, importId = 'FITID1'
   ({ importId, bank: { date, amount, ...(payee !== undefined && { payee }) } })
 let n = 0
 const earlier = (date: string, amount: number, payee?: string, over: Partial<EarlierLine> = {}): EarlierLine =>
-  ({ lineId: `L${++n}`, transactionId: `T${n}`, importId: `${FP}${n}`, formatId: 'import-csv.csv', bank: { date, amount, ...(payee !== undefined && { payee }) }, ...over })
-const pairs = (lines: FreshLine[], before: EarlierLine[], formatId = 'import-ofx.ofx') =>
+  ({ lineId: `L${++n}`, transactionId: `T${n}`, importId: `${FP}${n}`, formatId: 'format-csv.csv', bank: { date, amount, ...(payee !== undefined && { payee }) }, ...over })
+const pairs = (lines: FreshLine[], before: EarlierLine[], formatId = 'format-ofx.ofx') =>
   findDuplicates(lines, formatId, before).map(p => [p.line, p.earlier.lineId])
 
 describe('a line imported before from another file', () => {
@@ -63,20 +63,20 @@ describe('a line imported before from another file', () => {
   })
 
   it('is never two bank ids from the same format, or from formats it can’t tell apart: those are two transactions', () => {
-    const ofx = earlier('2026-10-05', -8412, 'COSTCO', { importId: 'FITID9', formatId: 'import-ofx.ofx' })
-    expect(pairs([fresh('2026-10-05', -8412, 'COSTCO', 'FITID10')], [ofx], 'import-ofx.ofx')).toEqual([])
+    const ofx = earlier('2026-10-05', -8412, 'COSTCO', { importId: 'FITID9', formatId: 'format-ofx.ofx' })
+    expect(pairs([fresh('2026-10-05', -8412, 'COSTCO', 'FITID10')], [ofx], 'format-ofx.ofx')).toEqual([])
     const unknown = earlier('2026-10-05', -8412, 'COSTCO', { importId: 'FITID9', formatId: undefined })
-    expect(pairs([fresh('2026-10-05', -8412, 'COSTCO', 'FITID10')], [unknown], 'import-ofx.ofx')).toEqual([])
+    expect(pairs([fresh('2026-10-05', -8412, 'COSTCO', 'FITID10')], [unknown], 'format-ofx.ofx')).toEqual([])
     // From two formats, ids can't be compared: the bank's CSV with an id column, then its OFX
-    const csvWithIds = earlier('2026-10-05', -8412, 'COSTCO', { importId: 'TXN-55', formatId: 'import-csv.csv' })
-    expect(pairs([fresh('2026-10-05', -8412, 'COSTCO', 'FITID10')], [csvWithIds], 'import-ofx.ofx')).toEqual([[0, csvWithIds.lineId]])
+    const csvWithIds = earlier('2026-10-05', -8412, 'COSTCO', { importId: 'TXN-55', formatId: 'format-csv.csv' })
+    expect(pairs([fresh('2026-10-05', -8412, 'COSTCO', 'FITID10')], [csvWithIds], 'format-ofx.ofx')).toEqual([[0, csvWithIds.lineId]])
   })
 
   it('may be a fingerprint on either side, even from the same format (a CSV export whose text changed)', () => {
-    const byContent = earlier('2026-10-05', -8412, 'PENDING COSTCO', { formatId: 'import-csv.csv' })
-    expect(pairs([fresh('2026-10-06', -8412, 'COSTCO WHSE', `${FP}x`)], [byContent], 'import-csv.csv')).toEqual([[0, byContent.lineId]])
-    const ofx = earlier('2026-10-05', -8412, 'COSTCO', { importId: 'FITID9', formatId: 'import-ofx.ofx' })
-    expect(pairs([fresh('2026-10-05', -8412, 'COSTCO', `${FP}y`)], [ofx], 'import-ofx.ofx')).toEqual([[0, ofx.lineId]])
+    const byContent = earlier('2026-10-05', -8412, 'PENDING COSTCO', { formatId: 'format-csv.csv' })
+    expect(pairs([fresh('2026-10-06', -8412, 'COSTCO WHSE', `${FP}x`)], [byContent], 'format-csv.csv')).toEqual([[0, byContent.lineId]])
+    const ofx = earlier('2026-10-05', -8412, 'COSTCO', { importId: 'FITID9', formatId: 'format-ofx.ofx' })
+    expect(pairs([fresh('2026-10-05', -8412, 'COSTCO', `${FP}y`)], [ofx], 'format-ofx.ofx')).toEqual([[0, ofx.lineId]])
   })
 })
 
@@ -104,7 +104,7 @@ describe('pairing', () => {
   })
 
   it('gives the payees’ likeness as the pair’s score, 1 when either has none', () => {
-    const [pair] = findDuplicates([fresh('2026-10-31', -495)], 'import-ofx.ofx', [earlier('2026-10-31', -495, 'FEE')])
+    const [pair] = findDuplicates([fresh('2026-10-31', -495)], 'format-ofx.ofx', [earlier('2026-10-31', -495, 'FEE')])
     expect(pair.score).toBe(1)
     expect(findDuplicates([], 'x', [earlier('2026-10-31', -495)])).toEqual([])
   })

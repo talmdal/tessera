@@ -46,7 +46,7 @@ describe('importing a statement for the first time', () => {
     const [{ input: form }] = env.dialogs(ACCOUNTS_DIALOGS.account)
     expect(form.initial).toEqual({
       name: 'Maple Trust Bank 5678', type: 'chequing', currency: 'CAD', institution: 'Maple Trust Bank', accountNumber: '8812345678',
-      openingDate: '2026-10-01', openingBalance: 100000
+      bankId: '012345', openingDate: '2026-10-01', openingBalance: 100000
     })
 
     expect(outcome(report)).toEqual([{ source: 'maple-trust-chequing-2026-10.ofx', outcome: 'imported', added: 17, duplicates: 0, account: 'Maple Trust Bank 5678' }])
@@ -99,7 +99,7 @@ describe('importing a statement for the first time', () => {
     const [{ input: form }] = env.dialogs(ACCOUNTS_DIALOGS.account)
     expect(form.initial).toEqual({
       name: 'Northwind Card Services 3456', type: 'creditCard', currency: 'CAD', institution: 'Northwind Card Services',
-      accountNumber: '3456', openingDate: '2026-10-02', openingBalance: -54000
+      accountNumber: '3456', intuitBankId: '55501', openingDate: '2026-10-02', openingBalance: -54000
     })
     expect((await env.accounts.balances((await env.account('Northwind Card Services 3456')).id)).current).toBe(-46477)
   })
@@ -214,7 +214,7 @@ describe('files that go wrong', () => {
     slow.extensions.contribute('slowfmt', IMPORT_FORMATS_POINT, 'slowfmt.ofx', { id: 'slowfmt.ofx', label: 'Slow OFX', extensions: ['ofx'], service: 'slowfmt.format' })
     env.answer(IMPORT_DIALOGS.format, { formatId: 'slowfmt.ofx' })
     const report = await env.manager.importFiles([OCTOBER])
-    expect(env.dialogs(IMPORT_DIALOGS.format)[0].input.formats.map((f: { id: string }) => f.id)).toEqual(['import-ofx.ofx', 'slowfmt.ofx'])
+    expect(env.dialogs(IMPORT_DIALOGS.format)[0].input.formats.map((f: { id: string }) => f.id)).toEqual(['format-ofx.ofx', 'slowfmt.ofx'])
     expect(report!.results[0]).toMatchObject({ outcome: 'failed', error: { code: 'UNREADABLE', message: 'maple-trust-chequing-2026-10.ofx took too long to read (more than 0.05 seconds).' } })
   })
 
@@ -260,7 +260,7 @@ describe('the file dialog and the service', () => {
     env.answer(IMPORT_DIALOGS.account, { kind: 'account', accountId: mine.id, remember: true })
     const asked = await env.manager.importStatements([statement], { label: 'Bank connection' })
     expect(asked.results[0]).toMatchObject({ outcome: 'imported', counts: { added: 1 } })
-    expect(env.manager.formats()).toEqual([{ id: 'import-ofx.ofx', label: 'OFX / QFX / QBO statement (Microsoft Money, Quicken, QuickBooks)', extensions: ['ofx', 'qfx', 'qbo'], description: 'The statement files banks offer for Microsoft Money, Quicken and QuickBooks (Web Connect).' }])
+    expect(env.manager.formats()).toEqual([{ id: 'format-ofx.ofx', label: 'OFX / QFX / QBO statement (Microsoft Money, Quicken, QuickBooks)', extensions: ['ofx', 'qfx', 'qbo'], description: 'The statement files banks offer for Microsoft Money, Quicken and QuickBooks (Web Connect).' }])
   })
 
   it("remembers a statement that doesn't name its account by its file's name, and suggests it next time", async () => {

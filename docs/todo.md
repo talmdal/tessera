@@ -203,6 +203,59 @@ The storage engine it builds on is done ([storage-engine-redesign.md](storage-en
         *Groceries* isn't Tessera's *Food : Groceries*): match by the last
         part when unique, or offer to create them. See
         [Later](import-formats-design.md#later).
+- [x] **Export** ([export-design.md](export-design.md), done 2026-11-12):
+      *File › Export…* and *Accounts › Export Account…* to CSV, QIF, OFX, QFX
+      and QBO. What is left for later is listed below.
+  - [x] **X0:** the compatibility checks. Every file the design defines read
+        back through Tessera's import (done, with a spike since removed); the
+        CSVs checked in LibreOffice (done). The rest is left for later (below).
+  - [x] **X1:** the rename into file-type plugins (`format-ofx`,
+        `format-csv`, `format-qif`); `@tessera/export-api`; the `export`
+        plugin (*File › Export…*, its dialog, safe saving, remembered
+        choices); CSV export. Results:
+        [export-design.md](export-design.md#phase-x1-results).
+  - [x] **X1, by hand:** seen on Windows: the round trip (export, then import
+        back into the same account: nothing added), the reworked dialog (it no
+        longer scrolls), the light theme and an archive file. The CSVs in a
+        spreadsheet on Windows are with the checks left for later.
+  - [x] **X2:** QIF export: standard QIF, payees cut to 32 characters, one
+        account or a whole ledger. Results:
+        [export-design.md](export-design.md#phase-x2-results).
+  - [ ] **X2, by hand:** run once on Windows (imported back: nothing added).
+        Again after the fixes: an export of one account, of several (each
+        asked about on import), and one refused for two accounts whose names
+        share their first 15 characters. (Reading it in Money, Quicken or
+        GnuCash is left for later.)
+  - [x] **Q11:** standard QIF's limits, as Money's strict QIF: names of 15
+        characters; payees of 32. Built, with the fixes from the first run on
+        Windows ([results](export-design.md#fixes-after-the-first-run-on-windows-1)).
+  - [x] **X3:** OFX, QFX and QBO export, and the accounts' *Bank number* and
+        *Intuit bank id*, filled by OFX imports. Results:
+        [export-design.md](export-design.md#phase-x3-results).
+  - [ ] **X3, by hand:** the Account dialog's *Downloads and exports*; an OFX
+        import filling them in; OFX, QFX and QBO exports (the dialog's account
+        fields), imported back. (Reading them in Money, Quicken and QuickBooks
+        is left for later.) Fixed after the first run on Windows: imported back, a QFX
+        now fills the account's empty account number (when the match is
+        remembered). To see again: export a QFX from a card with no number,
+        import it into that card with *Remember* ticked, and the card has the
+        number ([results](export-design.md#fixes-after-the-first-run-on-windows-2)).
+  - [x] **X4:** *Accounts › Export Account…*, and a warning for account
+        numbers of four characters or fewer in OFX, QFX and QBO. Results:
+        [export-design.md](export-design.md#phase-x4-results). `export.manager`
+        is left for later.
+  - [ ] **X4, by hand:** *Accounts › Export Account…* on a selected account
+        (the dialog titled *Export Account*, that account chosen, a card
+        starting on a format that holds cards); an OFX export of the Northwind
+        card (number `3456`) showing the short-number warning.
+  - [ ] **Later:** the checks in other programs: Money, Quicken, QuickBooks,
+        GnuCash and Excel, and the OFX 1.0.2 element lengths
+        ([checklist](export-design.md#what-remains-the-checklist-for-windows)),
+        when the programs are at hand.
+  - [ ] **Later:** the `export.manager` service, when a plugin needs it
+        ([Later](export-design.md#later)).
+  - [x] **At the end of X3:** removed `scripts/export-spike/` and
+        `npm run spike:export`; X0's checks by hand use File › Export….
 - [ ] **Statement import, phase 4:** history and undo, and navigator badges.
       (Its Saved Account Matches dialog is built, as Saved Import Choices, in
       F6.)

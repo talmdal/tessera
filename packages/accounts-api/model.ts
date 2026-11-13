@@ -58,6 +58,16 @@ export interface Account {
   institution?: string
   /** As entered (ledgers are not encrypted in the first release); shown masked, •••• 1234. */
   accountNumber?: string
+  /**
+   * The number the bank uses for itself in downloaded statements (OFX `BANKID`): usually its routing or transit number.
+   * Exports to OFX, QFX and QBO need it; OFX imports fill it in. (Since accounts-api 1.12.)
+   */
+  bankId?: string
+  /**
+   * The bank's id with Intuit (`INTU.BID` in a QFX or QBO file), which Quicken and QuickBooks expect in a file they
+   * import. Exports to QFX and QBO write it; OFX imports fill it in. (Since accounts-api 1.12.)
+   */
+  intuitBankId?: string
   /** When the account opened. A historical fact: archiving never changes it. */
   openingDate: string
   /**

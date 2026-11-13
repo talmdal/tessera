@@ -69,7 +69,7 @@ describe('the account dialog: minimum balance', () => {
   })
 
   it('asks for the minimum before the balance above it can be shown', () => {
-    const form = { name: 'S', type: 'savings' as const, subLedger: '(ledger)', currency: 'CAD', openingDate: '2026-01-01', openingBalance: '0', creditLimit: '', minimumBalance: '', showAvailableBalance: true, institution: '', accountNumber: '', notes: '' }
+    const form = { name: 'S', type: 'savings' as const, subLedger: '(ledger)', currency: 'CAD', openingDate: '2026-01-01', openingBalance: '0', creditLimit: '', minimumBalance: '', showAvailableBalance: true, institution: '', accountNumber: '', bankId: '', intuitBankId: '', notes: '' }
     expect(toInput(form).problems.minimumBalance).toBe('Enter the minimum balance, to show the balance above it.')
     expect(toInput({ ...form, type: 'creditCard', minimumBalance: '100' }).input).not.toHaveProperty('minimumBalance')
   })
@@ -79,6 +79,35 @@ describe('the account dialog: minimum balance', () => {
     showDialog({ ...base, mode: 'edit', account })
     expect(screen.getByRole('textbox', { name: 'Minimum balance' })).toHaveValue('500.00')
     expect(screen.getByRole('checkbox', { name: 'Show the balance above the minimum' })).toBeChecked()
+  })
+})
+
+describe('the account dialog: downloads and exports', () => {
+  const account: Account = {
+    id: 'chq', rev: 3, name: 'Chequing', type: 'chequing', subLedgerId: null, currency: 'CAD', openingDate: '2026-01-01',
+    openingBalance: 0, order: 0, closed: false, accountNumber: '12345678'
+  }
+
+  it('keeps the bank number and Intuit bank id in a section, closed until opened, and saves them', async () => {
+    const { calls } = showDialog({ ...base, mode: 'edit', account })
+    const toggle = screen.getByRole('button', { name: 'Downloads and exports' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText(/the number after <INTU.BID> in a .qfx or .qbo file from this bank/)).toBeInTheDocument()
+    await userEvent.type(screen.getByRole('textbox', { name: 'Bank number' }), '004')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Intuit bank id' }), '12345')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(calls(ACCOUNTS_CHANNELS.saveAccount)[0].input).toMatchObject({ accountNumber: '12345678', bankId: '004', intuitBankId: '12345' })
+  })
+
+  it('starts open when the account has either, and checks the bank number as it is typed', async () => {
+    showDialog({ ...base, mode: 'edit', account: { ...account, bankId: '004' } })
+    expect(screen.getByRole('button', { name: 'Downloads and exports' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('textbox', { name: 'Bank number' })).toHaveValue('004')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Bank number' }), '-1')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(screen.getByText('Use letters and digits only, as in the bank’s own files.')).toBeInTheDocument()
   })
 })
 

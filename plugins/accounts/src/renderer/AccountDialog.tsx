@@ -5,18 +5,18 @@ import type { DialogProps } from '@tessera/types'
 import { flattenTree } from '@tessera/ledger-api'
 import {
   ACCOUNTS_CHANNELS, ACCOUNT_CLASS, ACCOUNT_NAME_MAX_LENGTH, ACCOUNT_NOTES_MAX_LENGTH, ACCOUNT_NUMBER_MAX_LENGTH,
-  ACCOUNT_TEXT_MAX_LENGTH, ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS, CREDIT_LIMIT_TYPES, MINIMUM_BALANCE_TYPES, amountToInput, currencyCodes,
+  ACCOUNT_TEXT_MAX_LENGTH, ACCOUNT_TYPES, BANK_ID_MAX_LENGTH, INTUIT_BANK_ID_MAX_LENGTH, ACCOUNT_TYPE_LABELS, CREDIT_LIMIT_TYPES, MINIMUM_BALANCE_TYPES, amountToInput, currencyCodes,
   isCurrencyCode, isIsoDate, isLiability, parseAmount, todayIso, validateAccountName,
   type Account, type AccountDialogInput, type AccountInput, type AccountType, type AccountsResult, type SaveAccountRequest
 } from '@tessera/accounts-api'
-import { Alert, Autocomplete, Button, Checkbox, DialogActions, DialogContent, FormControlLabel, MenuItem, Stack, TextField, Typography } from '@tessera/ui'
+import { Alert, Autocomplete, Button, Checkbox, Collapse, DialogActions, DialogContent, FormControlLabel, Icon, MenuItem, Stack, TextField, Typography } from '@tessera/ui'
 import { openingFieldNote } from './display'
 
 /** The select's value for the ledger itself (sub-ledgers use their ids). */
 export const IN_LEDGER = '(ledger)'
 
 type Field = 'name' | 'type' | 'subLedgerId' | 'currency' | 'openingDate' | 'openingBalance' | 'creditLimit' | 'minimumBalance'
-  | 'showAvailableBalance' | 'institution' | 'accountNumber' | 'notes'
+  | 'showAvailableBalance' | 'institution' | 'accountNumber' | 'bankId' | 'intuitBankId' | 'notes'
 
 const currencyName = (() => {
   try {
@@ -45,6 +45,10 @@ interface Form {
   showAvailableBalance: boolean
   institution: string
   accountNumber: string
+  /** OFX's BANKID, for exports to OFX, QFX and QBO. */
+  bankId: string
+  /** INTU.BID, for exports to QFX and QBO. */
+  intuitBankId: string
   notes: string
 }
 
@@ -61,7 +65,8 @@ function formOf(a: Omit<AccountInput, 'subLedgerId'> & { subLedgerId: string | n
     openingBalance: shownAmount(shown, a.currency), creditLimit: a.creditLimit === undefined ? '' : shownAmount(a.creditLimit, a.currency),
     minimumBalance: a.minimumBalance === undefined ? '' : shownAmount(a.minimumBalance, a.currency),
     showAvailableBalance: a.showAvailableBalance === true,
-    institution: a.institution ?? '', accountNumber: a.accountNumber ?? '', notes: a.notes ?? ''
+    institution: a.institution ?? '', accountNumber: a.accountNumber ?? '', bankId: a.bankId ?? '', intuitBankId: a.intuitBankId ?? '',
+    notes: a.notes ?? ''
   }
 }
 
@@ -109,6 +114,11 @@ export function toInput(form: Form): { input?: AccountInput, problems: Partial<R
   if (showAvailableBalance && minimumBalance === undefined && !problems.minimumBalance) {
     problems.minimumBalance = 'Enter the minimum balance, to show the balance above it.'
   }
+  // The same rules the service keeps to
+  const bankId = form.bankId.trim()
+  if (bankId !== '' && !/^[0-9A-Za-z]+$/.test(bankId)) problems.bankId = 'Use letters and digits only, as in the bank’s own files.'
+  else if (bankId.length > BANK_ID_MAX_LENGTH) problems.bankId = `Use at most ${BANK_ID_MAX_LENGTH} characters.`
+  if (form.intuitBankId.trim().length > INTUIT_BANK_ID_MAX_LENGTH) problems.intuitBankId = `Use at most ${INTUIT_BANK_ID_MAX_LENGTH} characters.`
   if (Object.keys(problems).length > 0) return { problems }
 
   const optional = (value: string) => value.trim() === '' ? undefined : value.trim()
@@ -120,6 +130,8 @@ export function toInput(form: Form): { input?: AccountInput, problems: Partial<R
     ...(showAvailableBalance && { showAvailableBalance: true }),
     ...(optional(form.institution) !== undefined && { institution: optional(form.institution) }),
     ...(optional(form.accountNumber) !== undefined && { accountNumber: optional(form.accountNumber) }),
+    ...(optional(form.bankId) !== undefined && { bankId: optional(form.bankId) }),
+    ...(optional(form.intuitBankId) !== undefined && { intuitBankId: optional(form.intuitBankId) }),
     ...(optional(form.notes) !== undefined && { notes: optional(form.notes) })
   }
   return { input, problems }
@@ -131,6 +143,8 @@ export default function AccountDialog({ input, close, setBusy }: DialogProps<Acc
   const [submitted, setSubmitted] = useState(false)
   const [server, setServer] = useState<{ message: string, field?: string }>()
   const [saving, setSaving] = useState(false)
+  // Downloads and exports: closed to begin with, unless the account already has one of its values
+  const [exportsOpen, setExportsOpen] = useState(() => form.bankId !== '' || form.intuitBankId !== '')
 
   const places = useMemo(() => [
     { value: IN_LEDGER, label: input.ledgerName, depth: 0 },
@@ -254,6 +268,24 @@ export default function AccountDialog({ input, close, setBusy }: DialogProps<Acc
               onChange={event => set('accountNumber', event.target.value)} {...text('accountNumber')}
               slotProps={{ htmlInput: { maxLength: ACCOUNT_NUMBER_MAX_LENGTH, autoComplete: 'off' } }} />
           </Stack>
+
+          {/* What a bank's own files call it: for exports to OFX, QFX and QBO. OFX imports fill these in */}
+          <Button size="small" onClick={() => setExportsOpen(open => !open)} aria-expanded={exportsOpen} aria-controls="account-exports"
+            startIcon={<Icon name={exportsOpen ? 'ExpandLess' : 'ExpandMore'} />} sx={{ alignSelf: 'flex-start' }}>
+            Downloads and exports
+          </Button>
+          <Collapse in={exportsOpen} id="account-exports">
+            <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
+              <TextField size="small" label="Bank number" value={form.bankId} sx={{ flex: 1 }}
+                onChange={event => set('bankId', event.target.value)} {...text('bankId')}
+                helperText={problem('bankId') ?? 'The number the bank uses for itself in downloaded statements: usually its routing or transit number. For OFX, QFX and QBO exports.'}
+                slotProps={{ htmlInput: { maxLength: BANK_ID_MAX_LENGTH, autoComplete: 'off' } }} />
+              <TextField size="small" label="Intuit bank id" value={form.intuitBankId} sx={{ flex: 1 }}
+                onChange={event => set('intuitBankId', event.target.value)} {...text('intuitBankId')}
+                helperText={problem('intuitBankId') ?? 'For Quicken and QuickBooks: the number after <INTU.BID> in a .qfx or .qbo file from this bank.'}
+                slotProps={{ htmlInput: { maxLength: INTUIT_BANK_ID_MAX_LENGTH, autoComplete: 'off' } }} />
+            </Stack>
+          </Collapse>
 
           <TextField size="small" label="Notes" value={form.notes} multiline minRows={2}
             onChange={event => set('notes', event.target.value)} {...text('notes')}

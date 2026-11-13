@@ -24,6 +24,8 @@ extension points.
 - [Remembering application state](#remembering-application-state)
 - [Storing data in the ledger](#storing-data-in-the-ledger)
 - [Using accounts from another plugin](#using-accounts-from-another-plugin)
+- [Adding an import format](#adding-an-import-format)
+- [Adding an export format](#adding-an-export-format)
 - [Styling and theming](#styling-and-theming)
 - [The renderer remote](#the-renderer-remote)
 - [Application lifecycle](#application-lifecycle)
@@ -1582,14 +1584,14 @@ a small plugin that turns a file's bytes into statements; the import manager doe
 - it leaves out lines imported before;
 - it adds the rest.
 
-The bundled OFX plugin ([plugins/import-ofx/](../plugins/import-ofx/)) is the example to follow for a format that reads a
-file on its own. The bundled CSV plugin ([plugins/import-csv/](../plugins/import-csv/)) is the example of one that
+The bundled OFX plugin ([plugins/format-ofx/](../plugins/format-ofx/)) is the example to follow for a format that reads a
+file on its own. The bundled CSV plugin ([plugins/format-csv/](../plugins/format-csv/)) is the example of one that
 asks the user (its CSV Columns dialog) and remembers what they said. The bundled QIF plugin
-([plugins/import-qif/](../plugins/import-qif/)) asks only when a file can be read two ways, and gives one statement per
+([plugins/format-qif/](../plugins/format-qif/)) asks only when a file can be read two ways, and gives one statement per
 account of a file. The contract is `@tessera/import-api`.
 
 The sketch below reads one bank's CSV export. Tessera reads CSV files itself, so a plugin like this would sit beside
-`import-csv`: both claim `.csv`, and its `sniff`, which knows that bank's header, says which files are its own.
+`format-csv`: both claim `.csv`, and its `sniff`, which knows that bank's header, says which files are its own.
 
 ```json
 { "id": "bank-csv", "name": "Bank CSV", "version": "0.1.0", "privileged": { "entry": "privileged/index.js" },
@@ -1663,8 +1665,8 @@ export function activate(context: PluginContext) {
   starting with your plugin id). It opens in the window the import started from, and the time limit stops while the
   dialog is open. For *Skip This File*, resolve `parse` with `undefined`; for *Cancel Import*, throw
   `ImportError('CANCELLED', …)`, which stops this file and every file after it. `context.memory` keeps small values in
-  the ledger between imports, such as a column layout. `import-csv` shows the whole pattern:
-  - it contributes its dialog to `shell.dialogs` (`{ id: 'import-csv.dialog.layout', module: './LayoutDialog',
+  the ledger between imports, such as a column layout. `format-csv` shows the whole pattern:
+  - it contributes its dialog to `shell.dialogs` (`{ id: 'format-csv.dialog.layout', module: './LayoutDialog',
     size: 'lg' }`), and its manifest's `renderer.expose` names the component;
   - the dialog's input and result types, and the code both halves run, are in `src/shared/`, so the dialog's preview
     reads the file with the very code that imports it;
@@ -1685,6 +1687,78 @@ export function activate(context: PluginContext) {
 Other plugins can also import statements they already have (from a bank connection, say) through the `import.manager`
 service: `importStatements(statements, { label }, { interactive })`. They go through the same account resolution,
 duplicate checks and summary report.
+
+## Adding an export format
+
+*File › Export…* belongs to the bundled `export` plugin (the export manager), which knows no file format. It reads the
+ledger, asks the user (the format, the accounts, the dates, the format's options), shows what the file will hold, and
+saves it safely. A format only turns data into bytes. Tessera keeps one plugin per file type, reading and writing it:
+[plugins/format-csv/](../plugins/format-csv/) reads CSV for *File › Import…* and writes it for *File › Export…*
+(`src/privileged/export.ts`). The contract is `@tessera/export-api`; the design is
+[export-design.md](export-design.md).
+
+A format contributes plain data to `export.formats` and provides the service it names:
+
+```ts
+import type { PluginContext } from '@tessera/types'
+import { EXPORT_FORMATS_POINT, encodeText, type ExportFormat, type ExportFormatContribution } from '@tessera/export-api'
+
+export const TSV_EXPORT: ExportFormatContribution = {
+  id: 'bank-tsv.tsv',                       // starts with your plugin id
+  label: 'Tab-separated file',
+  extension: 'tsv',
+  service: 'bank-tsv.export',
+  accounts: 'many',                         // or 'one', for a format holding one account (an OFX statement)
+  options: [{ kind: 'boolean', key: 'header', label: 'Start with a header row', default: true }]
+}
+
+const tsvExport: ExportFormat = {
+  check(data, options) {
+    const transactions = data.accounts.reduce((n, a) => n + a.transactions.filter(t => !t.voided).length, 0)
+    return { transactions, problems: transactions === 0 ? ['There is nothing to export for these dates.'] : [], warnings: [] }
+  },
+  write(data, options) {
+    const rows = data.accounts.flatMap(a => a.transactions.filter(t => !t.voided).map(t => [a.name, t.date, t.payee ?? '', t.amount].join('\t')))
+    const text = [...(options.header ? ['Account\tDate\tPayee\tAmount'] : []), ...rows].join('\r\n') + '\r\n'
+    return { bytes: encodeText(text, 'utf-8').bytes, warnings: [] }
+  }
+}
+
+export function activate(context: PluginContext) {
+  context.subscriptions.push(
+    context.extensions.contribute('bank-tsv', EXPORT_FORMATS_POINT, TSV_EXPORT.id, TSV_EXPORT),
+    context.services.provide('bank-tsv', TSV_EXPORT.service, tsvExport)
+  )
+}
+```
+
+- **Declare your options; don't draw them.** `options` are fields (`choice`, `boolean`, `text`) with defaults, and the
+  Export dialog draws them, so a format needs no renderer. You are always given every option you declared, valid, with
+  the default for any the user didn't set (`resolveOptions`).
+- **The data is ready to write.** `ExportData` holds the chosen accounts in the navigator's order, each with its
+  transactions in the range, names rather than ids (the payee, the category's path, a transfer's other account), the
+  balances before and after, and each transaction's running balance. Amounts are exact text with the currency's
+  digits (`'-84.12'`, `'1200'` for yen), signed from the account's side. Write amounts from that text, or from minor
+  units with `minorToDecimal`; never through a JavaScript number divided by 100.
+- **Decide what you write.** Voided transactions are in the data, marked `voided`, so you choose whether to write
+  them. A transaction imported with the bank's id has it as `bankId` (never an import's fingerprint).
+- **`check` says what the file would hold**: `transactions` (how many it will hold), `problems` (anything that stops
+  it: they block the export, and the user sees them before choosing a file) and `warnings` (what you will cut, change
+  or leave out). It runs as the user changes things in the dialog, so keep it quick: build the file and count, as
+  `format-csv` does. `write` is called only when `check` found no problems, with a 30-second limit.
+- **Set `accounts` and `accountTypes`** when your format has limits: the export manager refuses more than one account
+  for `'one'`, and accounts of other types, before your `check` runs.
+- **Declare the account fields you write** (`accountFields`: the account number, the bank number, the Intuit bank id,
+  each `required` or `recommended`, and for which account types). The Export dialog shows them for the account, from
+  the account, and what the user types there reaches you in `ExportAccount` for that export only; the account is left
+  as it was. Your `check` says what is missing or won't do, as `format-ofx` does.
+- **Use the helpers** in `@tessera/export-api`: `encodeText(text, 'utf-8' | 'windows-1252', { bom })` (windows-1252 as
+  Money and Quicken expect it, replacing what it can't hold and counting those for a warning), `withDecimalComma`,
+  `safeFileName`.
+- **Test your writer with your reader.** Read what you write back with your own plugin's import code, as
+  `tests/plugins/format-csv/export.test.ts` does: a file Tessera writes should read back as it was written.
+- **Don't write files or read the ledger.** The export manager does both. It saves under a temporary name and renames
+  it over the file, so a failure never leaves a half-written one.
 
 ## Styling and theming
 

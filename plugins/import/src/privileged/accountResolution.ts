@@ -4,7 +4,7 @@
 // "Finding the account".
 import type { Logger, ShellPrompts } from '@tessera/types'
 import {
-  ACCOUNTS_DIALOGS, ACCOUNT_TYPE_LABELS, accountNumberKey, maskAccountNumber, shownBalance,
+  ACCOUNTS_DIALOGS, ACCOUNT_NUMBER_MAX_LENGTH, ACCOUNT_TYPE_LABELS, BANK_ID_MAX_LENGTH, INTUIT_BANK_ID_MAX_LENGTH, accountNumberKey, maskAccountNumber, shownBalance,
   type Account, type AccountDialogInput as NewAccountDialogInput, type AccountInput, type AccountsService, type AccountSummary,
   type Chart
 } from '@tessera/accounts-api'
@@ -106,6 +106,7 @@ export function accountFromStatement(statement: ParsedStatement, currency: strin
     }
   }
   const number = account.accountNumber
+  const kept = accountNumberOf(statement)
   const name = account.name
     ?? (account.institution && number ? `${account.institution} ${lastFour(number)}` : undefined)
     ?? (account.keyStrength === 'weak' ? undefined : account.label)
@@ -114,15 +115,48 @@ export function accountFromStatement(statement: ParsedStatement, currency: strin
     ...(account.type !== undefined && { type: account.type }),
     currency,
     ...(account.institution !== undefined && { institution: account.institution }),
-    ...(number !== undefined && !statement.account.numberIsPartial && { accountNumber: number }),
-    ...(number !== undefined && statement.account.numberIsPartial && { accountNumber: lastFour(number) }),
+    ...(kept !== undefined && { accountNumber: kept }),
+    // What the bank calls itself in its files, for exports (never how the account was found)
+    ...(usableBankId(account.bankId) && { bankId: account.bankId!.trim() }),
+    ...(usableIntuitBankId(account.intuitBankId) && { intuitBankId: account.intuitBankId!.trim() }),
     openingDate: first ? dayBefore(first) : today,
     openingBalance
   }
 }
 
+/**
+ * The account number an account takes from a statement: the whole number, or only the last four of a masked one
+ * ('XXXXXXXXXXXX3456' → '3456'), which is all it reliably has. None when the file gives none, or one the account can't hold.
+ */
+export function accountNumberOf(statement: ParsedStatement): string | undefined {
+  const number = statement.account.accountNumber?.trim()
+  if (number === undefined || number === '') return undefined
+  const kept = statement.account.numberIsPartial ? lastFour(number) : number
+  return kept !== '' && kept.length <= ACCOUNT_NUMBER_MAX_LENGTH && !/[\u0000-\u001f\u007f]/.test(kept) ? kept : undefined
+}
+
+/**
+ * Whether an account's number and a statement's are different numbers. Only the last four are compared when either
+ * is no more than that (a masked file's, or an account that took one), so 'XXXX3456' and '3456' are the same.
+ */
+export function accountNumbersDiffer(accountNumber: string, statement: ParsedStatement): boolean {
+  const given = statement.account.accountNumber ?? ''
+  const own = accountNumberKey(accountNumber)
+  if (statement.account.numberIsPartial || own.length <= 4) return lastFour(accountNumber) !== lastFour(given)
+  return own !== accountNumberKey(given)
+}
+
+/** A statement's bank number an account can take: the account's own rule (letters and digits, 9 at most). */
+export const usableBankId = (value: string | undefined): value is string =>
+  typeof value === 'string' && new RegExp(`^[0-9A-Za-z]{1,${BANK_ID_MAX_LENGTH}}$`).test(value.trim())
+
+/** A statement's Intuit bank id an account can take. */
+export const usableIntuitBankId = (value: string | undefined): value is string =>
+  typeof value === 'string' && value.trim() !== '' && value.trim().length <= INTUIT_BANK_ID_MAX_LENGTH && !/[\u0000-\u001f\u007f]/.test(value)
+
 export type Resolution =
-  | { kind: 'account', account: Account, how: 'saved' | 'number' | 'chosen' | 'created' }
+  /** `remembered`: statements like this one go to the account without asking from now on (a saved match). */
+  | { kind: 'account', account: Account, how: 'saved' | 'number' | 'chosen' | 'created', remembered: boolean }
   | { kind: 'skip' }
   | { kind: 'cancel' }
   | { kind: 'needsAccount' }
@@ -167,7 +201,7 @@ export class AccountResolver {
           note = `Last time this went to “${linked.name}”, which is in ${linked.currency}; this statement is in ${statement.currency}.`
         } else if (link.autoApply) {
           await links.touch(identity.key)
-          return { kind: 'account', account: linked, how: 'saved' }
+          return { kind: 'account', account: linked, how: 'saved', remembered: true }
         }
       }
     }
@@ -186,7 +220,7 @@ export class AccountResolver {
       }
       if (found.length === 1) {
         await this.remember(identity, request, found[0].id, identity.strength === 'strong')
-        return { kind: 'account', account: found[0], how: 'number' }
+        return { kind: 'account', account: found[0], how: 'number', remembered: identity.strength === 'strong' }
       }
     }
 
@@ -206,7 +240,7 @@ export class AccountResolver {
         if (!created) continue                                    // New Account cancelled: back to the choice
         const remember = answer.remember ?? input.remember.checked
         if (identity.strength === 'weak' || remember) await this.remember(identity, request, created.id, remember)
-        return { kind: 'account', account: created, how: 'created' }
+        return { kind: 'account', account: created, how: 'created', remembered: remember }
       }
       const chosen = byId.get(answer.accountId)
       const usable = choices.find(c => c.account.id === answer.accountId && c.disabledReason === undefined)
@@ -216,7 +250,7 @@ export class AccountResolver {
       }
       // A strong key is remembered only when the box is ticked; a weak one always, to suggest it next time
       if (identity.strength === 'weak' || answer.remember) await this.remember(identity, request, chosen.id, answer.remember)
-      return { kind: 'account', account: chosen, how: 'chosen' }
+      return { kind: 'account', account: chosen, how: 'chosen', remembered: answer.remember === true }
     }
   }
 

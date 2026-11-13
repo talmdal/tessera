@@ -1,4 +1,4 @@
-// OFX, QFX and QBO files, anonymised in place. The OFX plugin's own reader (plugins/import-ofx/…/sgml.ts) says what
+// OFX, QFX and QBO files, anonymised in place. The OFX plugin's own reader (plugins/format-ofx/…/sgml.ts) says what
 // each value is and where it is written; only the values are rewritten, and every other byte (tags, header, spacing)
 // is kept, so the file is still the dialect the bank wrote.
 //
@@ -11,7 +11,7 @@
 // - the bank (ORG, FID, INTU.BID): kept, unless asked to hide it;
 // - every other value (payees, memos, addresses, messages, tags it doesn't know): its words replaced.
 // See docs/import-formats-design.md, "What is replaced, by format".
-import { declaredEncoding, findAll, parseOfx, valueOf, type OfxNode } from '../../plugins/import-ofx/src/privileged/sgml'
+import { declaredEncoding, findAll, parseOfx, valueOf, type OfxNode } from '../../plugins/format-ofx/src/privileged/sgml'
 import { Amounts, SCALE, readAmount, rewrite, writeSigned } from './amounts'
 import type { Scannable } from './scan'
 import type { Pseudonyms, Replaced } from './words'

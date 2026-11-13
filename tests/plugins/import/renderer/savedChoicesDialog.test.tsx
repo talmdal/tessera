@@ -9,7 +9,7 @@ import { createFakeRemote } from '../../../helpers/fakeBridge'
 
 const link = (over: Partial<AccountLinkView>): AccountLinkView => ({
   id: 'l1', rev: 1, key: 'ofx:card:3456', strength: 'strong', accountId: 'visa', autoApply: true, label: 'Northwind Card Services •••• 3456',
-  formatId: 'import-ofx.ofx', createdAt: '2026-10-01T00:00:00Z', lastUsedAt: '2026-11-05T12:00:00Z', accountName: 'Visa',
+  formatId: 'format-ofx.ofx', createdAt: '2026-10-01T00:00:00Z', lastUsedAt: '2026-11-05T12:00:00Z', accountName: 'Visa',
   formatLabel: 'OFX / QFX / QBO statement', ...over
 })
 

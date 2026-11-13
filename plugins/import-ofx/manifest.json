@@ -1,9 +1,0 @@
-{
-  "id": "import-ofx",
-  "name": "OFX statements",
-  "version": "0.2.0",
-  "privileged": { "entry": "privileged/index.js" },
-  "services": {
-    "provides": ["import-ofx.format"]
-  }
-}

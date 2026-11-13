@@ -7,6 +7,10 @@ import { ACCOUNT_CLASS, ACCOUNT_TYPES, type Account, type AccountType } from './
 export const ACCOUNT_NAME_MAX_LENGTH = 100
 export const ACCOUNT_TEXT_MAX_LENGTH = 100
 export const ACCOUNT_NUMBER_MAX_LENGTH = 50
+/** OFX's `BANKID` is at most 9 characters. */
+export const BANK_ID_MAX_LENGTH = 9
+/** `INTU.BID`: a few digits in practice; room to spare. */
+export const INTUIT_BANK_ID_MAX_LENGTH = 32
 export const ACCOUNT_NOTES_MAX_LENGTH = 2000
 
 /** What a person calls each type. */

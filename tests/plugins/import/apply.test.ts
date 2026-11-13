@@ -7,7 +7,7 @@ import { ACCOUNTS_CONTEXT_KEYS, REGISTER_ANNOTATIONS_POINT, type AccountInput } 
 import { IMPORT_ANNOTATOR_SERVICE, IMPORT_COMMANDS, IMPORT_CONTEXT_KEYS, IMPORT_DIALOGS, IMPORT_MANAGER_SERVICE } from '@tessera/import-api'
 import { applyImport, recoverImports } from '../../../plugins/import/src/privileged/apply'
 import { collectionsOf } from '../../../plugins/import/src/privileged/store'
-import { activate as activateOfx } from '../../../plugins/import-ofx/src/privileged/index'
+import { activate as activateOfx } from '../../../plugins/format-ofx/src/privileged/index'
 import { createPluginContext } from '../../../core/plugins/PluginContext'
 import { file } from '../ledger/harness'
 import { sample, setupImport, type ImportEnv } from './harness'
@@ -125,7 +125,7 @@ describe('the import plugin, activated', () => {
     const enabled = () => env.runtime.commands.isEnabled(IMPORT_COMMANDS.file)
     expect(env.runtime.contextKeys.get(IMPORT_CONTEXT_KEYS.hasFormats)).toBe(false)
     expect(enabled()).toBe(false)                                   // no format yet
-    await activateOfx(createPluginContext('import-ofx', env.runtime).context)
+    await activateOfx(createPluginContext('format-ofx', env.runtime).context)
     expect(env.runtime.contextKeys.get(IMPORT_CONTEXT_KEYS.hasFormats)).toBe(true)
     expect(enabled()).toBe(true)
 

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import * as ledger from '@tessera/ledger-api'
 import * as accounts from '@tessera/accounts-api'
 import * as imports from '@tessera/import-api'
+import * as exports from '@tessera/export-api'
 import { parseManifest, SERVICE_ID_PATTERN } from '../../shared/plugins/manifest'
 import { parseWhen } from '../../shared/context/when'
 
@@ -132,5 +133,28 @@ describe('@tessera/import-api', () => {
     expect(imports.IMPORT_LIMITS).toEqual({ maxFileSize: 25 * 1024 * 1024, sniffBytes: 4096, parseTimeoutMs: 30_000 })
     expect(imports.FINGERPRINT_PREFIX).toBe('fp:')
     expect(new Set(imports.STATEMENT_LINE_KINDS).size).toBe(imports.STATEMENT_LINE_KINDS.length)
+  })
+})
+
+describe('@tessera/export-api', () => {
+  it('names everything after the export plugin, which is a valid plugin id', () => {
+    expect(() => parseManifest({ id: exports.EXPORT_PLUGIN_ID, name: 'x', version: '1', privileged: { entry: 'x' } })).not.toThrow()
+    namedAfter(exports.EXPORT_PLUGIN_ID, {
+      commands: exports.EXPORT_COMMANDS, keys: exports.EXPORT_CONTEXT_KEYS, channels: exports.EXPORT_CHANNELS,
+      events: {}, views: {}, dialogs: exports.EXPORT_DIALOGS
+    })
+    expect(exports.EXPORT_MANAGER_SERVICE).toMatch(SERVICE_ID_PATTERN)
+    expect(exports.EXPORT_FORMATS_POINT).toBe('export.formats')
+    // State keys are the plugin's own, in context.state, which adds the prefix when it stores them
+    for (const name of Object.values(exports.EXPORT_STATE_KEYS)) expect(name.includes('.'), name).toBe(false)
+  })
+
+  it("doesn't collide with the import or accounts plugins' names", () => {
+    const ours = [exports.EXPORT_COMMANDS, exports.EXPORT_CONTEXT_KEYS, exports.EXPORT_CHANNELS, exports.EXPORT_DIALOGS].flatMap(values)
+    const theirs = new Set([imports.IMPORT_COMMANDS, imports.IMPORT_CONTEXT_KEYS, imports.IMPORT_CHANNELS, imports.IMPORT_EVENTS,
+      imports.IMPORT_DIALOGS, accounts.ACCOUNTS_COMMANDS, accounts.ACCOUNTS_CONTEXT_KEYS, accounts.ACCOUNTS_CHANNELS,
+      accounts.ACCOUNTS_DIALOGS].flatMap(values))
+    expect(ours.filter(name => theirs.has(name))).toEqual([])
+    expect(new Set(ours).size).toBe(ours.length)
   })
 })

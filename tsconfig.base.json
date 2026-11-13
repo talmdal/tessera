@@ -19,6 +19,7 @@
       "@tessera/ledger-api": ["packages/ledger-api/index.ts"],
       "@tessera/accounts-api": ["packages/accounts-api/index.ts"],
       "@tessera/import-api": ["packages/import-api/index.ts"],
+      "@tessera/export-api": ["packages/export-api/index.ts"],
       "@tessera/types/*": ["tessera-types/*"],
       "@tessera/ui": ["tessera-ui/index.ts"]
     }

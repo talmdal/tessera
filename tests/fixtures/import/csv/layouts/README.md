@@ -1,8 +1,8 @@
 # The CSV layout corpus
 
 One small CSV file per layout a bank might use, each with the layout the guesser should make of it. The guesser
-(`plugins/import-csv/src/shared/guess.ts`) is tested against every file here by
-[guess.test.ts](../../../../plugins/import-csv/guess.test.ts): its guess must equal the expected layout, with the same
+(`plugins/format-csv/src/shared/guess.ts`) is tested against every file here by
+[guess.test.ts](../../../../plugins/format-csv/guess.test.ts): its guess must equal the expected layout, with the same
 choices marked as guesses, and the expected layout must read every transaction row without a warning. The anonymiser
 is tested on them too ([anonymiseCsv.test.ts](../../../../scripts/anonymiseCsv.test.ts)): the guess of its output must
 be the guess of the file.

@@ -9,10 +9,10 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { AccountInput } from '@tessera/accounts-api'
 import { IMPORT_DIALOGS, type AccountDialogInput } from '@tessera/import-api'
-import { LAYOUT_DIALOG, firstLine, type LayoutDialogInput } from '../../../plugins/import-csv/src/shared/dialog'
-import { readCsv, valuesOf } from '../../../plugins/import-csv/src/shared/csv'
-import { ROLE_NAMES, rolesOf } from '../../../plugins/import-csv/src/shared/layout'
-import { readLines } from '../../../plugins/import-csv/src/shared/lines'
+import { LAYOUT_DIALOG, firstLine, type LayoutDialogInput } from '../../../plugins/format-csv/src/shared/dialog'
+import { readCsv, valuesOf } from '../../../plugins/format-csv/src/shared/csv'
+import { ROLE_NAMES, rolesOf } from '../../../plugins/format-csv/src/shared/layout'
+import { readLines } from '../../../plugins/format-csv/src/shared/lines'
 import { describe as describeResult } from '../../../plugins/import/src/renderer/SummaryDialog'
 import { sample, setupImport, type ImportEnv } from './harness'
 
@@ -132,7 +132,7 @@ describe('a card’s CSV export with charges positive', () => {
 describe('a CSV export named .txt', () => {
   it('isn’t listed as a statement, and imports through All files: sniffed as CSV', async () => {
     const env = await setupImport({ csv: true })
-    expect(env.manager.formats().find(f => f.id === 'import-csv.csv')?.extensions).toEqual(['csv'])
+    expect(env.manager.formats().find(f => f.id === 'format-csv.csv')?.extensions).toEqual(['csv'])
     const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tessera-txt-')), 'export.txt')
     fs.copyFileSync(sample('northwind-visa-2026-10.csv'), file)
     env.answer(IMPORT_DIALOGS.account, { kind: 'create', remember: true })

@@ -13,6 +13,7 @@ export default defineConfig({
       '@tessera/ledger-api': path.resolve(__dirname, 'packages/ledger-api/index.ts'),
       '@tessera/accounts-api': path.resolve(__dirname, 'packages/accounts-api/index.ts'),
       '@tessera/import-api': path.resolve(__dirname, 'packages/import-api/index.ts'),
+      '@tessera/export-api': path.resolve(__dirname, 'packages/export-api/index.ts'),
       '@tessera/ui': path.resolve(__dirname, 'tessera-ui/index.ts')
     }
   },

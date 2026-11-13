@@ -28,6 +28,10 @@ export interface AccountInput {
   currency: string
   institution?: string
   accountNumber?: string
+  /** OFX `BANKID`: letters and digits, at most `BANK_ID_MAX_LENGTH`. */
+  bankId?: string
+  /** QFX and QBO `INTU.BID`: at most `INTUIT_BANK_ID_MAX_LENGTH`. */
+  intuitBankId?: string
   /** YYYY-MM-DD. */
   openingDate: string
   /** Signed, minor units: a liability's amount owed is negative. */

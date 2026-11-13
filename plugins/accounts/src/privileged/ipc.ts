@@ -96,6 +96,7 @@ export function registerIpc(
         const patch: AccountPatch = {
           ...input,
           institution: input.institution ?? null, accountNumber: input.accountNumber ?? null,
+          bankId: input.bankId ?? null, intuitBankId: input.intuitBankId ?? null,
           notes: input.notes ?? null, creditLimit: input.creditLimit ?? null,
           minimumBalance: input.minimumBalance ?? null, showAvailableBalance: input.showAvailableBalance ?? null
         }

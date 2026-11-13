@@ -17,8 +17,8 @@ import {
 import { PayeeAliases } from '../../../plugins/import/src/privileged/aliases'
 import { DIALOGS, MENUS } from '../../../plugins/import/src/privileged/contributions'
 import { collectionsOf } from '../../../plugins/import/src/privileged/store'
-import { LAYOUT_DIALOG, type LayoutDialogInput } from '../../../plugins/import-csv/src/shared/dialog'
-import { OPTIONS_DIALOG } from '../../../plugins/import-qif/src/shared/options'
+import { LAYOUT_DIALOG, type LayoutDialogInput } from '../../../plugins/format-csv/src/shared/dialog'
+import { OPTIONS_DIALOG } from '../../../plugins/format-qif/src/shared/options'
 import { sample, setupImport, type ImportEnv } from './harness'
 
 /** Asks the import plugin, as the dialog does; a failure throws its message. */
@@ -102,7 +102,7 @@ describe('what imports remember, in one place', () => {
   it('lists nothing a format doesn’t describe, nor what a format no longer installed kept', async () => {
     const env = await setupImport()
     const memory = collectionsOf(db(env)).memory
-    await memory.insert({ formatId: 'import-ofx.ofx', key: 'anything', value: { x: 1 } })
+    await memory.insert({ formatId: 'format-ofx.ofx', key: 'anything', value: { x: 1 } })
     await memory.insert({ formatId: 'gone.format', key: 'layout:1', value: {} })
     expect(await remembered(env)).toEqual([])
   })

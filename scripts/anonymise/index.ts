@@ -10,7 +10,7 @@ import { checkableQif, isQif, prepareQif, rewriteQif, type PreparedQif } from '.
 import { decodeFile, sidecarFor, type Sidecar } from './encoding'
 import { checkableOfx, isOfx, noCounts, ofxEncoding, prepareOfx, rewriteOfx, type BalanceMapping, type OfxCounts, type PreparedOfx } from './ofx'
 import { seeded } from './random'
-import { detectDelimiter, parseCsv } from '../../plugins/import-csv/src/shared/csv'
+import { detectDelimiter, parseCsv } from '../../plugins/format-csv/src/shared/csv'
 import { scan, type Finding } from './scan'
 import { Pseudonyms, emptyWords, type WordMapping } from './words'
 

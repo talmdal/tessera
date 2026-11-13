@@ -77,7 +77,7 @@ platform.
   add ways to reconcile through `accounts.reconcile.actions`
   ([how](docs/plugin-creation.md#adding-a-way-to-reconcile)).
 
-- **Importing statements** (the `import` plugin, with `import-ofx`, `import-csv` and `import-qif`): *File › Import…*
+- **Importing statements** (the `import` plugin, with `format-ofx`, `format-csv` and `format-qif`): *File › Import…*
   imports bank and card statements into their accounts:
   - OFX, QFX and QBO files, from Microsoft Money, Quicken or QuickBooks (Web Connect) downloads. Ids a conversion
     tool made up (numbering each file's lines 1, 2, 3…) are recognised, and those lines are known by their content;
@@ -115,6 +115,34 @@ platform.
   ([how](docs/plugin-creation.md#adding-an-import-format),
   [design](docs/import-manager-design.md)). There are sample statements to try in
   [samples/statements](samples/statements/).
+
+- **Exporting transactions** (the `export` plugin, with `format-csv`, `format-qif` and `format-ofx`): *File › Export…* writes an open ledger's
+  transactions to a file, starting from the account the user is looking at: one account, several, or all of them, for
+  a range of dates. *Accounts › Export Account…* does the same for the selected account. The Export dialog shows how many transactions the file will hold, and what will be changed or left
+  out, before a file is chosen; the format's own options are drawn from what it declares. Nothing in the ledger
+  changes, so a ledger open read-only (an archive file too) can be exported. The file is saved under a temporary name
+  and renamed into place, so a failure never leaves half a file; the choices are remembered for next time.
+  - **CSV**, for spreadsheets: one row per transaction with its running balance, in UTF-8 with a byte-order mark and
+    ISO dates by default (or month or day first, comma decimals with semicolons, Money out and Money in columns,
+    Windows characters), with cells a spreadsheet would run as formulas protected. Tessera's own CSV import reads the
+    file back with nothing to guess;
+  - **QIF**, standard QIF (Money's "strict") for Quicken, Money, GnuCash or another Tessera ledger: one account or a
+    whole ledger, with its category list, each account's opening balance, categories, transfers, cheque numbers and
+    statuses. As standard QIF has them, category and account names keep their first 15 characters, and payees 32 (the
+    whole payee is kept in the memo); two accounts whose names would be one are refused, with a message saying which.
+    Imported back into the account it came from, it adds nothing; into a new ledger, each account comes over at the
+    same balance.
+
+  - **OFX, QFX and QBO**, one bank or card account's statement, as banks give them for Money, Quicken and QuickBooks
+    (OFX 1.0.2). Each line keeps a stable id, the bank's own when it came from the bank, so an overlapping export isn't
+    doubled; imported back into its account, it adds nothing. The statement says which account it is by the account's
+    number and *Bank number*, and QFX and QBO add the bank's *Intuit bank id*: new fields of an account (in the Account
+    dialog's *Downloads and exports*), which OFX imports fill in where they are empty, as they do an empty account
+    number. The Export dialog shows them, and what is typed there is used for that file only. An account number of four
+    characters or fewer is warned about, as it may be only the last digits of a masked one.
+
+  An account with nothing in the dates isn't in the file; the Export dialog says which ones. Other file types are
+  plugins of their own ([how](docs/plugin-creation.md#adding-an-export-format), [design](docs/export-design.md)).
 
 - **Plugin runtime:** discovers plugins on disk, validates their manifests,
   orders activation by service dependencies, isolates failures (a broken
@@ -331,15 +359,18 @@ tests/                Vitest suites, mirroring the source folders, plus
 docs/                 Plugin guide, design notes and open-work list
 packages/             Libraries plugins bundle: storage-kit (the shared half
                       of every storage backend), and the Finance plugins'
-                      published contracts, ledger-api, accounts-api and
-                      import-api
+                      published contracts, ledger-api, accounts-api,
+                      import-api and export-api
 plugins/              Source of bundled (built-in) plugins, one folder each:
                       accounts (accounts and the navigator), app-state
                       (application state), ledger (ledger files
                       and sub-ledgers), import (File › Import…),
-                      import-ofx (OFX, QFX and QBO statements),
-                      import-csv (CSV exports) and import-qif (QIF files
-                      from banks, Quicken and Money), storage-sqlite (the default
+                      format-ofx (OFX, QFX and QBO files),
+                      format-csv (CSV files) and format-qif (QIF files
+                      from banks, Quicken and Money): one plugin per file
+                      type, which reads it and writes it, export
+                      (File › Export…, Accounts › Export Account…),
+                      storage-sqlite (the default
                       storage engine), storage-loki (LokiJS storage
                       engine), test-layout (exercises every layout
                       slot) and settings-inspector (Tools › Settings
@@ -363,6 +394,12 @@ samples/statements/   Sample bank statements to import by hand, with walkthrough
   `import.formats` extension point for file-format plugins, choosing the
   account (and remembering it), fuzzy matching against entered transactions,
   and accepting or changing matches in the register
+- [docs/import-file-types-design.md](docs/import-file-types-design.md): the
+  five file types Tessera imports (CSV, OFX, QFX, QBO, QIF) in one place: how
+  importing works, exactly how each type is read, and what is left to do
+- [docs/export-design.md](docs/export-design.md): the design and plan for
+  exporting to the same five file types (phases X1 to X3 done: the export
+  plugin, CSV, QIF, and OFX, QFX and QBO)
 - [docs/vault-design.md](docs/vault-design.md): the earlier proposal for
   pluggable storage, importers and file handling; its session half is
   superseded by the account manager design

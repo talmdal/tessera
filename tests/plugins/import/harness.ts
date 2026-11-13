@@ -13,11 +13,11 @@ import { IMPORT_DIALOGS, IMPORT_MANAGER_SERVICE, type ImportManager } from '@tes
 import { createPluginContext, createPluginRuntime } from '../../../core/plugins/PluginContext'
 import { activate as activateAccounts } from '../../../plugins/accounts/src/privileged/index'
 import { activate as activateImport, type ActivateOptions } from '../../../plugins/import/src/privileged/index'
-import { activate as activateOfx } from '../../../plugins/import-ofx/src/privileged/index'
-import { activate as activateCsv } from '../../../plugins/import-csv/src/privileged/index'
-import { LAYOUT_DIALOG, type LayoutDialogInput } from '../../../plugins/import-csv/src/shared/dialog'
-import { activate as activateQif } from '../../../plugins/import-qif/src/privileged/index'
-import { OPTIONS_DIALOG, type OptionsDialogInput } from '../../../plugins/import-qif/src/shared/options'
+import { activate as activateOfx } from '../../../plugins/format-ofx/src/privileged/index'
+import { activate as activateCsv } from '../../../plugins/format-csv/src/privileged/index'
+import { LAYOUT_DIALOG, type LayoutDialogInput } from '../../../plugins/format-csv/src/shared/dialog'
+import { activate as activateQif } from '../../../plugins/format-qif/src/privileged/index'
+import { OPTIONS_DIALOG, type OptionsDialogInput } from '../../../plugins/format-qif/src/shared/options'
 import { activate as activateLedger } from '../../../plugins/ledger/src/privileged/index'
 import { LedgerSessionImpl } from '../../../plugins/ledger/src/privileged/LedgerSessionImpl'
 import { SAMPLES } from '../../helpers/importFile'
@@ -64,9 +64,9 @@ export async function setupImport(options: ActivateOptions & { ofx?: boolean, cs
   }
   const importLog = logger()
   await activateImport({ ...createPluginContext('import', runtime).context, logger: importLog }, { now: NOW, ...options })
-  if (options.ofx !== false) await activateOfx(createPluginContext('import-ofx', runtime).context)
-  if (options.csv === true) activateCsv(createPluginContext('import-csv', runtime).context, { now: NOW })
-  if (options.qif === true) activateQif(createPluginContext('import-qif', runtime).context, { now: NOW })
+  if (options.ofx !== false) await activateOfx(createPluginContext('format-ofx', runtime).context)
+  if (options.csv === true) activateCsv(createPluginContext('format-csv', runtime).context, { now: NOW })
+  if (options.qif === true) activateQif(createPluginContext('format-qif', runtime).context, { now: NOW })
 
   files.showSaveDialog.mockResolvedValueOnce(file('Home.tessera'))
   await runtime.commands.execute(LEDGER_COMMANDS.new)

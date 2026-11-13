@@ -1,4 +1,4 @@
-// CSV files, anonymised in place. The CSV plugin's own reader and guesser (plugins/import-csv/src/shared) say where
+// CSV files, anonymised in place. The CSV plugin's own reader and guesser (plugins/format-csv/src/shared) say where
 // each cell is and what its column holds; only cells are rewritten, and every other byte (delimiters, quoting, line
 // ends, the header) is kept, so the file is still the layout the bank wrote.
 //
@@ -12,11 +12,11 @@
 //   rows): their words replaced; numbers in them as other digits, amounts changed.
 // See docs/import-formats-design.md, "What is replaced, by format".
 import { guessDateOrder } from '@tessera/import-api'
-import { dateIn, isAmountCell, isDateCell, pivotFor } from '../../plugins/import-csv/src/shared/cells'
-import { readCsv, valuesOf, type CsvCell, type CsvRow, type Delimiter } from '../../plugins/import-csv/src/shared/csv'
-import { guessLayout } from '../../plugins/import-csv/src/shared/guess'
-import { problemsOf, rolesOf, type CsvLayout, type Role } from '../../plugins/import-csv/src/shared/layout'
-import { balanceFit, orderOf, readLines, rowAmount } from '../../plugins/import-csv/src/shared/lines'
+import { dateIn, isAmountCell, isDateCell, pivotFor } from '../../plugins/format-csv/src/shared/cells'
+import { readCsv, valuesOf, type CsvCell, type CsvRow, type Delimiter } from '../../plugins/format-csv/src/shared/csv'
+import { guessLayout } from '../../plugins/format-csv/src/shared/guess'
+import { problemsOf, rolesOf, type CsvLayout, type Role } from '../../plugins/format-csv/src/shared/layout'
+import { balanceFit, orderOf, readLines, rowAmount } from '../../plugins/format-csv/src/shared/lines'
 import { Amounts, SCALE, atScale, readAmount, rewrite, writeSigned, type WrittenAmount } from './amounts'
 import type { BalanceMapping, OfxCounts } from './ofx'
 import type { Scannable } from './scan'

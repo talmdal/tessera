@@ -96,7 +96,8 @@ describe('architecture boundaries', () => {
     const allowed: Record<string, string[]> = {
       'ledger-api': ['@tessera/types'],
       'accounts-api': ['@tessera/types', '@tessera/ledger-api'],
-      'import-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api']
+      'import-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api'],
+      'export-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api']
     }
     const found = Object.entries(allowed).flatMap(([name, deps]) => violations(`packages/${name}`, spec => {
       const normal = spec.split(path.sep).join('/')
@@ -149,5 +150,16 @@ describe('architecture boundaries', () => {
       .filter(entry => entry.isDirectory() && fs.existsSync(path.join(plugins, entry.name, 'src')))
       .flatMap(entry => sourceFiles(path.join(plugins, entry.name, 'src')))
     expect(sources.flatMap(file => importsOf(file).filter(isPrivateUi).map(spec => `${path.relative(repo, file)} imports ${spec}`))).toEqual([])
+  })
+
+  it('export writers write amounts only with minorToDecimal, never through display formatting or floating point', () => {
+    // docs/export-design.md, Risks: an amount on screen is formatted for the user; in a file it is exact
+    const plugins = path.join(repo, 'plugins')
+    const writers = fs.readdirSync(plugins, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && /^format-/.test(entry.name))
+      .flatMap(entry => sourceFiles(path.join(plugins, entry.name, 'src/privileged')).filter(file => /export/i.test(path.basename(file))))
+    expect(writers.length).toBeGreaterThanOrEqual(3)
+    const loose = /\bformatAmount\b|\.toFixed\(|\bparseFloat\(|Intl\.NumberFormat/
+    expect(writers.filter(file => loose.test(fs.readFileSync(file, 'utf8'))).map(file => path.relative(repo, file))).toEqual([])
   })
 })

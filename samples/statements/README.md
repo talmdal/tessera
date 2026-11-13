@@ -2,8 +2,8 @@
 
 Statement files for trying **File › Import…** by hand, and for screenshots. The banks, people and account numbers are
 made up. Each file's closing balance is its opening balance plus its transactions, so the numbers add up everywhere.
-The tests import every one of these files (`tests/plugins/import-ofx`, `tests/plugins/import-csv`,
-`tests/plugins/import-qif`, `tests/plugins/import`), so they keep working.
+The tests import every one of these files (`tests/plugins/format-ofx`, `tests/plugins/format-csv`,
+`tests/plugins/format-qif`, `tests/plugins/import`), so they keep working.
 
 Every file is **plain ASCII**, so copying it between machines can't change it: the accented payee is written with
 character references, which OFX allows. (An earlier copy held windows-1252 bytes, and lost its accents on the way to

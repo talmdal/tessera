@@ -6,7 +6,7 @@ import path from 'node:path'
 import type { ContextKeyService, Database, Logger, PluginState, ShellFiles, ShellPrompts } from '@tessera/types'
 import { displayDate, isLedgerError, type LedgerSession } from '@tessera/ledger-api'
 import {
-  ACCOUNT_TYPE_LABELS, AMOUNT_COLUMNS, formatAmount, isAccountsError, isLiability,
+  ACCOUNT_TYPE_LABELS, AMOUNT_COLUMNS, formatAmount, isAccountsError, isLiability, maskAccountNumber,
   type Account, type AccountsService, type PayeeSuggestion
 } from '@tessera/accounts-api'
 import {
@@ -15,7 +15,7 @@ import {
   type ImportCounts, type ImportErrorCode, type ImportFile, type ImportFormatContribution, type ImportReport, type ImportSource,
   type ParsedStatement, type SignExample, type SignsDialogInput, type SignsDialogResult, type StatementCategories, type StatementReport
 } from '@tessera/import-api'
-import { AccountResolver, accountFromStatement, identityOf } from './accountResolution'
+import { AccountResolver, accountFromStatement, accountNumberOf, accountNumbersDiffer, identityOf, usableBankId, usableIntuitBankId } from './accountResolution'
 import type { PayeeAliases } from './aliases'
 import { applyImport, recoverImports } from './apply'
 import { CategoryChoices } from './categoryChoice'
@@ -196,6 +196,52 @@ export class Importer {
     const notices = await recoverImports(() => this.db(), this.deps.accounts)
     for (const notice of notices) this.deps.log.warn(`[import] ${notice}`)
     this.notices.push(...notices)
+  }
+
+  /**
+   * The account's number, bank number and Intuit bank id, from the statement, where the account has none: never one
+   * it has, which a differing file is only warned about (docs/export-design.md, Q9). Says what was filled in, and what
+   * differs. The number is the one a new account would take: only the last four of a masked one. As an account is
+   * found by its number, the number is filled only when `fill.number`: when the user had statements like this one
+   * go to the account from now on, and not for a one-off import into it.
+   */
+  private async fillAccountIds(statement: ParsedStatement, account: Account, fill: { number: boolean }): Promise<string[]> {
+    const given = {
+      accountNumber: fill.number ? accountNumberOf(statement) : undefined,
+      bankId: usableBankId(statement.account.bankId) ? statement.account.bankId.trim() : undefined,
+      intuitBankId: usableIntuitBankId(statement.account.intuitBankId) ? statement.account.intuitBankId.trim() : undefined
+    }
+    const labels = { accountNumber: 'account number', bankId: 'bank number', intuitBankId: 'Intuit bank id' } as const
+    const differs = {
+      accountNumber: (has: string) => accountNumbersDiffer(has, statement),
+      bankId: (has: string, value: string) => has.toLowerCase() !== value.toLowerCase(),
+      intuitBankId: (has: string, value: string) => has.toLowerCase() !== value.toLowerCase()
+    }
+    const patch: { accountNumber?: string, bankId?: string, intuitBankId?: string } = {}
+    const filled: string[] = []
+    const differ: string[] = []
+    for (const field of ['accountNumber', 'bankId', 'intuitBankId'] as const) {
+      const value = given[field]
+      if (value === undefined) continue
+      const has = account[field]
+      // An account number is shown masked, as elsewhere in the import, unless that would hide how the two differ
+      const shown = (text: string) => field === 'accountNumber' && (has === undefined || maskAccountNumber(has) !== maskAccountNumber(value))
+        ? maskAccountNumber(text) : text
+      if (has === undefined || has.trim() === '') {
+        patch[field] = value
+        filled.push(`“${account.name}”’s ${labels[field]} was filled in from the file: ${shown(value)}.`)
+      } else if (differs[field](has, value)) {
+        differ.push(`The file gives “${account.name}”’s ${labels[field]} as ${shown(value)}; the account has ${shown(has)}, and keeps it.`)
+      }
+    }
+    if (Object.keys(patch).length === 0) return differ
+    try {
+      await this.deps.accounts.updateAccount(account.id, patch)
+      return [...filled, ...differ]
+    } catch (err) {
+      this.deps.log.warn(`[import] Could not fill in the account's numbers: ${(err as Error)?.message ?? err}`)
+      return differ
+    }
   }
 
   /** Deletes what the import kept about accounts that are gone: their matches, lines and batches. */
@@ -395,7 +441,12 @@ export class Importer {
         }
         if (resolution.kind === 'skip') { report.results.push({ ...base, outcome: 'skipped', counts: { ...NO_COUNTS, lines: lineCount } }); continue }
         if (resolution.kind === 'needsAccount') { report.results.push({ ...base, outcome: 'needsAccount', counts: { ...NO_COUNTS, lines: lineCount } }); continue }
-        report.results.push(await this.importStatement(statement, resolution.account, origin, statementIndex, { interactive, ...(windowId !== undefined && { windowId }) }, resolution.how))
+        const result = await this.importStatement(statement, resolution.account, origin, statementIndex, { interactive, ...(windowId !== undefined && { windowId }) }, resolution.how)
+        // Imported into an account that was there: what the file says the bank calls itself fills in what it lacks
+        if (result.outcome === 'imported' && resolution.how !== 'created') {
+          result.warnings.push(...await this.fillAccountIds(statement, resolution.account, { number: resolution.remembered }))
+        }
+        report.results.push(result)
       } catch (err) {
         // Cancel Import in a question about the statement (its categories): nothing of it was applied
         if (isImportError(err) && err.code === 'CANCELLED') {

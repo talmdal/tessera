@@ -1,0 +1,15 @@
+{
+  "id": "format-csv",
+  "name": "CSV files",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./LayoutDialog": "src/renderer/LayoutDialog.tsx"
+    }
+  },
+  "services": {
+    "provides": ["format-csv.import", "format-csv.export"]
+  }
+}

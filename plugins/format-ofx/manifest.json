@@ -1,0 +1,9 @@
+{
+  "id": "format-ofx",
+  "name": "OFX files",
+  "version": "0.2.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "services": {
+    "provides": ["format-ofx.import", "format-ofx.export"]
+  }
+}

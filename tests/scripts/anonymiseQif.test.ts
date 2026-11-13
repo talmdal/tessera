@@ -9,8 +9,8 @@ import { describe, expect, it } from 'vitest'
 import type { ParseContext, ParseResult } from '@tessera/import-api'
 import { anonymise, check, describeCounts, type InputFile } from '../../scripts/anonymise/index'
 import { shiftQifDate } from '../../scripts/anonymise/qif'
-import { createQifFormat } from '../../plugins/import-qif/src/privileged/index'
-import { parseQif, valueOf } from '../../plugins/import-qif/src/privileged/qif'
+import { createQifFormat } from '../../plugins/format-qif/src/privileged/index'
+import { parseQif, valueOf } from '../../plugins/format-qif/src/privileged/qif'
 import { importFile, SAMPLES } from '../helpers/importFile'
 
 const TODAY = new Date('2026-11-06T12:00:00Z')

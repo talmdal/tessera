@@ -76,6 +76,21 @@ describe('editing accounts', () => {
     expect(edited.rev).toBeGreaterThan(a.rev)
   })
 
+  it('keeps a bank number and an Intuit bank id, checked, and clears them with null', async () => {
+    const { service } = await setupAccounts()
+    const a = await service.createAccount(chequing({ accountNumber: '12-345678', bankId: ' 004 ', intuitBankId: '12345' }))
+    expect(a).toMatchObject({ bankId: '004', intuitBankId: '12345' })
+    // Kept through an edit of something else; gone when cleared
+    expect(await service.updateAccount(a.id, { name: 'Everyday' })).toMatchObject({ bankId: '004', intuitBankId: '12345' })
+    const cleared = await service.updateAccount(a.id, { bankId: null, intuitBankId: null })
+    expect(cleared).not.toHaveProperty('bankId')
+    expect(cleared).not.toHaveProperty('intuitBankId')
+    // OFX's BANKID: letters and digits, 9 at most
+    await expect(rejection(service.updateAccount(a.id, { bankId: '004-1' }))).resolves.toMatchObject({ code: 'INVALID', field: 'bankId' })
+    await expect(rejection(service.updateAccount(a.id, { bankId: '1234567890' }))).resolves.toMatchObject({ code: 'INVALID', field: 'bankId', message: 'Use at most 9 characters.' })
+    await expect(rejection(service.updateAccount(a.id, { intuitBankId: 'x'.repeat(33) }))).resolves.toMatchObject({ code: 'INVALID', field: 'intuitBankId' })
+  })
+
   it('detects a change made elsewhere, and keeps its own name free for itself', async () => {
     const { service } = await setupAccounts()
     const a = await service.createAccount(chequing())

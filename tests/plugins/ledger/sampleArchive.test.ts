@@ -20,7 +20,7 @@ import { IMPORT_ANNOTATOR_SERVICE } from '@tessera/import-api'
 import { createPluginContext, createPluginRuntime } from '../../../core/plugins/PluginContext'
 import { activate as activateAccounts } from '../../../plugins/accounts/src/privileged/index'
 import { activate as activateImport } from '../../../plugins/import/src/privileged/index'
-import { activate as activateOfx } from '../../../plugins/import-ofx/src/privileged/index'
+import { activate as activateOfx } from '../../../plugins/format-ofx/src/privileged/index'
 import { activate as activateLedger } from '../../../plugins/ledger/src/privileged/index'
 import { sqliteDriver } from '../../../plugins/storage.sqlite/src/privileged/SqliteDriver'
 import { makeSampleArchive } from '../../../scripts/sample-archive/household'
@@ -40,7 +40,7 @@ async function app(dir: string) {
   const { prompts } = fakePrompts()
   runtime.services.provide('shell', SHELL_PROMPTS_SERVICE, prompts)
   createPluginContext('shell', runtime).context.commands.register('shell.layout.reveal', () => {})
-  for (const [id, activate] of [['ledger', activateLedger], ['accounts', activateAccounts], ['import', activateImport], ['import-ofx', activateOfx]] as const) {
+  for (const [id, activate] of [['ledger', activateLedger], ['accounts', activateAccounts], ['import', activateImport], ['format-ofx', activateOfx]] as const) {
     await (activate as (context: unknown) => Promise<void>)({ ...createPluginContext(id, runtime).context, logger: log })
   }
   await runtime.lifecycle.markStarted()

@@ -11,13 +11,13 @@ import type { AccountType } from '@tessera/accounts-api'
  * Its behaviour is the `ImportFormat` service named by `service`, provided by the same plugin.
  */
 export interface ImportFormatContribution {
-  /** `<pluginId>.<name>`, e.g. 'import-ofx.ofx'. */
+  /** `<pluginId>.<name>`, e.g. 'format-ofx.ofx'. */
   id: string
   /** The file dialog's filter name: 'OFX / QFX statement (Microsoft Money, Quicken)'. */
   label: string
   /** Without dots, lower case: ['ofx', 'qfx']. At least one. */
   extensions: string[]
-  /** The service implementing `ImportFormat`, e.g. 'import-ofx.format'. */
+  /** The service implementing `ImportFormat`, e.g. 'format-ofx.import'. */
   service: string
   /** One sentence for the Choose Format dialog. */
   description?: string
@@ -184,13 +184,26 @@ export interface StatementAccount {
   label?: string
   /** OFX <ORG> or bank id; the bank's name when the file gives it. */
   institution?: string
-  /** As the file gives it. When it is masked ('XXXX5678'), set `numberIsPartial`. */
+  /**
+   * As the file gives it. When it is masked ('XXXX5678'), set `numberIsPartial`. The import fills it in on the account
+   * (a new one, or an existing one that has none and that the statement is remembered for): only the last four when partial.
+   */
   accountNumber?: string
   numberIsPartial?: boolean
   /** A hint for a new account (OFX ACCTTYPE, a credit card statement). */
   type?: AccountType
   /** The account's name in the file (QIF `!Account`). */
   name?: string
+  /**
+   * The bank's number for itself, as its statements give it (OFX `BANKID`). Never part of how the account is found: the
+   * import fills it in on the account (a new one, or an existing one that has none), for exports. (Since import-api 1.8.)
+   */
+  bankId?: string
+  /**
+   * The bank's id with Intuit (`INTU.BID` in a QFX or QBO file), filled in on the account as `bankId` is. Give it only
+   * when the statement's bank ids look real: a conversion tool's file may carry another bank's. (Since import-api 1.8.)
+   */
+  intuitBankId?: string
 }
 
 /** What kind of line the bank says it is. Informational; it suggests a category (a fee goes to Bank fees). */
