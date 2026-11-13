@@ -11,4 +11,4 @@ export * from './service'
 export * from './transactions'
 
 /** Version of this contract. */
-export const ACCOUNTS_API_VERSION = '1.4.0'
+export const ACCOUNTS_API_VERSION = '1.6.0'

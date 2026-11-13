@@ -1,0 +1,29 @@
+{
+  "id": "recurring",
+  "name": "Recurring Transactions",
+  "version": "0.1.0",
+  "privileged": {
+    "entry": "privileged/index.js"
+  },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./RecurringView": "src/renderer/RecurringView.tsx",
+      "./UpcomingPanel": "src/renderer/UpcomingPanel.tsx",
+      "./SeriesDialog": "src/renderer/SeriesDialog.tsx",
+      "./EnterDialog": "src/renderer/EnterDialog.tsx",
+      "./HolidaysDialog": "src/renderer/HolidaysDialog.tsx"
+    }
+  },
+  "services": {
+    "requires": [
+      "book.session",
+      "accounts.service",
+      "shell.prompts"
+    ],
+    "provides": [
+      "recurring.service",
+      "recurring.migrator"
+    ]
+  }
+}

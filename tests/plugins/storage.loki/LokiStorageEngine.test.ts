@@ -117,23 +117,24 @@ describe('loki files', () => {
     it('reports the failure from flush, keeps the data and the previous file, and saves once it works', async () => {
       const { files, state, adapter } = flaky()
       const errors: unknown[] = []
-      const engine = engineFor('/unused', { adapter, saveDelay: 60_000, log: { error: (...args) => { errors.push(args) } } })
-      const db = await engine.open({ path: '/unused/x.loki.json' })
+      const directory = tempDir()
+      const engine = engineFor(directory, { adapter, saveDelay: 60_000, log: { error: (...args) => { errors.push(args) } } })
+      const db = await engine.open({ path: path.join(directory, 'x.loki.json') })
       const c = db.collection('c')
 
       await c.insert({ id: 'a' })
       await db.flush()
-      const before = files.get(path.resolve('/unused/x.loki.json'))!
+      const before = files.get(path.join(directory, 'x.loki.json'))!
 
       state.failing = true
       await c.insert({ id: 'b' })
       await expect(db.flush()).rejects.toMatchObject({ code: 'IO' })
-      expect(files.get(path.resolve('/unused/x.loki.json'))).toBe(before)
+      expect(files.get(path.join(directory, 'x.loki.json'))).toBe(before)
       expect(await c.count()).toBe(2)
 
       state.failing = false
       await db.flush()
-      expect(files.get(path.resolve('/unused/x.loki.json'))).toContain('"id":"b"')
+      expect(files.get(path.join(directory, 'x.loki.json'))).toContain('"id":"b"')
       await engine.closeAll()
       expect(errors).toEqual([])
     })
@@ -141,8 +142,9 @@ describe('loki files', () => {
     it('logs a failure of the timed save instead of throwing', async () => {
       const { state, adapter } = flaky()
       const errors: unknown[][] = []
-      const engine = engineFor('/unused', { adapter, saveDelay: 5, log: { error: (...args) => { errors.push(args) } } })
-      const db = await engine.open({ path: '/unused/x.loki.json' })
+      const directory = tempDir()
+      const engine = engineFor(directory, { adapter, saveDelay: 5, log: { error: (...args) => { errors.push(args) } } })
+      const db = await engine.open({ path: path.join(directory, 'x.loki.json') })
       state.failing = true
       await db.collection('c').insert({ id: 'a' })
       await new Promise(resolve => setTimeout(resolve, 50))

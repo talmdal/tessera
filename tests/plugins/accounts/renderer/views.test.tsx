@@ -2,7 +2,8 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  ACCOUNTS_CHANNELS, ACCOUNTS_COMMANDS as C, ACCOUNTS_EVENTS, type Account, type AccountDialogInput, type Chart
+  ACCOUNTS_CHANNELS, ACCOUNTS_COMMANDS as C, ACCOUNTS_EVENTS,
+  type Account, type AccountDialogInput, type Chart, type ResolvedNavigatorItem
 } from '@tessera/accounts-api'
 import AccountDialog, { toInput } from '../../../../plugins/accounts/src/renderer/AccountDialog'
 import MoveDialog from '../../../../plugins/accounts/src/renderer/MoveDialog'
@@ -49,11 +50,12 @@ function bridge(answers: Record<string, (data: any) => unknown> = {}) {
 afterEach(() => { delete (window as any).api })
 
 describe('the navigator', () => {
-  const setup = (chart: Chart = CHART) => {
+  const setup = (chart: Chart = CHART, items: ResolvedNavigatorItem[] = []) => {
     const b = bridge({
       [ACCOUNTS_CHANNELS.chart]: () => chart,
       [ACCOUNTS_CHANNELS.selection]: () => ({ kind: 'book' }),
-      [ACCOUNTS_CHANNELS.select]: () => undefined
+      [ACCOUNTS_CHANNELS.select]: () => undefined,
+      [ACCOUNTS_CHANNELS.navigatorItems]: () => items
     })
     render(<Navigator />)
     return b
@@ -76,6 +78,62 @@ describe('the navigator', () => {
     await screen.findByRole('tree')
     expect(item('Visa').querySelector('[data-negative]')).not.toBeNull()
     expect(item('Chequing').querySelector('[data-negative]')).toBeNull()
+  })
+
+  // `accounts.navigator.items`: what another plugin (recurring, first) puts in the panel
+  const contributed = (over: Partial<ResolvedNavigatorItem> = {}): ResolvedNavigatorItem => ({
+    id: 'recurring.navigator.list', label: 'Recurring', command: 'recurring.open', icon: 'Repeat',
+    placement: 'bottom', badgeTone: 'error', enabled: true, ...over
+  })
+
+  const added = (name: string) => screen.getByRole('button', { name })
+
+  it('draws a contributed row below the tree, outside it, and runs its command when clicked', async () => {
+    const b = setup(CHART, [contributed()])
+    const tree = await screen.findByRole('tree')
+    await waitFor(() => expect(added('Recurring')).toBeTruthy())
+    // It is not a node of the book's tree, so the Accounts menu still acts on the tree's own selection
+    expect(within(tree).queryByRole('button', { name: 'Recurring' })).toBeNull()
+    expect(within(tree).getAllByRole('treeitem').map(i => i.getAttribute('aria-label')))
+      .toEqual(['Home', 'Personal', 'Visa', 'Chequing'])
+
+    await userEvent.click(added('Recurring'))
+    expect(b.executed()).toEqual([{ id: 'recurring.open', args: [] }])
+    expect(b.calls(ACCOUNTS_CHANNELS.select)).toEqual([])
+  })
+
+  it('reaches a contributed row by keyboard, and skips a disabled one', async () => {
+    const b = setup(CHART, [contributed(), contributed({ id: 'recurring.off', label: 'Later', enabled: false })])
+    await screen.findByRole('tree')
+    await waitFor(() => expect(added('Recurring')).toBeTruthy())
+
+    expect(added('Recurring')).toHaveAttribute('tabindex', '0')
+    expect(added('Later')).toHaveAttribute('tabindex', '-1')
+    added('Recurring').focus()
+    await userEvent.keyboard('{Enter}')
+    expect(b.executed()).toEqual([{ id: 'recurring.open', args: [] }])
+
+    await userEvent.click(added('Later'))
+    expect(b.executed()).toHaveLength(1)
+  })
+
+  it('places a top row above the book, and shows its badge', async () => {
+    setup(CHART, [contributed({ placement: 'top', badge: '3' })])
+    await screen.findByRole('tree')
+    await waitFor(() => expect(added('Recurring')).toBeTruthy())
+    expect(added('Recurring')).toHaveTextContent('3')
+    // Before the book row in document order
+    expect(added('Recurring').compareDocumentPosition(item('Home'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it('updates a contributed badge when the plugin pushes the list again', async () => {
+    const b = setup(CHART, [contributed()])
+    await screen.findByRole('tree')
+    await waitFor(() => expect(added('Recurring')).toBeTruthy())
+    expect(added('Recurring')).not.toHaveTextContent('2')
+
+    act(() => { b.emit(ACCOUNTS_EVENTS.navigatorItems, [contributed({ badge: '2' })]) })
+    await waitFor(() => expect(added('Recurring')).toHaveTextContent('2'))
   })
 
   it('shows closed accounts when asked, dimmed', async () => {

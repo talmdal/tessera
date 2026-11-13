@@ -124,6 +124,72 @@ The storage engine it builds on is done ([storage-engine-redesign.md](storage-en
       [vault-design.md](vault-design.md)), per-file storage formats, splits,
       `.mny` migration.
 
+## Finance: recurring transactions (proposed design)
+
+Design: [recurring-transactions-design.md](recurring-transactions-design.md).
+Nothing here is built yet. A `recurring` plugin and `@tessera/recurring-api`,
+building on `accounts.service`.
+
+- [x] **Phase 0, prerequisites:** the `@tessera/recurring-api` package
+      (contract types, ids and channels; the schedule engine itself is
+      phase 1), `accounts.transaction.actions` (a general row-action point for
+      the register's context menu, so a plugin no longer has to borrow
+      `accounts.reconcile.actions`), `accounts.navigator.items` (rows other
+      plugins add to the Accounts navigator, badged from a context key),
+      `ACCOUNTS_MENU` published so other plugins can add to the Accounts menu,
+      four icons plus `Chip` in `@tessera/ui` (now 1.2.0), and the `recurring`
+      plugin skeleton: its schema, the Recurring view and every way into it.
+      Still dormant until later phases: the "Make Recurring…" row action and
+      the two dialogs (their commands and components don't exist yet), and the
+      overdue warning and navigator badge (nothing sets the count until the
+      service lands in phase 2).
+- [x] **Phase 1:** the schedule engine in `@tessera/recurring-api`
+      (`scheduleEngine.ts`): five frequencies with an interval, month-end
+      clamping that never walks backwards, the nth weekday of a month, twice a
+      month, weekend rules that move the date and not the sequence, and both
+      end rules — with `firstIndexOnOrAfter` estimating rather than scanning,
+      so a series left alone for years costs nothing. Pure: no storage, no
+      clock. 60 tests, five of them cross-checked against an independent
+      implementation.
+- [x] **Phase 2:** the `recurring` plugin's domain and `recurring.service` —
+      series and postings in the book, CRUD with the rules enforced in the
+      service, the snapshot behind the warnings (with per-currency totals of
+      everything outstanding), `forecast` for a later cash-flow feature,
+      entering through `accounts.service` with confirmations gathered before
+      anything is written, skipping, pausing, `createFromTransaction`, the IPC,
+      the context keys and the date rollover. It follows the account manager:
+      a deleted account takes its series with it, a closed one pauses them with
+      the reason. 70 tests, over a real accounts service on the memory engine.
+- [x] **Phase 3:** the Recurring view — one row per series in ascending date
+      order, tick-box selection, Enter in Register, Skip (and Skip All n Due),
+      the row context menu, the overdue, due-soon and blocked banners, the
+      result banner, per-currency figures, a detail strip for the selected
+      series, the empty state and the keyboard map.
+- [x] **Phase 4:** the series dialog (both halves — what the transaction is,
+      and when it repeats — with the schedule editor and a live preview of the
+      next few dates) and the enter dialog, through which every entry passes.
+      Decided in review: a dialog rather than an inline row editor, because a
+      series carries the whole repeat rule as well as a transaction's fields;
+      the list's detail strip answers the common question without opening it.
+- [x] **Phase 5:** *Make Recurring…* in the register's row menu, the first
+      consumer of `accounts.transaction.actions`. It prefills the series dialog
+      from the transaction, previews dates from *after* it, and records it as
+      the new series' last entry so the register gains no duplicate. The
+      Accounts menu group and the bottom-bar overdue item came with phases 0-3.
+- [x] **Phase 5, rest:** the Recurring view is revealed when a book opens
+      (not when one is created) with something overdue.
+- [x] **From the later list:** business-day adjustment — the weekend rule now
+      steps over the book's holidays too, kept in `recurring.holidays` and
+      edited from *Holidays…*; every series' next date is placed again when
+      the list changes. The **Upcoming** panel in the right bar (the forecast,
+      grouped by day, over 7/30/90 days, net per currency). The register's
+      **Projected (30 days)** figure, through a new `accounts.register.figures`
+      point, transfers into the account included.
+- [ ] **Phase 6:** automatic entry, *Enter All Overdue*, history in the UI.
+- [ ] **Later:** splits in a template, loan amortisation, future occurrences
+      in the register itself, pattern detection, a shared holiday calendar
+      once there are settings.
+
 ## State and settings (proposed design)
 
 Design: [settings-design.md](settings-design.md). Nothing here is built yet.
@@ -196,7 +262,17 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
 - [ ] **Dynamic labels**, e.g. `Save "Home Vault"`.
 - [ ] **Checkbox and radio items.**
 - [ ] **Context menus and toolbars** as extension points bound to the same
-      commands.
+      commands. There are now three bespoke points doing this one job —
+      `accounts.reconcile.actions`, `accounts.transaction.actions` and
+      `accounts.navigator.items`. A fourth should trigger replacing them with
+      one shell-level `shell.contextMenus`, where a contribution names the menu
+      it targets and the shell resolves it as it already does `shell.menus`.
+      (Considered and deliberately deferred while building the Recurring view:
+      a plugin's own menu items need no extension point, only another plugin's
+      do. See [recurring-transactions-design.md](recurring-transactions-design.md#why-the-recurring-views-own-menu-is-not-an-extension-point).)
+      A fourth point of the same shape, `accounts.register.figures`, now
+      exists for contributed numbers above the register; a general
+      "contributed figure" point would absorb it the same way.
 - [ ] **Menu structure changes at runtime.** The structure is built once,
       after activation; only enabled state is live.
 - [ ] **Context keys in the renderer**, so views can enable buttons from the

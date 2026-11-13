@@ -12,6 +12,7 @@ export default defineConfig({
       '@tessera/storage-kit': path.resolve(__dirname, 'packages/storage-kit/index.ts'),
       '@tessera/book-api': path.resolve(__dirname, 'packages/book-api/index.ts'),
       '@tessera/accounts-api': path.resolve(__dirname, 'packages/accounts-api/index.ts'),
+      '@tessera/recurring-api': path.resolve(__dirname, 'packages/recurring-api/index.ts'),
       '@tessera/ui': path.resolve(__dirname, 'tessera-ui/index.ts')
     }
   },
@@ -26,6 +27,11 @@ export default defineConfig({
     globalSetup: ['./tests/setup/buildUiFixture.ts'],
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     exclude: ['dist', 'node_modules'],
+
+    // One worker per file is the default, and with 100+ files that starves the renderer tests that type with
+    // userEvent: they time out at 5s when every core is shared ten ways. Half the cores keeps them reliable and,
+    // since each worker costs ~700ms to spawn, is no slower overall.
+    maxWorkers: '50%',
 
     // Plugins written to temp dirs by tests are loaded with Node's native
     // import(), as Electron does, rather than through Vite's transform pipeline.

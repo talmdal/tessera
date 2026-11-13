@@ -151,7 +151,7 @@ Verification:
 
 - `npm test`: 1163 passed. The 4 failures are the same environmental
   failures as before the change: a Windows path test on Linux, a Loki test
-  that needs to create `/unused`, and a federation build-output check for a
+  that needs to create `/tmp/unused`, and a federation build-output check for a
   newer `@module-federation/vite`. Tests added: `tests/packages/`,
   `tests/shared/dialogs.test.ts`, `tests/core/dialogService.test.ts`,
   `tests/main/{electronPrompts,electronFiles,registerDialogs}.test.ts`,
