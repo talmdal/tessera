@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { KitStorageEngine, memoryDriver } from '@tessera/storage-kit'
 import { SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
 import { BOOK_CHANNELS, BOOK_COMMANDS } from '@tessera/book-api'
-import { ACCOUNTS_CHANNELS, ACCOUNTS_MENU, ACCOUNTS_SERVICE, type AccountsService } from '@tessera/accounts-api'
+import { ACCOUNTS_CHANNELS, ACCOUNTS_MENU, ACCOUNTS_SERVICE, todayIso, type AccountsService } from '@tessera/accounts-api'
 import {
   RECURRING_CHANNELS, RECURRING_COMMANDS as C, RECURRING_CONTEXT_KEYS as K, RECURRING_DIALOGS, RECURRING_EVENTS,
   RECURRING_SERVICE, RECURRING_VIEWS, type RecurringService, type RecurringSnapshot, type SeriesInput
@@ -328,7 +328,9 @@ describe('the forecast, the holidays and the projected balance', () => {
 
     await run(C.holidays)
     expect(prompts.show).toHaveBeenLastCalledWith(RECURRING_DIALOGS.holidays, expect.objectContaining({
-      holidays: [expect.objectContaining({ name: 'Christmas Day' })], today: '2026-11-13'
+      // The real clock drives this plugin, so the date is taken from the same source rather than written out:
+      // a literal here passes only on the day it was written.
+      holidays: [expect.objectContaining({ name: 'Christmas Day' })], today: todayIso()
     }))
 
     expect((await ask(RECURRING_CHANNELS.removeHoliday, { id: added.value.id })).ok).toBe(true)

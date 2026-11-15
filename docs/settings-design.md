@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed, not implemented |
+| **Status** | Superseded by [options-framework-design.md](options-framework-design.md), which keeps the lifecycle and plugin-facing API but moves the store below the plugin layer (tier 0, one file) so options can be read before plugins are loaded |
 | **Date** | 2026-10-17 |
 | **Scope** | Application-wide settings: how plugins define, store, edit and read them |
 | **Related** | [plugin-creation.md](plugin-creation.md), [vault-design.md](vault-design.md), [todo.md](todo.md) |

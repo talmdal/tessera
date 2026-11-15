@@ -3,6 +3,7 @@ import { channelFor } from '../../tessera-types'
 import { ContextKeyServiceImpl } from '../context/ContextKeyService'
 import {
   Disposable,
+  OptionsRegistrar,
   PluginRuntime,
   PluginContext,
   PluginScope,
@@ -14,9 +15,16 @@ import { ExtensionRegistryImpl } from '@core/extensions/ExtensionRegistry'
 import { CommandRegistryImpl } from '@core/commands/CommandRegistry'
 import { EventHubImpl } from '@core/ipc/EventHub'
 import { AppLifecycleImpl } from '@core/lifecycle/AppLifecycle'
+import { OptionsService } from '@core/options/OptionsService'
+import { createMemoryOptionsStore } from '@core/options/memoryOptionsStore'
 
-/** Creates the registries, wired so command enablement follows context keys. */
-export function createPluginRuntime(path?: string, log?: Logger): PluginRuntime {
+/**
+ * Creates the registries, wired so command enablement follows context keys.
+ *
+ * `options` is the one registry the shell builds itself, because it is read from a file before anything else
+ * happens. Without one, options last for the session, which is what tests want.
+ */
+export function createPluginRuntime(path?: string, log?: Logger, options?: OptionsRegistrar): PluginRuntime {
   const contextKeys = new ContextKeyServiceImpl()
   return {
     ipc: new IpcRouterImpl(log),
@@ -26,6 +34,7 @@ export function createPluginRuntime(path?: string, log?: Logger): PluginRuntime 
     services: new ServiceRegistryImpl(),
     lifecycle: new AppLifecycleImpl({ log }),
     events: new EventHubImpl(log),
+    options: options ?? new OptionsService(createMemoryOptionsStore(), { log }),
     paths: path ?? '/tmp/tessera-test',
     logger: log ? log : console
   }
@@ -75,6 +84,15 @@ export function createPluginContext(pluginId: string, runtime: PluginRuntime, op
       emit: (event, data) => {
         if (!event || event.includes(':')) throw new Error(`Plugin "${pluginId}" used invalid event name "${event}"`)
         runtime.events.publish(channelFor(pluginId, event), data)
+      }
+    },
+    // Bound to this plugin's namespace: there is no namespace argument to pass, so a plugin can neither read nor
+    // write another's options. The registration is forgotten when the plugin deactivates; its values stay.
+    options: {
+      register: spec => {
+        const handle = runtime.options.register(pluginId, spec)
+        track({ dispose: () => runtime.options.unregister(pluginId) })
+        return handle
       }
     },
     subscriptions,

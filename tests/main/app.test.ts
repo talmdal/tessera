@@ -216,14 +216,23 @@ describe('main process (dynamic plugin system)', () => {
     })
   })
 
-  it('runs a theme command from the renderer, switches the native theme and publishes the new theme', async () => {
+  it('changes the theme the way the options dialog does: a session, a commit, the native theme follows', async () => {
     await vi.waitFor(() => expect(electron.Menu.setApplicationMenu).toHaveBeenCalled())
     const [window] = electron.BrowserWindow.getAllWindows() as any[]
     const before = window.webContents.send.mock.calls.length
 
-    const dark = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:commands.execute', data: { id: 'shell.theme.useDark' } })
+    // Tools ▸ Options… mints the session and sends it to the window; the dialog commits with it.
+    const opened = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:commands.execute', data: { id: 'shell.options.open' } })
+    expect(opened).toMatchObject({ ok: true })
+    const openEvent = window.webContents.send.mock.calls.slice(before).map((call: any[]) => call[1]).find((event: any) => event.name === 'shell:options.open')
+    expect(openEvent?.data?.session).toBeDefined()
 
-    expect(dark).toMatchObject({ ok: true })
+    const committed = await (electron.ipcMain as any).__invoke('tessera:invoke', {
+      channel: 'shell:options.commit',
+      data: { session: openEvent.data.session, changes: { shell: { appearance: { theme: 'tessera.default', mode: 'dark' } } } }
+    })
+
+    expect(committed).toMatchObject({ ok: true, data: { shell: [] } })
     expect(electron.nativeTheme.themeSource).toBe('dark')
     expect(window.webContents.send.mock.calls.slice(before).map((call: any[]) => call[1].name)).toContain('shell:theme.changed')
     await expect((electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:theme.get' }))

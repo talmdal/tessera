@@ -7,6 +7,8 @@ import {
   CommandRegistry,
   ContextKeyService,
   Logger,
+  OptionsApi,
+  OptionsRegistrar,
   ServiceRegistry
 } from '.'
 
@@ -49,6 +51,12 @@ export interface PluginContext {
   readonly events: {
     emit(event: string, data?: unknown): void
   }
+  /**
+   * This plugin's options: the user's choices, with the defaults it registers. Bound to this plugin's namespace,
+   * so it can neither read nor write another plugin's. Values are in memory before any plugin activates, so
+   * `register` and `get` are synchronous. See docs/options-framework-design.md.
+   */
+  readonly options: OptionsApi
   readonly lifecycle: AppLifecycle
   /** Disposed, last first, on deactivation. Plugins may push their own disposables. */
   readonly subscriptions: Disposable[],
@@ -73,6 +81,8 @@ export interface PluginRuntime {
   services: ServiceRegistry
   lifecycle: AppLifecycle
   events: EventHub
+  /** The options service, which each plugin context exposes as its own namespace. */
+  options: OptionsRegistrar
   paths: string
   logger: Logger
 }

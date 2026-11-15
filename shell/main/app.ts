@@ -7,6 +7,7 @@ import { DialogService } from '../../core/dialogs/DialogService'
 import { createPluginContext, createPluginRuntime } from '../../core/plugins/PluginContext'
 import { PluginManager } from '../../core/plugins/PluginManager'
 import { LayoutService } from '../../core/layout/LayoutService'
+import { OptionsService } from '../../core/options/OptionsService'
 import { ThemeService } from '../../core/theme/ThemeService'
 import { PRIMARY_WINDOW_KEY } from '../../shared/layout/types'
 import { SHELL_CONTRIBUTOR_ID } from '../../shared/plugins/manifest'
@@ -25,8 +26,12 @@ import { osShutdownSources } from './lifecycle/systemShutdown'
 import { registerCoreMenus } from './menus/coreMenus'
 import { applyApplicationMenu } from './menus/electronMenu'
 import { FsPluginSource } from './plugins/FsPluginSource'
+import { createJsonOptionsStore } from './options/JsonOptionsStore'
+import { registerOptions } from './options/registerOptions'
 import { createElectronThemePort } from './theme/electronTheme'
-import { createThemePersistence } from './theme/appStatePersistence'
+import {
+  bindAppearanceToTheme, createThemeOptionsPersistence, importLegacyThemeSelection, registerShellOptions
+} from './theme/appearanceOptions'
 import { registerInitialTheme } from './theme/initialTheme'
 import { ThemeHost, registerTheme } from './theme/registerTheme'
 import { handlePluginProtocol, pluginUrl, registerPluginSchemePrivileges } from './plugins/pluginProtocol'
@@ -40,7 +45,14 @@ const __dirname = path.dirname(__filename)
 
 const log = console
 
-const runtime = createPluginRuntime(app.getPath('userData'), log)
+// Tier-0 options, beside the bootstrap file and read the same way: before anything activates, so the shell can
+// read its own choices early and every plugin can have options, including the storage backends and app-state
+// that sit below any plugin-provided service. See docs/options-framework-design.md.
+const options = new OptionsService(createJsonOptionsStore(app.getPath('userData'), log), { log })
+// The shell's own namespace, `appearance` first: the theme is known before plugins, windows, anything.
+const shellOptions = registerShellOptions(options)
+
+const runtime = createPluginRuntime(app.getPath('userData'), log, options)
 
 // Bundled plugins are built from plugins/ into modules/ (see scripts/build-plugins.ts).
 // They are listed first, so a user plugin can't replace a bundled one.
@@ -87,9 +99,12 @@ const layout = new LayoutService(runtime.extensions, runtime.contextKeys, { remo
 let layoutHost: LayoutHost
 
 const theme = new ThemeService(runtime.extensions, createElectronThemePort(nativeTheme), {
-  persistence: createThemePersistence(appState),
+  // The application-wide selection is a tier-0 option; only the per-window overrides live in app-state.
+  persistence: createThemeOptionsPersistence(shellOptions, options, appState),
   log
 })
+// Saving the Appearance page is what changes the running theme (there is no command for it).
+bindAppearanceToTheme(shellOptions, theme)
 let themeHost: ThemeHost
 const reveal = createWindowReveal(log)
 
@@ -114,6 +129,12 @@ async function bootstrap() {
   themeHost = registerTheme(shell, runtime, theme, log)
   registerInitialTheme(windowId => themeHost.snapshotFor(windowId), log)
   registerWindowReady(shell, reveal, dialogs)
+  registerOptions(shell, runtime, {
+    options,
+    remoteEntryFor,
+    targetWindow: () => (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0])?.id,
+    log
+  })
   // Provided before the plugins activate, so a plugin can require them
   registerDialogs(shell, runtime, dialogs, {
     prompts: createElectronPrompts({ dialog, BrowserWindow }, dialogs),
@@ -121,9 +142,15 @@ async function bootstrap() {
   })
   // Registered before the plugins activate, so it runs before the storage plugin closes the store.
   runtime.lifecycle.onShuttingDown(() => trackedWindows.flush())
+  // Options are a plain file, so this owes nothing to the storage plugins; it settles any coalesced write.
+  runtime.lifecycle.onShuttingDown(() => options.flush())
+  // The theme is a tier-0 option, so it is known before any plugin runs. A selection naming a plugin's theme
+  // resolves to the default until that plugin registers it, then the theme manager re-resolves on its own.
+  await themeHost.load()
   await pluginManager.activateAll()
   layout.refresh()   // a plugin's renderer is only known once it has activated
-  await themeHost.load()   // the saved theme is in app-state, which has only now activated
+  // Builds that kept the theme in app-state: brought over once, now that app-state is awake.
+  await importLegacyThemeSelection(appState, options, shellOptions, log)
   applyApplicationMenu(runtime.extensions, runtime.commands)
 }
 
