@@ -366,6 +366,16 @@ effect at the next start, as with Eclipse's `config.ini` or VS Code's
 `argv.json`. The rule, in one line: **bootstrap configuration never lives
 behind what it configures.**
 
+> **Extended by [options-framework-design.md](options-framework-design.md).**
+> That note applies the same rule to user options, which the shell also reads
+> before plugins activate: tier 0 gains a *second, separate* file,
+> `tessera-options.json`, holding one namespace per plugin. This bootstrap
+> file is unchanged — plugin selection is deliberately **not** an option, as
+> it configures which plugins load at all. "User settings" moves out of the
+> tier 1 row above, and the application theme moves with it; tier 1 keeps
+> opaque application *state* (window bounds, recent books, per-window theme
+> overrides, caches).
+
 Pinning `app-state` to one backend was considered and rejected: it would
 not remove the need for tier 0 (an enabled-plugins list would still be
 circular), it would make `app-state` depend on an implementation id rather

@@ -20,23 +20,14 @@ export const themeOverrideKey = (windowKey: string) => `shell.theme.${windowKey}
 export const THEME_GET = shell('theme.get')               // → ThemeSnapshot
 // Push event (main → renderer); carries the window id, so other windows ignore it
 export const THEME_CHANGED = shell('theme.changed')       // ThemeSnapshot
-/** Push event: the theme chooser should open in this window (`windowId` says which). */
-export const THEME_CHOOSER_OPEN = shell('theme.chooser.open') // ThemeChooserOpen
-export interface ThemeChooserOpen { windowId: number }
-
-/** Commands the shell registers for the theme. Each acts on the focused window. */
+/**
+ * Commands the shell registers for the theme, each acting on the focused window.
+ *
+ * These are only the per-window override: the application-wide selection is an option, chosen on the options
+ * dialog's Appearance page and applied when the user applies — there is no command that sets it instantly, so
+ * there is exactly one way to change it and one moment it takes effect (options-framework-design.md, decision 2).
+ */
 export const THEME_COMMANDS = {
-  useSystem: 'shell.theme.useSystem',
-  useLight: 'shell.theme.useLight',
-  useDark: 'shell.theme.useDark',
-  /** Opens the theme chooser in the focused window. */
-  choose: 'shell.theme.choose',
-  /** Argument: a `ThemeSelection`; sets the application-wide theme and mode exactly. */
-  set: 'shell.theme.set',
-  /** Flips to the opposite explicit mode. */
-  toggle: 'shell.theme.toggle',
-  /** Argument: a theme id. Keeps the mode when the theme has it, else uses the theme's own. */
-  select: 'shell.theme.select',
   /** Argument: a `ThemeSelection`. */
   setForWindow: 'shell.theme.setForWindow',
   clearWindowOverride: 'shell.theme.clearWindowOverride'
@@ -85,7 +76,5 @@ export const DEFAULT_THEME: ThemeDescriptor = {
  */
 export const THEME_INITIAL = shell('theme.initial')
 
-/** The command a View ▸ Theme item runs to choose theme `themeId` for the application. Registered per theme. */
-export const themeUseCommand = (themeId: string) => `shell.theme.use.${themeId}`
 /** The command a View ▸ Theme ▸ This Window item runs to give the focused window theme `themeId`. Registered per theme. */
 export const themeWindowUseCommand = (themeId: string) => `shell.theme.window.use.${themeId}`

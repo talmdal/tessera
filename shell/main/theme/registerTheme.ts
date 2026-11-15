@@ -1,15 +1,15 @@
 // shell/main/theme/registerTheme.ts
-import type { Disposable, IpcMessage, Logger, PluginContext, PluginRuntime, ThemeDescriptor, ThemeModePreference, ThemeSelection, ThemeSnapshot, ThemeState } from '@tessera/types'
+import type { Disposable, IpcMessage, Logger, PluginContext, PluginRuntime, ThemeDescriptor, ThemeSelection, ThemeSnapshot, ThemeState } from '@tessera/types'
 import { ThemeService } from '../../../core/theme/ThemeService'
 import { PRIMARY_WINDOW_KEY } from '../../../shared/layout/types'
 import { MENUS_EXTENSION_POINT } from '../../../shared/menus/types'
 import { selectionFor } from '../../../shared/theme/selection'
-import { DEFAULT_THEME_ID, THEME_CHANGED, THEME_CHOOSER_OPEN, THEME_COMMANDS, THEME_GET, ThemeChooserOpen, themeKey, themeUseCommand, themeWindowUseCommand } from '../../../shared/theme/types'
+import { THEME_CHANGED, THEME_COMMANDS, THEME_GET, themeKey, themeWindowUseCommand } from '../../../shared/theme/types'
 import { themeMenus, themePickerItems } from './themeMenus'
 
 /** What the Electron side tells the theme manager about its windows and the saved choice. */
 export interface ThemeHost {
-  /** Reads the saved application-wide theme. Call after the plugins have activated, before the first window. */
+  /** Reads the saved application-wide theme (a tier-0 option). Call before the plugins activate. */
   load(): Promise<void>
   /**
    * Starts tracking a window under its stable key (`main` for the primary
@@ -61,18 +61,15 @@ export function registerTheme(shell: PluginContext, runtime: PluginRuntime, them
 
   shell.ipc.register(THEME_GET, (msg: IpcMessage) => snapshot(theme.getState(windowOf(msg))))
 
-  const { selectTheme, useThemeInWindow } = registerThemeCommands(shell, theme, target, log)
+  const { useThemeInWindow } = registerThemeCommands(shell, theme, target)
 
-  // The chooser is a dialog in the window's own page, so opening it is an event to that window.
-  shell.commands.register(THEME_COMMANDS.choose, () => {
-    runtime.events.publish(THEME_CHOOSER_OPEN, { windowId: target() } satisfies ThemeChooserOpen)
-  })
   for (const contribution of themeMenus) {
     shell.extensions.contribute(shell.pluginId, MENUS_EXTENSION_POINT, contribution.id, contribution)
   }
 
-  // One command and two menu items per registered theme, kept in step as themes come and go. The menu bar is
-  // built once after the plugins have activated, so a theme contributed later is not listed until a restart.
+  // One command and one menu item per registered theme (give it to this window), kept in step as themes come
+  // and go. The menu bar is built once after the plugins have activated, so a theme contributed later is not
+  // listed until a restart. The application-wide choice is the options dialog's Appearance page, not a command.
   const picker = new Map<string, Disposable[]>()
   const syncPicker = () => {
     const wanted = new Map(theme.list().map(t => [`${t.id}\n${t.label}`, t]))
@@ -84,7 +81,6 @@ export function registerTheme(shell: PluginContext, runtime: PluginRuntime, them
     for (const [key, descriptor] of wanted) {
       if (picker.has(key)) continue
       picker.set(key, [
-        shell.commands.register(themeUseCommand(descriptor.id), () => { selectTheme(descriptor.id) }),
         shell.commands.register(themeWindowUseCommand(descriptor.id), () => { useThemeInWindow(descriptor.id) }),
         ...themePickerItems(descriptor).map(item => shell.extensions.contribute(shell.pluginId, MENUS_EXTENSION_POINT, item.id, item))
       ])
@@ -135,15 +131,12 @@ export function registerTheme(shell: PluginContext, runtime: PluginRuntime, them
   }
 }
 
-function registerThemeCommands(shell: PluginContext, theme: ThemeService, target: () => number, log: Logger) {
+function registerThemeCommands(shell: PluginContext, theme: ThemeService, target: () => number) {
   const descriptorOf = (themeId: unknown): ThemeDescriptor => {
     const descriptor = theme.list().find(t => t.id === themeId)
     if (!descriptor) throw new Error(`Unknown theme "${String(themeId)}"`)
     return descriptor
   }
-
-  /** Chooses the application's theme, keeping its mode when the theme has it and using the theme's own when it does not. */
-  const selectTheme = (themeId: unknown) => { theme.setGlobal(selectionFor(descriptorOf(themeId), theme.getGlobal().mode)) }
 
   /** Gives the focused window the theme, in the mode it shows now, or the theme's own when it has no such mode. */
   const useThemeInWindow = (themeId: unknown) => {
@@ -152,29 +145,9 @@ function registerThemeCommands(shell: PluginContext, theme: ThemeService, target
     theme.setOverride(windowId, selectionFor(descriptorOf(themeId), mode))
   }
 
-  /** Changes the application-wide mode, keeping its theme; warns, and changes nothing, when the theme lacks that mode. */
-  const useMode = (mode: ThemeModePreference) => {
-    const current = theme.getGlobal()
-    const descriptor = theme.list().find(t => t.id === current.theme) ?? theme.list().find(t => t.id === DEFAULT_THEME_ID)!
-    const wanted = selectionFor(descriptor, mode)
-    if (wanted.mode !== mode) {
-      log.warn(`[theme] Theme "${descriptor.id}" cannot show "${mode}"`)
-      return
-    }
-    theme.setGlobal(wanted)
-  }
-
-  shell.commands.register(THEME_COMMANDS.useSystem, () => { useMode('system') })
-  shell.commands.register(THEME_COMMANDS.useLight, () => { useMode('light') })
-  shell.commands.register(THEME_COMMANDS.useDark, () => { useMode('dark') })
-  shell.commands.register(THEME_COMMANDS.toggle, () => { useMode(theme.resolveGlobal().mode === 'dark' ? 'light' : 'dark') })
-
-  shell.commands.register(THEME_COMMANDS.select, themeId => { selectTheme(themeId) })
-  shell.commands.register(THEME_COMMANDS.set, selection => { theme.setGlobal(selection as ThemeSelection) })
-
   shell.commands.register(THEME_COMMANDS.setForWindow, selection => { theme.setOverride(target(), selection as ThemeSelection) })
   shell.commands.register(THEME_COMMANDS.clearWindowOverride, () => { theme.setOverride(target(), undefined) },
     { enablement: themeKey.overridden })
 
-  return { selectTheme, useThemeInWindow }
+  return { useThemeInWindow }
 }

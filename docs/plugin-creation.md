@@ -20,6 +20,7 @@ extension points.
 - [Providing and using services](#providing-and-using-services)
 - [Contributing views](#contributing-views)
 - [Asking the user: dialogs, prompts and files](#asking-the-user-dialogs-prompts-and-files)
+- [Options the user can change](#options-the-user-can-change)
 - [Storing data in the book](#storing-data-in-the-book)
 - [Using accounts from another plugin](#using-accounts-from-another-plugin)
 - [Styling and theming](#styling-and-theming)
@@ -976,6 +977,93 @@ export default function CategoryDialog({ input, close, setBusy }: DialogProps<{ 
   and `show` resolves undefined once the user closes it. The error is in the DevTools console.
 - `show` rejects only for an id nobody contributed, or when there is no window at all.
 
+## Options the user can change
+
+Anything the user chooses — a default currency, whether to back up automatically — is an **option**. You declare
+its shape and its defaults; the shell stores it, and (from the options dialog) edits it. Options are read from a
+plain file before any plugin activates, so `context.options` is there for every plugin, needs no
+`services.requires`, and is **synchronous**. The design is in
+[options-framework-design.md](options-framework-design.md).
+
+```ts
+export function activate(context: PluginContext) {
+  const options = context.options.register({
+    version: 2,                                   // raise it when the shape changes
+    defaults: { autoBackup: true, backup: { count: 5, folder: null } },
+
+    // Stored values written by an older version of your plugin. You get the stored overrides, not the merged
+    // value, and return the overrides to use instead.
+    migrate: (old, fromVersion) => fromVersion < 2 ? { backup: { count: (old as any).keepBackups ?? 5 } } : old,
+
+    // Checked when they are loaded and whenever the user saves. Return one message per problem.
+    validate: value => value.backup.count >= 1 ? [] : ['Keep at least one backup']
+  })
+
+  options.get()                                   // the complete value: your defaults with the user's changes
+  options.onDidChange((value, previous) => { /* reschedule backups */ })
+}
+```
+
+- **Your options are yours.** The namespace is your plugin id, and there is no namespace to pass, so you can
+  neither read nor write another plugin's. If another plugin needs a value, expose it through a service.
+- **Call `register` once**, from `activate`. A second call throws.
+- **`get()` is never partial.** Only what the user changed is stored, laid over your defaults, so a key you add
+  in a later version appears without a migration — and a default you change reaches everyone who never touched
+  it.
+- **Nothing on disk can stop you activating.** A damaged entry, a value from a newer version of your plugin, or
+  one that fails `validate` falls back to your defaults and logs.
+- Options are **not** the place for secrets, and not the place for data (use the book) or for things you write
+  silently, such as window positions (use `app.state`).
+
+### Contributing an options page
+
+The page that edits your options is a React component in your renderer remote, contributed as plain data:
+
+```ts
+context.extensions.contribute('book', 'shell.options.pages', 'book.options.backup', {
+  id: 'book.options.backup',              // must be your plugin id, or start with it
+  title: 'Backups',
+  parent: 'shell.options.general',        // a shell category, another page, or omitted for the top level
+  module: './BackupOptionsPage',          // omit to contribute a category that only groups pages
+  keywords: ['backup', 'autosave'],
+  order: 10
+})
+```
+
+The shell contributes the categories `shell.options.general` and `shell.options.appearance` to nest under.
+Pages are validated like views: a bad id, a missing title, an unknown parent, a cycle or a duplicate is skipped
+with an `[options]` warning, and the rest of the tree still builds.
+
+Your page is an ordinary React component, default-exported from the module you named, receiving
+`OptionsPageProps<T>` (in `@tessera/types`):
+
+```tsx
+import type { OptionsPageProps } from '@tessera/types'
+import { Checkbox, FormControlLabel } from '@tessera/ui'
+
+export default function BackupOptionsPage({ value, onChange, disabled }: OptionsPageProps<BookOptions>) {
+  return (
+    <FormControlLabel label="Back up automatically" control={
+      <Checkbox disabled={disabled} checked={value.autoBackup}
+                onChange={e => onChange({ ...value, autoBackup: e.target.checked })} />
+    } />
+  )
+}
+```
+
+- **`value` is a draft.** `onChange(next)` replaces it, and nothing reaches your plugin or the disk until the
+  user clicks Apply or OK — the dialog owns the lifecycle, the same for every plugin. The user can wander to
+  other pages and back; the draft keeps. Cancel asks before discarding.
+- Every page of your plugin edits **one shared draft**: your whole namespace. A page usually edits one branch of
+  it.
+- **Restore Defaults** sets the draft to your defaults; it is saved like any other edit.
+- `onValidityChange(false)` disables Apply and OK while your editors hold something unusable — a convenience;
+  your `validate` in the main process is authoritative, and its messages are shown on your page when a save is
+  refused.
+- **Don't call the options IPC from a page** (it demands a session only the dialog holds). A page may still call
+  its own plugin's IPC for actions such as "Test connection".
+- A page that throws shows an error in its own panel; the rest of the dialog still works.
+
 ## Storing data in the book
 
 A user's financial data lives in the **open book**: one file, provided by the bundled `book` plugin as the
@@ -1240,9 +1328,10 @@ Set only the tokens you want to change (`primary`, `secondary`, `error`, `warnin
 `success`, `background.default`, `background.paper`, `text.primary`, `text.secondary`,
 `divider`); the rest come from the shell's theme. Colours are hex or `rgb()`/`hsl()`:
 colour names are rejected so every colour can be parsed and adjusted. A theme with a
-mistake is skipped with a `[theme]` warning. The theme then appears in **View ▸ Theme**
-(and **This Window**), and in the **Choose Theme…** dialog, which shows the user a preview of it
-in each mode before they choose; plugins can't change the theme themselves.
+mistake is skipped with a `[theme]` warning. The theme then appears on the options dialog's
+**Appearance** page (Tools ▸ Options…), which shows the user a preview of it in each mode
+before they apply it, and in **View ▸ Theme for This Window**; plugins can't change the
+theme themselves.
 The sample [test-layout](../plugins/test-layout/src/privileged/index.ts) contributes two.
 
 A theme that is hard to read still works, but the log says so: `Theme "budget.sunrise"

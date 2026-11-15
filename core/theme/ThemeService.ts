@@ -140,6 +140,19 @@ export class ThemeService {
     this.update()
   }
 
+  /**
+   * Applies an already-stored selection without checking it against the registered themes, and without saving:
+   * what `loadGlobal` does at startup, and what the options bridge does when the user saves the Appearance page.
+   * A selection naming a theme that is not registered is kept and shows the default (with a warning when a
+   * window shows it); it resolves itself when the theme's plugin arrives.
+   */
+  applyGlobal(selection: ThemeSelection) {
+    if (selection.theme === this.global.theme && selection.mode === this.global.mode) return
+    this.global = { theme: selection.theme, mode: selection.mode }
+    this.port.setSource(this.platformSource())
+    this.update()
+  }
+
   /** Gives a window its own theme, or with `undefined` returns it to the global setting. */
   setOverride(windowId: number, selection: ThemeSelection | undefined) {
     const entry = this.entry(windowId)
@@ -161,11 +174,7 @@ export class ThemeService {
     })
     const { selection, warning } = parseStoredSelection(raw)
     if (warning) this.log?.warn(`[theme] ${warning}`)
-    if (selection) {
-      this.global = selection
-      this.port.setSource(this.platformSource())
-      this.update()
-    }
+    if (selection) this.applyGlobal(selection)
   }
 
   /** Starts tracking a window, with the override saved under `key` (if any). Resolves with its first state. */

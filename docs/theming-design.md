@@ -796,6 +796,16 @@ plugin publishes.
 it is chosen. It was added after phase 6 as polish, and uses a MUI dialog rather than a
 native one, as decision 16 prefers.
 
+> **Superseded by [options-framework-design.md](options-framework-design.md), phase 4 — now done.**
+> The application-wide theme selection is an option (tier 0, read before
+> plugins activate, so `themeHost.load()` no longer waits for `app-state`), and
+> this chooser is now the **Appearance** page of the options dialog
+> ([AppearancePage.tsx](../shell/renderer/options/AppearancePage.tsx)), reusing
+> `ThemePreview.tsx`. `ThemeChooser.tsx` and the View ▸ Theme global items are
+> gone, since a change now takes effect on Apply rather than instantly; what
+> remains of the menu is **View ▸ Theme for This Window**, the per-window
+> override being state rather than an option.
+
 | Piece | Where |
 |---|---|
 | The dialog, and the host that opens it | [shell/renderer/theme/ThemeChooser.tsx](../shell/renderer/theme/ThemeChooser.tsx) |
