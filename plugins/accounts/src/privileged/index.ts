@@ -31,6 +31,7 @@ export function publicService(service: AccountsServiceImpl): AccountsService {
     reopenAccount: (id, options) => service.reopenAccount(id, options),
     deleteAccount: (id, options) => service.deleteAccount(id, options),
     moveAccount: (id, to, index) => service.moveAccount(id, to, index),
+    transactionTotals: query => service.transactionTotals(query),
     transactions: accountId => service.transactions(accountId),
     payees: service.payees,
     categories: service.categories,

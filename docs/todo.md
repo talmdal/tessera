@@ -118,7 +118,14 @@ The storage engine it builds on is done ([storage-engine-redesign.md](storage-en
       transactions, transfers, payees, seeded categories, balances from
       transactions, minimum balances, and the register. Results in
       [account-manager-implementation.md](account-manager-implementation.md#transactions-and-register-results-phase-2-transactions-half-and-phase-4).
-- [ ] **Phase 3, rest:** the accounts home view.
+- [ ] **Phase 3, rest:** the accounts home view. Envisioned as a page that
+      plugins contribute widgets to; the budget's widget and what it needs are
+      in [budget-design.md](budget-design.md#on-the-home-view).
+- [x] **`formatAmount` built two `Intl.NumberFormat`s on every call** (97 µs
+      each, against 3 µs to format with one kept; found in the budget spike),
+      which the register paid for every row. It keeps them now: 10,000 amounts
+      in 35 ms of CPU time instead of 971 ms
+      ([budget-design.md](budget-design.md#phase-b1-results)).
 - [ ] **Register, later:** the two-line layout, windowed rendering for very
       long registers, sorting and filtering, and splits. (`externalId` on
       drafts is done, with the other methods importers need: see
@@ -256,6 +263,77 @@ The storage engine it builds on is done ([storage-engine-redesign.md](storage-en
         ([Later](export-design.md#later)).
   - [x] **At the end of X3:** removed `scripts/export-spike/` and
         `npm run spike:export`; X0's checks by hand use File › Export….
+- [ ] **Budgets** ([budget-design.md](budget-design.md), reviewed 2026-11-15): a
+      `budget` plugin, with `accounts.service.transactionTotals` and the archive's
+      `removedTotals` as its generic additions to `accounts`.
+  - [x] **Review:** Q1 to Q14 answered and applied: transfers across a budget's
+        scope count, plans can be due on a date, *Remaining*, no rollover, a
+        home view widget
+        ([decisions](budget-design.md#decisions-taken-in-review)).
+  - [x] **B0:** the spike. Totals under 50 ms for a year at 100,000
+        transactions; the date arithmetic right on every day 1970 to 2100 in
+        six time zones; a 150-line grid needs no windowing (editors must keep
+        what is typed); the archive's totals fit when packed by account and
+        month, which the design now says. Results:
+        [budget-design.md](budget-design.md#phase-b0-results).
+  - [ ] **B0, by hand (in B3):** scrolling a budget of about 150 lines, and how
+        long the view and the year grid take to open, on Windows: the spike ran
+        in a headless, software-drawn Chromium, as Electron couldn't be
+        installed there.
+  - [x] **B1:** `accounts.service.transactionTotals` and the archive's
+        `removedTotals` (`@tessera/accounts-api` 1.13), and `formatAmount`
+        keeping its formatters (28 times faster); no visible change. Results:
+        [budget-design.md](budget-design.md#phase-b1-results).
+  - [x] **B2:** `@tessera/budget-api` and the budget domain (category and
+        transfer lines, due dates), with the sub-ledger and archive
+        participants; no UI. Proved through `budget.service`: the design's
+        worked cases, every transaction in one row, every month's actual the
+        same after an archive. Results:
+        [budget-design.md](budget-design.md#phase-b2-results).
+  - [x] **B3:** the budget view (a month or the year to date), the Budget
+        menu, the Budgets tab, and the New Budget, Budget Line and Transactions
+        dialogs; read-only on an archive file; `@tessera/budget-api` 1.1 and
+        `@tessera/ui` 1.5 (`LinearProgress`). The sample ledger has a
+        *Household* budget and a business paying its owner. Results:
+        [budget-design.md](budget-design.md#phase-b3-results).
+  - [ ] **B3, by hand:** the sample ledger's budget in `npm run dev` (a month,
+        the year to date, a line changed from a month, the insurance due on the
+        15th, the owner's pay, a transaction entered in the register showing in
+        the view, the archive file read-only), in light and dark themes. Electron
+        couldn't be installed where B3 was built; the view and dialogs were drawn
+        in a headless Chromium instead.
+  - [x] **B4:** the Year, twelve months and a total of the budget, the actual
+        or what remains, with a month's own amount typed in its cell and *Use
+        the plan*; Fill from History (also from New Budget); Duplicate
+        Budget…; `@tessera/budget-api` 1.2. Results:
+        [budget-design.md](budget-design.md#phase-b4-results).
+  - [ ] **B4, by hand:** the sample household's budget filled from its history
+        in `npm run dev`; typing months into the Year, and how long it takes to
+        open with about 150 lines, on Windows (0.8 s in a headless Chromium
+        here, about B0's time).
+  - [x] **B5:** the Budget page (*Warn at*, bars, empty lines, the status
+        bar, Fill from History's months and step), followed as it changes;
+        "Budget: 2 lines over" in the status bar; `budget.service` warning at
+        *Warn at* and documented for other plugins; `@tessera/budget-api` 1.3.
+        Results: [budget-design.md](budget-design.md#phase-b5-results).
+  - [ ] **B5, by hand:** the Budget page in Tools › Options…, and the status
+        bar's warning, in `npm run dev`, light and dark.
+  - [x] **Review after B5:** six bugs fixed, each with a test shown to fail
+        without its fix: a half-saved Budget Line, a Year that stopped
+        answering, shares one point low, *Use the plan* failing silently, a
+        rolled-back sub-ledger delete announced, a hidden view reading its
+        status; a currency with other decimals refused while a budget has
+        lines; and the smells the review found. Results:
+        [budget-design.md](budget-design.md#review-after-b5).
+  - [ ] **Later, if a report needs payee names too:** a payee lookup by id in
+        `accounts.service`, so the Transactions dialog needn't read whole
+        registers ([review](budget-design.md#review-after-b5)).
+  - [ ] **B6:** the home view widget, once the home view takes widgets.
+  - [ ] **Later: move the Budget menu under a *Planning* menu** when reports
+        arrive (review, Q13). Only the menu contributions change.
+  - [ ] **Later:** where spending would be by today (Q14), excluded accounts
+        (Q9), several currencies (Q6), envelope budgets (Q1), importing budgets
+        (Q11); see [Later](budget-design.md#later).
 - [ ] **Statement import, phase 4:** history and undo, and navigator badges.
       (Its Saved Account Matches dialog is built, as Saved Import Choices, in
       F6.)
@@ -703,9 +781,13 @@ shrinks the file.
       (`tests/plugins/ledger/renderer/views.test.tsx`). Which ones time out varies from run to run on a 4-core
       machine. The CSV Columns tests were brought well under the limit by finding elements by label and text
       rather than by role and accessible name (see import-formats-design.md, phase F4): the same would help here.
+      In the budget's B3 and B4 runs, on a machine busy with other work, one to six of these timed out in each full run
+      (the account dialog and register, the Fonts and Appearance pages, the Export and CSV Columns dialogs), a different
+      few each time, each passing alone.
 - [ ] **A SQLite snapshot failed once under a full run:** *lets writes carry on, and copies one committed state*
       (`tests/plugins/storage.sqlite/SqliteStorageEngine.test.ts`) gave `could not snapshot database … : not an error`,
-      and passed alone and on the next run. SQLite's online backup can return BUSY while a write holds the database;
+      and passed alone and on the next run (again once in the budget's B4 runs). SQLite's online backup can return BUSY
+      while a write holds the database;
       the snapshot may need to retry a step then, rather than report it.
 - [x] **React `act(...)` warnings fail the test.** They were noise that came and went with timing: a test asserted
       before the component had settled (a click's reply, a load on mount). `tests/setup/setupTests.ts` now fails the

@@ -95,7 +95,7 @@ describe('the accounts plugin: contributions', () => {
     const { accounts, runtime } = await setup()
     expect(Object.keys(accounts).sort()).toEqual([
       'balances', 'categories', 'chart', 'closeAccount', 'createAccount', 'deleteAccount', 'get', 'list', 'moveAccount',
-      'onDidChange', 'payees', 'reconciliation', 'reopenAccount', 'transactions', 'updateAccount'
+      'onDidChange', 'payees', 'reconciliation', 'reopenAccount', 'transactionTotals', 'transactions', 'updateAccount'
     ])
     expect(runtime.services.has('accounts.migrator')).toBe(true)
     expect(runtime.extensions.getContributions('ledger.schema').map(c => c.id)).toEqual(['accounts'])

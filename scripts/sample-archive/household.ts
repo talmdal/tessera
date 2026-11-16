@@ -1,6 +1,8 @@
-// A sample ledger and its archive file, for trying archives by hand: "Household", with nearly four years of a made-up
-// household's money (January 2023 to October 2026) in a chequing account, a savings account and a Visa card, reconciled
-// month by month to September 2026, then archived before 1 January 2026 as File › Archive Ledger… will archive it.
+// A sample ledger and its archive file, for trying archives and budgets by hand: "Household", with nearly four years of a
+// made-up household's money (January 2023 to October 2026) in a chequing account, a savings account and a Visa card in a
+// Personal sub-ledger, and a small business in a Business sub-ledger that pays its owner each month; a "Household" budget
+// over Personal; everything reconciled month by month to September 2026, then archived before 1 January 2026 as File ›
+// Archive Ledger… will archive it.
 //
 // Built through the real ledger session, accounts service and SQLite engine, so the files are always in step with the
 // code: an archive can't be migrated (it opens read-only), so a file kept in the repository would stop opening as soon
@@ -10,6 +12,10 @@
 // What the archive leaves behind, to see in the app: an old cheque never cashed, a Visa charge cleared but not yet
 // reconciled, and a transfer to savings whose savings side isn't reconciled, all from before the archive date; a closed
 // account with nothing left (removed); and a closed store card written off with a balance (kept, with a note).
+//
+// The budget, to see in the app (docs/budget-design.md, phase B3): the pay twice a month, the owner's pay from the
+// business (a transfer across the budget's scope, so income), rent due on the 1st, a home insurance bill due every March,
+// groceries with no particular day and more from 2026, and the archived years' actuals, which the archive kept.
 import fs from 'node:fs'
 import path from 'node:path'
 import { KitStorageEngine } from '@tessera/storage-kit'
@@ -17,11 +23,14 @@ import type { AppState, ShellFiles, ShellPrompts } from '@tessera/types'
 import { LEDGER_ARCHIVES_FOLDER, LEDGER_FILE_EXTENSION, LEDGER_SCHEMA_POINT, type ArchiveOutcome } from '@tessera/ledger-api'
 import { ACCOUNTS_MIGRATOR_SERVICE, categoryLabel, type AccountInput, type TransactionDraft } from '@tessera/accounts-api'
 import { IMPORT_MIGRATOR_SERVICE } from '@tessera/import-api'
+import { BUDGET_MIGRATOR_SERVICE, type LinePlan, type LineTarget } from '@tessera/budget-api'
 import { ExtensionRegistryImpl } from '../../core/extensions/ExtensionRegistry'
 import { ServiceRegistryImpl } from '../../core/services/ServiceRegistry'
 import { createPluginState } from '../../core/state/PluginState'
 import { AccountsServiceImpl } from '../../plugins/accounts/src/privileged/AccountsServiceImpl'
 import { ACCOUNTS_SCHEMA, accountsMigrator } from '../../plugins/accounts/src/privileged/schema'
+import { BudgetServiceImpl } from '../../plugins/budget/src/privileged/BudgetServiceImpl'
+import { BUDGET_SCHEMA, budgetMigrator } from '../../plugins/budget/src/privileged/schema'
 import { importArchiver } from '../../plugins/import/src/privileged/archive'
 import { IMPORT_SCHEMA, importMigrator } from '../../plugins/import/src/privileged/schema'
 import { ArchiveService } from '../../plugins/ledger/src/privileged/archive/ArchiveService'
@@ -100,8 +109,10 @@ export async function makeSampleArchive(folder: string, options: { replace?: boo
   const services = new ServiceRegistryImpl()
   extensions.contribute('accounts', LEDGER_SCHEMA_POINT, 'accounts', ACCOUNTS_SCHEMA)
   extensions.contribute('import', LEDGER_SCHEMA_POINT, 'import', IMPORT_SCHEMA)
+  extensions.contribute('budget', LEDGER_SCHEMA_POINT, 'budget', BUDGET_SCHEMA)
   services.provide('accounts', ACCOUNTS_MIGRATOR_SERVICE, accountsMigrator)
   services.provide('import', IMPORT_MIGRATOR_SERVICE, importMigrator)
+  services.provide('budget', BUDGET_MIGRATOR_SERVICE, budgetMigrator)
   const state = new Map<string, unknown>()
   const appState: AppState = {
     get: async <T>(key: string, defaultFn?: () => T) => (state.has(key) ? state.get(key) : defaultFn?.()) as T | undefined,
@@ -128,9 +139,13 @@ export async function makeSampleArchive(folder: string, options: { replace?: boo
   })
   const archives = new ArchiveService({ session, backups, disk, settings: () => ARCHIVE_SETTINGS.defaults, log: quiet, now: () => TODAY })
   const accounts = new AccountsServiceImpl({ session, log: quiet, today: () => '2026-11-10', now: () => TODAY.toISOString() })
+  const budgets = new BudgetServiceImpl({ session, accounts, log: quiet, now: () => TODAY.toISOString() })
   session.participate('accounts', accounts.participant)
+  session.participate('budget', budgets.subLedgerParticipant)
+  // In the app's order: the plugins that require accounts.service join after it
   session.participateInArchive('accounts', accounts.archiver)
   session.participateInArchive('import', importArchiver({ changed: () => {} }))
+  session.participateInArchive('budget', budgets.archiver)
 
   try {
     await session.create(files.ledger)
@@ -141,14 +156,17 @@ export async function makeSampleArchive(folder: string, options: { replace?: boo
       if (!found) throw new Error(`No category “${label}”`)
       return found.id
     }
+    const personal = await session.createSubLedger({ name: 'Personal', parentId: null })
+    const business = await session.createSubLedger({ name: 'Business', parentId: null })
     const open = (input: Partial<AccountInput> & Pick<AccountInput, 'name' | 'type'>) => accounts.createAccount({
-      subLedgerId: null, currency: 'CAD', openingDate: '2023-01-01', openingBalance: 0, ...input
+      subLedgerId: personal.id, currency: 'CAD', openingDate: '2023-01-01', openingBalance: 0, ...input
     })
     const chequing = await open({ name: 'Chequing', type: 'chequing', institution: 'Maple Trust Bank', accountNumber: '8812340187', openingBalance: dollars(2500) })
     const savings = await open({ name: 'Savings', type: 'savings', institution: 'Maple Trust Bank', openingBalance: dollars(8000), minimumBalance: dollars(5000), showAvailableBalance: true })
     const visa = await open({ name: 'Visa', type: 'creditCard', institution: 'Northwind Card Services', creditLimit: dollars(5000) })
     const oldSavings = await open({ name: 'Old Savings', type: 'savings', institution: 'Harbour Bank', openingBalance: dollars(1200) })
     const storeCard = await open({ name: 'Store Card', type: 'creditCard', institution: 'Lakeside Department Store' })
+    const businessChequing = await open({ name: 'Business Chequing', type: 'chequing', subLedgerId: business.id, institution: 'Maple Trust Bank', openingBalance: dollars(3000) })
     const t = (id: string) => accounts.transactions(id)
 
     // ---- Every month's money, oldest first
@@ -177,6 +195,11 @@ export async function makeSampleArchive(folder: string, options: { replace?: boo
       // Paid in full every month, from chequing
       await t(chequing.id).create({ date: day(27), amount: purchases.reduce((sum, p) => sum + p.amount, 0), payee: 'Northwind Card Services', transferAccountId: visa.id })
       await t(savings.id).create({ date: end, amount: dollars(5) + (i * 7) % 400, payee: 'Interest', categoryId: category('Interest') })
+      // The business: a client pays it, and it pays its owner (a transfer from the Business sub-ledger into Personal)
+      await t(businessChequing.id).create({ date: day(8), amount: dollars(1500) + wobble(i, 40000), payee: 'Harbourview Design', categoryId: category('Other income') })
+      await t(businessChequing.id).create({ date: day(25), amount: -dollars(1200), payee: 'Owner’s pay', transferAccountId: chequing.id })
+      // Home insurance, every March
+      if (month === 3) await t(chequing.id).create({ date: day(15), amount: -(dollars(460) + wobble(i, 4000)), payee: 'Northbridge Insurance', categoryId: category('Housing : Home insurance') })
       if (year === 2023 || (year === 2024 && month <= 2)) await t(oldSavings.id).create({ date: end, amount: dollars(3), payee: 'Interest', categoryId: category('Interest') })
       if (year === 2023 && month >= 2 && month <= 6) {
         const owed = [12000, 8000, 15000, 6000, 9000][month - 2]
@@ -201,7 +224,7 @@ export async function makeSampleArchive(folder: string, options: { replace?: boo
 
     // ---- Reconciled against each month's statement, to September 2026
     say('Reconciling each month’s statements…')
-    for (const account of [chequing, savings, visa, oldSavings, storeCard]) {
+    for (const account of [chequing, savings, visa, oldSavings, storeCard, businessChequing]) {
       for (const { year, month } of months()) {
         if (year === 2026 && month > 9) break
         const from = iso(year, month, 1), to = iso(year, month, lastDay(year, month))
@@ -220,6 +243,27 @@ export async function makeSampleArchive(folder: string, options: { replace?: boo
     await accounts.closeAccount(oldSavings.id, { closedOn: '2024-03-31' })
     await accounts.closeAccount(storeCard.id, { closedOn: '2024-06-30', confirm: ['closeWithBalance'] })
 
+    // ---- The household's budget, made before the archive, so the archived years keep their actuals
+    say('Planning the Household budget…')
+    const budget = await budgets.create({ name: 'Household', subLedgerId: personal.id, currency: 'CAD', yearStartMonth: 1, notes: 'The sample household’s plan' })
+    const plan = (amount: number, over: Partial<LinePlan> = {}): LinePlan => ({ from: '2023-01', amount, frequency: 'monthly', due: '2023-01', ...over })
+    const lines: [LineTarget, LinePlan][] = [
+      [{ kind: 'category', categoryId: category('Salary') }, plan(dollars(2450), { frequency: 'twiceAMonth', due: '2023-01-01', secondDay: 15 })],
+      [{ kind: 'category', categoryId: category('Interest') }, plan(dollars(6))],
+      [{ kind: 'transfer', accountId: businessChequing.id, direction: 'in' }, plan(dollars(1200), { due: '2023-01-25' })],
+      [{ kind: 'category', categoryId: category('Housing : Rent') }, plan(dollars(1450), { due: '2023-01-01' })],
+      [{ kind: 'category', categoryId: category('Housing : Home insurance') }, plan(dollars(480), { frequency: 'yearly', due: '2023-03-15' })],
+      [{ kind: 'category', categoryId: category('Utilities : Electricity') }, plan(dollars(90), { due: '2023-01-20' })],
+      [{ kind: 'category', categoryId: category('Food : Groceries') }, plan(dollars(450))],
+      [{ kind: 'category', categoryId: category('Food : Dining out') }, plan(dollars(60))],
+      [{ kind: 'category', categoryId: category('Transportation : Fuel') }, plan(dollars(130))],
+      [{ kind: 'category', categoryId: category('Personal : Clothing') }, plan(dollars(45))]
+    ]
+    for (const [target, first] of lines) await budgets.addLine(budget.id, { target, plan: first })
+    // Groceries went up in 2026: a change from a month on
+    const groceriesLine = (await budgets.lines(budget.id)).find(l => l.target.kind === 'category' && l.target.categoryId === category('Food : Groceries'))!
+    await budgets.changeLine(groceriesLine.id, { apply: 'from', plan: plan(dollars(500), { from: '2026-01', due: '2026-01' }) })
+
     // ---- Archived by File › Archive Ledger…'s service: the archive file first, made and checked as a backup, then the
     // removal
     const said = (await session.describeArchive(ARCHIVE_BEFORE)).flatMap(part => [
@@ -236,6 +280,7 @@ export async function makeSampleArchive(folder: string, options: { replace?: boo
     throw err
   } finally {
     await session.close().catch(() => {})
+    budgets.dispose()
     accounts.dispose()
     fs.rmSync(path.join(path.resolve(folder), '.storage'), { recursive: true, force: true })
   }

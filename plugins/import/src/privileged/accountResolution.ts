@@ -4,7 +4,7 @@
 // "Finding the account".
 import type { Logger, ShellPrompts } from '@tessera/types'
 import {
-  ACCOUNTS_DIALOGS, ACCOUNT_NUMBER_MAX_LENGTH, ACCOUNT_TYPE_LABELS, BANK_ID_MAX_LENGTH, INTUIT_BANK_ID_MAX_LENGTH, accountNumberKey, maskAccountNumber, shownBalance,
+  ACCOUNTS_DIALOGS, ACCOUNT_NUMBER_MAX_LENGTH, ACCOUNT_TYPE_LABELS, BANK_ID_MAX_LENGTH, INTUIT_BANK_ID_MAX_LENGTH, accountNumberKey, maskAccountNumber, mostUsedCurrency, shownBalance,
   type Account, type AccountDialogInput as NewAccountDialogInput, type AccountInput, type AccountsService, type AccountSummary,
   type Chart
 } from '@tessera/accounts-api'
@@ -39,13 +39,6 @@ const lastFour = (number: string) => accountNumberKey(number).replace(/x+/g, '')
 
 const sameText = (a: string | undefined, b: string | undefined) =>
   a !== undefined && b !== undefined && a.trim().toLowerCase() === b.trim().toLowerCase()
-
-/** The usual currency of the ledger's accounts (the accounts plugin's rule), or `fallback`. */
-export function usualCurrency(chart: Chart, fallback = 'CAD'): string {
-  const counts = new Map<string, number>()
-  for (const { account } of chart.accounts) counts.set(account.currency, (counts.get(account.currency) ?? 0) + 1)
-  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? fallback
-}
 
 /**
  * The accounts the dialog lists, best first: those in the statement's currency, the one used last time, one whose
@@ -295,7 +288,7 @@ export class AccountResolver {
 
   /** The accounts plugin's New Account form, filled in from the statement. */
   private async createAccount(request: ResolveRequest, chart: Chart): Promise<Account | undefined> {
-    const currency = request.statement.currency ?? usualCurrency(chart)
+    const currency = request.statement.currency ?? mostUsedCurrency(chart.accounts.map(s => s.account), 'CAD')
     const input: NewAccountDialogInput = {
       mode: 'create', subLedgerId: null, subLedgers: chart.subLedgers, ledgerName: chart.ledger.name, defaultCurrency: currency,
       initial: accountFromStatement(request.statement, currency, this.deps.today())

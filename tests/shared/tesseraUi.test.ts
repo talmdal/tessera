@@ -11,7 +11,7 @@ describe('@tessera/ui', () => {
     expect(Object.keys(ui).sort()).toEqual([
       'Alert', 'Autocomplete', 'Box', 'Button', 'Checkbox', 'CircularProgress', 'Collapse', 'Dialog', 'DialogActions',
       'DialogContent', 'DialogTitle', 'Divider', 'FormControl', 'FormControlLabel', 'FormHelperText', 'FormLabel', 'Icon',
-      'IconButton', 'InputAdornment', 'List', 'ListItemButton', 'ListItemIcon', 'ListItemText', 'Menu', 'MenuItem',
+      'IconButton', 'InputAdornment', 'LinearProgress', 'List', 'ListItemButton', 'ListItemIcon', 'ListItemText', 'Menu', 'MenuItem',
       'Paper', 'Radio', 'RadioGroup', 'Stack', 'TESSERA_UI_VERSION', 'Tab', 'Table', 'TableBody', 'TableCell',
       'TableContainer', 'TableHead', 'TableRow', 'Tabs', 'TextField', 'ToggleButton', 'ToggleButtonGroup', 'Toolbar',
       'Tooltip', 'Typography', 'createSvgIcon', 'useFontRoles', 'useTheme', 'useThemeState'

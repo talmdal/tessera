@@ -17,8 +17,10 @@ import {
   ACCOUNTS_CHANNELS, ACCOUNTS_COMMANDS, ACCOUNTS_CONTEXT_KEYS, ACCOUNTS_SERVICE, type AccountsService, type RegisterAnnotator
 } from '@tessera/accounts-api'
 import { IMPORT_ANNOTATOR_SERVICE } from '@tessera/import-api'
+import { BUDGET_SERVICE, type BudgetService } from '@tessera/budget-api'
 import { createPluginContext, createPluginRuntime } from '../../../core/plugins/PluginContext'
 import { activate as activateAccounts } from '../../../plugins/accounts/src/privileged/index'
+import { activate as activateBudget } from '../../../plugins/budget/src/privileged/index'
 import { activate as activateImport } from '../../../plugins/import/src/privileged/index'
 import { activate as activateOfx } from '../../../plugins/format-ofx/src/privileged/index'
 import { activate as activateLedger } from '../../../plugins/ledger/src/privileged/index'
@@ -27,7 +29,7 @@ import { makeSampleArchive } from '../../../scripts/sample-archive/household'
 import { createTempModulesDir } from '../../helpers/tempModules'
 import { fakePrompts, logger, memoryAppState } from './harness'
 
-/** The ledger, accounts, import and OFX plugins on the real SQLite engine and disk, as the app runs them. */
+/** The ledger, accounts, import, OFX and budget plugins on the real SQLite engine and disk, as the app runs them. */
 async function app(dir: string) {
   const log = logger()
   const runtime = createPluginRuntime(undefined, log)
@@ -40,7 +42,7 @@ async function app(dir: string) {
   const { prompts } = fakePrompts()
   runtime.services.provide('shell', SHELL_PROMPTS_SERVICE, prompts)
   createPluginContext('shell', runtime).context.commands.register('shell.layout.reveal', () => {})
-  for (const [id, activate] of [['ledger', activateLedger], ['accounts', activateAccounts], ['import', activateImport], ['format-ofx', activateOfx]] as const) {
+  for (const [id, activate] of [['ledger', activateLedger], ['accounts', activateAccounts], ['import', activateImport], ['format-ofx', activateOfx], ['budget', activateBudget]] as const) {
     await (activate as (context: unknown) => Promise<void>)({ ...createPluginContext(id, runtime).context, logger: log })
   }
   await runtime.lifecycle.markStarted()
@@ -48,6 +50,7 @@ async function app(dir: string) {
     log, runtime, prompts,
     session: runtime.services.get<LedgerSession>(LEDGER_SESSION_SERVICE),
     accounts: runtime.services.get<AccountsService>(ACCOUNTS_SERVICE),
+    budgets: runtime.services.get<BudgetService>(BUDGET_SERVICE),
     annotator: runtime.services.get<RegisterAnnotator>(IMPORT_ANNOTATOR_SERVICE)
   }
 }
@@ -67,7 +70,7 @@ describe('the sample archive', () => {
     const dir = createTempModulesDir()
     const made = await makeSampleArchive(dir)
 
-    expect(made.outcome).toMatchObject({ before: '2026-01-01', summaries: ['644 transactions from 5 accounts, and 1 closed account with nothing left'] })
+    expect(made.outcome).toMatchObject({ before: '2026-01-01', summaries: ['755 transactions from 6 accounts, and 1 closed account with nothing left'] })
     // Compacted as the archive's last step: the file gave back the space the archived transactions took
     const compaction = made.outcome.compaction as { before: number, after: number }
     expect(compaction.after).toBeLessThan(compaction.before)
@@ -83,7 +86,7 @@ describe('the sample archive', () => {
     const before = { bytes: fs.readFileSync(made.archive), modified: fs.statSync(made.archive).mtimeMs }
     const beside = () => fs.readdirSync(path.dirname(made.archive)).filter(f => f !== path.basename(made.archive))
 
-    const { log, session, accounts, annotator, runtime } = await app(dir)
+    const { log, session, accounts, annotator, runtime, budgets } = await app(dir)
     const ask = async (channel: string, data?: unknown) => {
       const reply = await runtime.ipc.dispatch({ channel, data })
       if (!reply.ok) throw new Error(reply.error.message)
@@ -99,7 +102,7 @@ describe('the sample archive', () => {
     await runtime.commands.execute(ACCOUNTS_COMMANDS.openRegister, { id: anyAccount.id })
     expect(runtime.contextKeys.get(ACCOUNTS_CONTEXT_KEYS.registerEditable)).toBe(false)
     const inArchive = await balances(accounts)
-    expect(Object.keys(inArchive).sort()).toEqual(['Chequing', 'Old Savings', 'Savings', 'Store Card', 'Visa'])
+    expect(Object.keys(inArchive).sort()).toEqual(['Business Chequing', 'Chequing', 'Old Savings', 'Savings', 'Store Card', 'Visa'])
     for (const account of await accounts.list()) {
       const { rows } = await accounts.transactions(account.id).register()
       expect(rows.length, account.name).toBeGreaterThan(0)
@@ -107,14 +110,30 @@ describe('the sample archive', () => {
     }
     const chequing = (await accounts.list()).find(a => a.name === 'Chequing')!
     expect((await accounts.transactions(chequing.id).list({ to: '2023-01-31' })).length).toBeGreaterThan(5)
+    // The Household budget, as it was: 2025 from the archive's own transactions
+    const [household] = await budgets.list()
+    const year2025 = { from: '2025-01', to: '2025-12' }
+    const archivedYear = await budgets.status(household.id, year2025)
+    expect(archivedYear.archived).toBeUndefined()
+    expect(archivedYear.rows.find(r => r.label === 'Transfers from Business Chequing')?.figures).toEqual({ budget: 1440000, actual: 1440000, remaining: 0 })
     expect(beside()).toEqual([])
 
     // The ledger: the same balances, without what was archived or the closed account left with nothing
     await session.open(made.ledger)
     expect((await ask(ACCOUNTS_CHANNELS.chart)).ledger).toEqual({ name: 'Household' })
     const inLedger = await balances(accounts)
-    expect(Object.keys(inLedger).sort()).toEqual(['Chequing', 'Savings', 'Store Card', 'Visa'])
+    expect(Object.keys(inLedger).sort()).toEqual(['Business Chequing', 'Chequing', 'Savings', 'Store Card', 'Visa'])
     for (const name of Object.keys(inLedger)) expect(inLedger[name], name).toEqual(inArchive[name])
+    // Every 2025 actual as it was, now mostly from what the archive kept
+    const keptYear = await budgets.status(household.id, year2025)
+    expect(keptYear.rows).toEqual(archivedYear.rows)
+    expect(keptYear.totals).toEqual(archivedYear.totals)
+    expect(Object.keys(keptYear.archived ?? {}).length).toBeGreaterThan(5)
+    // Fill from History over a year that straddles the archive date: the archived half counts as the kept half does
+    const suggested = await budgets.suggest(household.id, { months: 12, start: '2026-07', step: 1000 })
+    expect(suggested.find(x => x.label === 'Salary')).toMatchObject({ amount: 490000, frequency: 'monthly', existingPlan: { amount: 245000 } })
+    expect(suggested.find(x => x.label === 'Business Chequing')).toMatchObject({ amount: 120000, target: { direction: 'in' } })
+    expect(suggested.find(x => x.label === 'Housing : Home insurance')).toMatchObject({ frequency: 'yearly', due: '2026-03' })
     const now = (await accounts.list()).find(a => a.name === 'Chequing')!
     expect(now).toMatchObject({ openingDate: '2023-01-01', lastArchiveDate: '2026-01-01' })
     expect(await accounts.transactions(now.id).list({ to: '2025-12-31' })).toHaveLength(2)    // the cheque never cashed, and the top-up

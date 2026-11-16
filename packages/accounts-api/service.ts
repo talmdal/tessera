@@ -7,7 +7,7 @@
 //
 import type { Event } from '@tessera/types'
 import type { Confirmation } from './errors'
-import type { Account, AccountBalances, AccountClass, AccountType, Chart } from './model'
+import type { Account, AccountBalances, AccountClass, AccountType, Chart, TotalsQuery, TransactionTotal } from './model'
 import type { ReconciliationService } from './reconciliation'
 import type { CategoryDirectory, PayeeDirectory, TransactionManager } from './transactions'
 
@@ -102,6 +102,16 @@ export interface AccountsService {
   chart(options?: { includeClosed?: boolean }): Promise<Chart>
   /** An account's balances, from its opening balance and its (non-voided) transactions. */
   balances(id: string): Promise<AccountBalances>
+  /**
+   * Totals of the transactions dated from `from` to `to`, inclusive, for reports and budgets: one row per account,
+   * month, and category (or none), with money in and money out apart. Voided transactions are left out, every clearing
+   * status is counted, and transfers are left out unless `includeTransfers`, when they are totalled by their other
+   * account (`categoryId` null), both sides if both accounts are asked for. Only accounts that exist are counted,
+   * closed ones included. Rows come in order of month, then account, then category or transfer account. (When there
+   * are splits, each part will count by its own category.) Fails with INVALID, naming the field, for a date that isn't
+   * YYYY-MM-DD, `from` after `to`, or `accountIds` that isn't a list of ids. (Since accounts-api 1.13.)
+   */
+  transactionTotals(query: TotalsQuery): Promise<TransactionTotal[]>
 
   createAccount(input: AccountInput): Promise<Account>
   /** Refused with ACCOUNT_CLOSED for a closed account: reopen it first. */

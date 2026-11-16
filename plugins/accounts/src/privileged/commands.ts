@@ -4,9 +4,9 @@ import type { Disposable, PluginContext, ShellPrompts } from '@tessera/types'
 import { LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS } from '@tessera/ledger-api'
 import {
   ACCOUNTS_COMMANDS, ACCOUNTS_CONTEXT_KEYS, ACCOUNTS_DIALOGS, ACCOUNTS_EVENTS, ACCOUNTS_VIEWS, accountNameKey, categoryLabel,
-  formatAmount, isAccountsError, isLiability,
+  formatAmount, isAccountsError, isLiability, mostUsedCurrency,
   STATEMENT_RECONCILER,
-  type Account, type AccountDialogInput, type Chart, type ItemArgs, type MoveDialogInput, type NewAccountArgs,
+  type Account, type AccountDialogInput, type ItemArgs, type MoveDialogInput, type NewAccountArgs,
   type Category, type ReconcileActionArgs, type ReconcileDialogInput, type StatementInput
 } from '@tessera/accounts-api'
 import type { AccountsServiceImpl } from './AccountsServiceImpl'
@@ -18,13 +18,6 @@ const WRITABLE = `${LEDGER_CONTEXT_KEYS.isOpen} && !${LEDGER_CONTEXT_KEYS.isRead
 const ACCOUNT = `${WRITABLE} && ${K.selectionKind} == 'account'`
 const SUB_LEDGER = `${WRITABLE} && ${K.selectionKind} == 'subLedger'`
 const ACCOUNT_OR_REGISTER = `${LEDGER_CONTEXT_KEYS.isOpen} && ${K.selectionKind} == 'account'`
-
-/** The currency most accounts in the ledger use; for a ledger with none, the locale's guess, else CAD. */
-export function usualCurrency(chart: Chart, fallback = 'CAD'): string {
-  const counts = new Map<string, number>()
-  for (const { account } of chart.accounts) counts.set(account.currency, (counts.get(account.currency) ?? 0) + 1)
-  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? fallback
-}
 
 /**
  * The categories the statement dialog suggests, by label, when the ledger has them: Bank fees for a service charge;
@@ -75,7 +68,7 @@ export function registerCommands(
 
   const dialogBasics = async () => {
     const chart = await service.chart()
-    return { chart, basics: { subLedgers: chart.subLedgers, ledgerName: chart.ledger.name, defaultCurrency: usualCurrency(chart) } }
+    return { chart, basics: { subLedgers: chart.subLedgers, ledgerName: chart.ledger.name, defaultCurrency: mostUsedCurrency(chart.accounts.map(s => s.account), 'CAD') } }
   }
 
   const reveal = async (viewId: string) => {

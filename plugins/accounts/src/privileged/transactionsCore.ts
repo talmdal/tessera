@@ -11,7 +11,8 @@ import {
   PAYEE_NAME_MAX_LENGTH, TRANSACTION_NUMBER_MAX_LENGTH, accountNameKey, categoryLabel, isAmount, isIsoDate,
   transferLabel,
   type Account, type AccountBalances, type BankMatch, type BankUnmatch, type Category, type ClearingStatus, type Confirmation, type PayeeSuggestion,
-  type RegisterSnapshot, type Transaction, type TransactionDraft, type TransactionPatch, type WriteOptions
+  type RegisterSnapshot, type TotalsQuery, type Transaction, type TransactionDraft, type TransactionPatch, type TransactionTotal,
+  type WriteOptions
 } from '@tessera/accounts-api'
 import {
   invalid, optionalText, toAccount, toCategory, toPayee, toTransaction,
@@ -87,6 +88,98 @@ export function balancesFor(account: Pick<Account, 'openingBalance' | 'minimumBa
 
 export async function balancesOf(c: Collections, account: Account): Promise<AccountBalances> {
   return balancesFor(account, (await sumsByAccount(c)).get(account.id))
+}
+
+// ---- Totals by account, month, and category or transfer account (for reports and budgets; docs/budget-design.md)
+
+/** What totals read of a transaction. */
+export type Totalled = Pick<StoredTransaction, 'accountId' | 'date' | 'amount' | 'voided' | 'categoryId' | 'transferAccountId'>
+
+/**
+ * Totals built one transaction at a time, grouped account, then month, then category or transfer account: nested maps,
+ * which the budget spike found faster than one key joined from three ids (docs/budget-design.md, Phase B0 results), and
+ * which build no key at all for a transaction (archives total tens of thousands, and every allocation is garbage to
+ * collect). `make` creates a row the first time its group is met; the builder adds each transaction's amount to it.
+ */
+export class TotalsBuilder<T extends TransactionTotal> {
+  private readonly groups = new Map<string, Map<string, MonthGroups<T>>>()
+  readonly rows: T[] = []
+
+  constructor(private readonly make: (transaction: Totalled, month: string) => T) {}
+
+  add(t: Totalled): void {
+    let byMonth = this.groups.get(t.accountId)
+    if (!byMonth) this.groups.set(t.accountId, byMonth = new Map())
+    const month = t.date.slice(0, 7)
+    let groups = byMonth.get(month)
+    if (!groups) byMonth.set(month, groups = { categories: new Map(), transfers: new Map() })
+    // A transfer is totalled by its other account, whatever else it carries; an uncategorised transaction under ''
+    const [map, key] = t.transferAccountId !== undefined ? [groups.transfers, t.transferAccountId] : [groups.categories, t.categoryId ?? '']
+    let row = map.get(key)
+    if (!row) {
+      map.set(key, row = this.make(t, month))
+      this.rows.push(row)
+    }
+    if (t.amount >= 0) row.inflow += t.amount
+    else row.outflow -= t.amount
+    row.count++
+  }
+}
+
+interface MonthGroups<T> { categories: Map<string, T>, transfers: Map<string, T> }
+
+/** A new, empty total for a transaction's group. */
+export const emptyTotal = (t: Totalled, month: string): TransactionTotal => ({
+  accountId: t.accountId, month,
+  categoryId: t.transferAccountId === undefined ? t.categoryId ?? null : null,
+  transferAccountId: t.transferAccountId ?? null,
+  inflow: 0, outflow: 0, count: 0
+})
+
+/** Month, then account, then category (none first), then transfer account: plain comparisons, not the locale's. */
+export function compareTotals(a: TransactionTotal, b: TransactionTotal): number {
+  const order = (x: string, y: string) => x < y ? -1 : x > y ? 1 : 0
+  return order(a.month, b.month) || order(a.accountId, b.accountId)
+    || order(a.categoryId ?? '', b.categoryId ?? '') || order(a.transferAccountId ?? '', b.transferAccountId ?? '')
+}
+
+/** Checks a `TotalsQuery`. Throws INVALID naming the field at fault. */
+export function checkTotalsQuery(query: TotalsQuery): TotalsQuery {
+  if (typeof query !== 'object' || query === null) throw invalid('from', 'Give the dates to total, from and to.')
+  if (!isIsoDate(query.from)) throw invalid('from', 'Give the first date as YYYY-MM-DD.')
+  if (!isIsoDate(query.to)) throw invalid('to', 'Give the last date as YYYY-MM-DD.')
+  if (query.from > query.to) throw invalid('to', `The last date, ${displayDate(query.to)}, is before the first, ${displayDate(query.from)}.`)
+  if (query.accountIds !== undefined && (!Array.isArray(query.accountIds) || query.accountIds.some(id => typeof id !== 'string'))) {
+    throw invalid('accountIds', 'Give the accounts as a list of their ids.')
+  }
+  if (query.includeTransfers !== undefined && typeof query.includeTransfers !== 'boolean') {
+    throw invalid('includeTransfers', 'Say whether to include transfers with true or false.')
+  }
+  return query
+}
+
+/**
+ * `AccountsService.transactionTotals`, over documents already read (the service reads those in the dates with one
+ * `find`): every transaction not voided, dated in the query's range, of an account in `accounts` (those that exist),
+ * and of the query's accounts if it names any; transfers only when asked. In `compareTotals` order.
+ */
+export function transactionTotals(transactions: Iterable<Totalled>, query: TotalsQuery, accounts: ReadonlySet<string>): TransactionTotal[] {
+  const only = query.accountIds === undefined ? undefined : new Set(query.accountIds)
+  const totals = new TotalsBuilder(emptyTotal)
+  for (const t of transactions) {
+    if (t.voided || t.date < query.from || t.date > query.to || !accounts.has(t.accountId)) continue
+    if (only !== undefined && !only.has(t.accountId)) continue
+    if (t.transferAccountId !== undefined && query.includeTransfers !== true) continue
+    totals.add(t)
+  }
+  return totals.rows.sort(compareTotals)
+}
+
+/** Reads and totals, through the collections: one `find` on the dates (docs/budget-design.md, Phase B0 results). */
+export async function readTotals(c: Collections, query: TotalsQuery): Promise<TransactionTotal[]> {
+  const accounts = new Set((await c.accounts.find()).map(a => a.id))
+  const transactions = await c.transactions.find({ date: { $gte: query.from, $lte: query.to } })
+  return transactionTotals(transactions, query, accounts)
 }
 
 // ---- Payees and categories

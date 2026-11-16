@@ -1115,10 +1115,22 @@ export interface ArchiveOption {
     accounts: { id: string, lastArchiveDate: string }[]
     /** Closed accounts removed with nothing left: a plugin drops everything it kept about them. */
     removedAccountIds: string[]
+    /**
+     * What was removed, totalled as `transactionTotals` totals (voids left out, transfers by their other account), with
+     * each account's currency and sub-ledger at the time. Added in accounts-api 1.13, for budgets. Optional: read it
+     * defensively.
+     */
+    removedTotals?: ArchivedTotal[]
   }
   ```
 
   The ledger passes `shared` along without reading it, so it stays domain-free.
+- **A plugin that keeps totals over time keeps the removed totals** (added for budgets, [budget-design.md](budget-design.md#archives-past-actuals-stay-true)).
+  A budget's actuals are worked out from the transactions, and an archive removes some; without `removedTotals`, last
+  year's actuals would shrink. `applyArchive` totals what the plan removes from the documents it has already read,
+  after the check, letting the event loop turn every 10,000 transactions: about 0.3 s at 100,000. `planArchive` is
+  unchanged, so the dialog's preview isn't slowed. For every account, month, category and transfer account, what the
+  ledger holds after an archive plus `removedTotals` is what it held before (tested on random ledgers).
 - **The dialog's warning and check box come through the contract.** The ledger shows any participant's `warnings`
   in the dialog's warning, and any `options` as check boxes, without knowing what they mean. The accounts plugin
   offers one option, `accounts.removeClosedAccounts` (default on), and one warning: the unreconciled transactions

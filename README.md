@@ -59,7 +59,8 @@ platform.
   replaces the Ledger panel) create, edit, move, close, reopen and delete
   them. Balances are shown the Microsoft Money way (what you owe is negative,
   in red), with totals per currency. Reports and importers use the
-  `accounts.service` service ([@tessera/accounts-api](packages/accounts-api/),
+  `accounts.service` service, which also totals transactions by account, month
+  and category (`transactionTotals`, for reports and budgets) ([@tessera/accounts-api](packages/accounts-api/),
   [how](docs/plugin-creation.md#using-accounts-from-another-plugin)).
   An account can keep a **minimum balance** and show the balance above it.
 - **Transactions and the register**: each account's **register** (in the
@@ -143,6 +144,24 @@ platform.
 
   An account with nothing in the dates isn't in the file; the Export dialog says which ones. Other file types are
   plugins of their own ([how](docs/plugin-creation.md#adding-an-export-format), [design](docs/export-design.md)).
+
+- **Budgets** (the `budget` plugin): *Budget › New Budget…* plans what a household or a business expects to earn and
+  spend, over the whole ledger or a sub-ledger and everything beneath it, in one currency. A budget has a line per
+  category, or per account money is transferred with from outside it (a business paying its owner is income for the
+  household), each planned by amount, how often and when it is due: *650.00 every month*, *2,100.00 every two weeks
+  from Friday 8 January*, *1,200.00 every year, due 15 March*. A change can apply from a month on, or to one month
+  only. The budget view shows a month or the year to date: budget, actual and what remains for every line, subtotal and
+  total, with the days each line falls due, bars that turn amber near the budget and red over it, and the net against
+  the plan. *Other* rows gather what no line takes, and *Show Transactions* lists what any figure is made of, each with
+  *Open Register*. The *Year* shows twelve months and a total of the budget, the actual or what remains, and a month's
+  own amount can be typed into its cell, as in Money's advanced budget. *Fill from History…* suggests a line for each
+  category and transfer from the months before, averaged and rounded to the careful side, to tick and adjust; *Duplicate
+  Budget…* copies one, to plan next year beside this one. Tools › Options… › Budget sets when a line warns (amber at
+  90 % of its budget, red over), the bars, the lines shown, and what Fill from History suggests; while the budget
+  shown has lines over budget this month, the status bar says so ("Budget: 2 lines over"). Actuals are worked out from the transactions as they change, and stay true after an archive. A
+  *Budgets* tab beside the Accounts navigator lists the ledger's budgets; an archive file shows its budgets read-only.
+  Other plugins read budgets through `budget.service` ([@tessera/budget-api](packages/budget-api/),
+  [how](docs/plugin-creation.md#using-budgets-from-another-plugin), [design](docs/budget-design.md)).
 
 - **Plugin runtime:** discovers plugins on disk, validates their manifests,
   orders activation by service dependencies, isolates failures (a broken
@@ -324,7 +343,7 @@ try.
 |---|---|
 | `npm run dev` | Build main, preload and bundled plugins, start the renderer dev server, launch Electron |
 | `npm run build:plugins` | Build `plugins/<id>/` into `modules/<id>/` |
-| `npm run sample:archive -- [folder] [--replace]` | Make a sample ledger and its archive file to try archives by hand (default folder `samples/archive`, not kept in git) |
+| `npm run sample:archive -- [folder] [--replace]` | Make a sample ledger, with a budget, and its archive file to try archives and budgets by hand (default folder `samples/archive`, not kept in git) |
 | `npm run anonymise -- <files…> [options]` | Take the personal data out of real statement files (OFX, QFX, QBO, CSV, QIF), keeping their dialect, so they can be added to the tests; refuses a file in which anything still looks personal. `--check` scans files without changing them. See [tests/fixtures/import/real/README.md](tests/fixtures/import/real/README.md) |
 | `npm test` | Run the test suite once (Vitest) |
 | `npm run test:watch` | Run tests in watch mode |
@@ -360,7 +379,7 @@ docs/                 Plugin guide, design notes and open-work list
 packages/             Libraries plugins bundle: storage-kit (the shared half
                       of every storage backend), and the Finance plugins'
                       published contracts, ledger-api, accounts-api,
-                      import-api and export-api
+                      import-api, export-api and budget-api
 plugins/              Source of bundled (built-in) plugins, one folder each:
                       accounts (accounts and the navigator), app-state
                       (application state), ledger (ledger files
@@ -370,6 +389,8 @@ plugins/              Source of bundled (built-in) plugins, one folder each:
                       from banks, Quicken and Money): one plugin per file
                       type, which reads it and writes it, export
                       (File › Export…, Accounts › Export Account…),
+                      budget (the Budget menu, the budget view and
+                      the Budgets tab, and budget.service),
                       storage-sqlite (the default
                       storage engine), storage-loki (LokiJS storage
                       engine), test-layout (exercises every layout
@@ -434,6 +455,14 @@ samples/statements/   Sample bank statements to import by hand, with walkthrough
   `npm run sample:archive` makes a sample to try), and so is phase 5's
   compaction (shrinking the file); committing large batches off the main
   thread is still to do
+- [docs/budget-design.md](docs/budget-design.md): the design and plan for
+  budgets (reviewed; phases B0 to B5 done: the spike, `accounts.service.transactionTotals` and the archive's totals, the budget domain with `budget.service`, the Budget menu, the budget view, the Budgets tab and the dialogs, the Year, Fill from History and Duplicate Budget…, and the Budget page and the status bar's warning; the home view widget next): a `budget` plugin with budgets over the
+  ledger or a sub-ledger, a line per category or per account transferred with,
+  planned by amount, frequency and due date, with changes from a month on;
+  actuals worked out from the transactions (transfers counted when they cross
+  the budget's scope, and kept true through archives); a budget view for a
+  month, the year to date or the year, showing what remains; Fill from
+  History; and a home view widget; phases B0 to B6
 - [docs/todo.md](docs/todo.md): known gaps and planned work
 
 ## License

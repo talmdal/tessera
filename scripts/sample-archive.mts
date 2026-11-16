@@ -4,7 +4,7 @@
 // 1 January 2026, and "Archives/Household (archive before 2026-01-01).tesserabkp". The folder defaults to
 // samples/archive (not kept in git). See scripts/sample-archive/household.ts for what is in them.
 //
-// The ledger and accounts plugins' code is bundled with esbuild, with the @tessera/* packages aliased as the plugin
+// The ledger, accounts, import and budget plugins' code is bundled with esbuild, with the @tessera/* packages aliased as the plugin
 // build aliases them, and run here with Node (which must have node:sqlite: Node 22.5 or later).
 import fs from 'node:fs'
 import os from 'node:os'
@@ -22,7 +22,8 @@ const PACKAGES: Record<string, string> = {
   '@tessera/storage-kit': 'packages/storage-kit/index.ts',
   '@tessera/ledger-api': 'packages/ledger-api/index.ts',
   '@tessera/accounts-api': 'packages/accounts-api/index.ts',
-  '@tessera/import-api': 'packages/import-api/index.ts'
+  '@tessera/import-api': 'packages/import-api/index.ts',
+  '@tessera/budget-api': 'packages/budget-api/index.ts'
 }
 
 const bundle = path.join(os.tmpdir(), `tessera-sample-archive-${process.pid}.mjs`)
@@ -54,6 +55,8 @@ try {
     '  File › Open Ledger… and choose the archive file (the "Tessera archive" filter): it opens read-only.',
     '  File › Open Ledger… and choose the ledger: the history before 2026 is gone, and every balance is as it was.',
     '  Each register starts with its opening balance on 1 Jan 2026; its tooltip says what was archived.',
+    '  Budget › Show Budget: the Household budget. March shows the insurance due on the 15th and the owner\'s pay from',
+    '  the business; Year to date in 2025 shows the archived year\'s actuals, which the archive kept.',
     '  File › Archive Ledger… on the ledger, before 1 Oct 2026: archives what was reconciled this year. Its archive',
     '  file goes in your backup folder\'s Archives folder.',
     '  File › Restore Ledger…, Browse…, and choose the archive file: restore it in place of Household (undoing the',

@@ -124,6 +124,59 @@ export interface AccountsArchived {
   accounts: { id: string, lastArchiveDate: string }[]
   /** Closed accounts removed, with nothing left in them. */
   removedAccountIds: string[]
+  /**
+   * The removed transactions that weren't void, transfers included, totalled as `transactionTotals` totals them, with
+   * where each account was at the time: an account may be removed with them. A plugin that shows totals over time (a
+   * budget's actuals) keeps these, so the months archived don't change. Read it defensively: a participant may meet an
+   * `accounts` from before it. (Since accounts-api 1.13.)
+   */
+  removedTotals?: ArchivedTotal[]
+}
+
+/** `AccountsService.transactionTotals`: which transactions to total. (Since accounts-api 1.13.) */
+export interface TotalsQuery {
+  /** YYYY-MM-DD, inclusive. */
+  from: string
+  /** YYYY-MM-DD, inclusive. */
+  to: string
+  /** Only these accounts. Default: every account, closed ones included. */
+  accountIds?: string[]
+  /** Include transfers, totalled by their other account. Default false. */
+  includeTransfers?: boolean
+}
+
+/**
+ * Non-voided transactions of one account in one month, with one category, with none, or (when asked for) transferred
+ * with one other account. Money in and money out are kept apart, so a refund isn't hidden in a net figure.
+ * (Since accounts-api 1.13.)
+ */
+export interface TransactionTotal {
+  accountId: string
+  /** YYYY-MM. */
+  month: string
+  /** The category; null for transfers and for transactions with no category. */
+  categoryId: string | null
+  /** For transfers: the other account. null otherwise. */
+  transferAccountId: string | null
+  /** The sum of the positive amounts, in minor units. */
+  inflow: number
+  /** The sum of the negative amounts, made positive, in minor units. */
+  outflow: number
+  /** How many transactions. */
+  count: number
+}
+
+/**
+ * A `TransactionTotal` an archive removed (`AccountsArchived.removedTotals`), with where its account was when it was
+ * archived, since the account may be gone afterwards. (Since accounts-api 1.13.)
+ */
+export interface ArchivedTotal extends TransactionTotal {
+  /** The account's currency. */
+  currency: string
+  /** The account's sub-ledger; null for one directly in the ledger. */
+  subLedgerId: string | null
+  /** For transfers: the other account's sub-ledger; null for one directly in the ledger. Absent otherwise. */
+  transferSubLedgerId?: string | null
 }
 
 /** Uncleared, then E (the bank reported it), C (the user cleared it), R (reconciled). Void is a separate flag. */

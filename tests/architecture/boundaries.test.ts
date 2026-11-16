@@ -97,7 +97,8 @@ describe('architecture boundaries', () => {
       'ledger-api': ['@tessera/types'],
       'accounts-api': ['@tessera/types', '@tessera/ledger-api'],
       'import-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api'],
-      'export-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api']
+      'export-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api'],
+      'budget-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api']
     }
     const found = Object.entries(allowed).flatMap(([name, deps]) => violations(`packages/${name}`, spec => {
       const normal = spec.split(path.sep).join('/')
@@ -161,5 +162,14 @@ describe('architecture boundaries', () => {
     expect(writers.length).toBeGreaterThanOrEqual(3)
     const loose = /\bformatAmount\b|\.toFixed\(|\bparseFloat\(|Intl\.NumberFormat/
     expect(writers.filter(file => loose.test(fs.readFileSync(file, 'utf8'))).map(file => path.relative(repo, file))).toEqual([])
+  })
+
+  it('the budget works out amounts with integers only: no rounding floats, and dates never through a Date', () => {
+    // docs/budget-design.md, Ground rules: the one division is suggest.ts's divideRounding, exact on whole numbers; and
+    // plan.ts works on day numbers, as a local Date slipped a day in three time zones (Phase B0 results)
+    const files = ['packages/budget-api/plan.ts', 'plugins/budget/src/privileged/status.ts', 'plugins/budget/src/privileged/suggest.ts']
+    const loose = /\.toFixed\(|\bparseFloat\(|\bMath\.round\(/
+    expect(files.filter(file => loose.test(fs.readFileSync(path.join(repo, file), 'utf8')))).toEqual([])
+    expect(/\bnew Date\b|\bDate\.(UTC|parse|now)\b/.test(fs.readFileSync(path.join(repo, 'packages/budget-api/plan.ts'), 'utf8'))).toBe(false)
   })
 })

@@ -66,6 +66,16 @@ export function isIsoDate(value: unknown): value is string {
   return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d
 }
 
+/**
+ * The currency most of these accounts use; the alphabetically first of those tied; `fallback` when there are none. What
+ * a new account, a statement with no currency, or a new budget starts with.
+ */
+export function mostUsedCurrency(accounts: readonly { currency: string }[], fallback: string): string {
+  const counts = new Map<string, number>()
+  for (const { currency } of accounts) counts.set(currency, (counts.get(currency) ?? 0) + 1)
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? fallback
+}
+
 /** Today in the local time zone, as YYYY-MM-DD. */
 export function todayIso(now: Date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0')

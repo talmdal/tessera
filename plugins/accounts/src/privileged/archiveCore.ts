@@ -4,12 +4,19 @@
 // See docs/ledger-compaction-design.md, "Which transactions are no longer required" and "Carrying the balance forward".
 import type { Doc } from '@tessera/types'
 import { displayDate, type ArchiveDescription, type ArchiveResult } from '@tessera/ledger-api'
-import { ACCOUNTS_ARCHIVE_OPTIONS, type AccountArchived, type AccountsArchived, type AccountsChange } from '@tessera/accounts-api'
+import { ACCOUNTS_ARCHIVE_OPTIONS, type AccountArchived, type AccountsArchived, type AccountsChange, type ArchivedTotal } from '@tessera/accounts-api'
 import type { Collections, StoredAccount, StoredReconciliation, StoredTransaction } from './store'
-import { balancesFor, sumTransactions } from './transactionsCore'
+import { TotalsBuilder, balancesFor, sumTransactions } from './transactionsCore'
 
 /** The removal lets the event loop turn every so many writes, so the window stays responsive (Phase 0 results). */
 export const ARCHIVE_YIELD_EVERY = 2000
+
+/**
+ * Totalling what an archive removed lets the event loop turn every so many transactions read: 20 to 40 ms each at
+ * 100,000, about 0.3 s in all. The longest stretch, 50 to 90 ms, is a garbage collection promoting the rows built, which
+ * no smaller step would split (tests/plugins/accounts/totalsScale.test.ts; docs/budget-design.md, Phase B1 results).
+ */
+export const TOTALS_YIELD_EVERY = 10000
 
 type Account = Doc<StoredAccount>
 type Txn = Doc<StoredTransaction>
@@ -219,6 +226,49 @@ export function verifyArchive(before: Pick<LedgerData, 'accounts' | 'transaction
   for (const kept of sides.values()) if (kept.some(k => k) && kept.some(k => !k)) fail('a transfer would have lost one of its sides.')
 }
 
+/**
+ * What the plan removes, totalled as `transactionTotals` totals (voided transactions left out, transfers by their
+ * other account), with where each account is (`currency`, `subLedgerId`, and a transfer's other sub-ledger), since the
+ * archive may remove the account too. Shared as `AccountsArchived.removedTotals`, for plugins that keep totals over
+ * time (a budget's actuals). Worked out here, from documents already read, not in `planArchive`, which the Archive
+ * dialog runs for every date the user tries and which never needs them. In no particular order.
+ */
+export async function removedTotals(data: Pick<LedgerData, 'accounts' | 'transactions'>, plan: Pick<ArchivePlan, 'remove'>, turn: () => Promise<void>): Promise<ArchivedTotal[]> {
+  let steps = 0
+  const step = async () => { if (++steps % TOTALS_YIELD_EVERY === 0) await turn() }   // a transaction read
+  const accounts = new Map(data.accounts.map(a => [a.id, a]))
+  const totals = new TotalsBuilder<ArchivedTotal>((t, month) => {
+    // planArchive only removes transactions of accounts that exist. One object per row: no spreading
+    const account = accounts.get(t.accountId)!
+    if (t.transferAccountId === undefined) {
+      return { accountId: t.accountId, month, categoryId: t.categoryId ?? null, transferAccountId: null, inflow: 0, outflow: 0, count: 0, currency: account.currency, subLedgerId: account.subLedgerId }
+    }
+    return {
+      accountId: t.accountId, month, categoryId: null, transferAccountId: t.transferAccountId, inflow: 0, outflow: 0, count: 0,
+      currency: account.currency, subLedgerId: account.subLedgerId, transferSubLedgerId: accounts.get(t.transferAccountId)?.subLedgerId ?? null
+    }
+  })
+
+  // planArchive lists what it removes in the order it reads the transactions, so the two are walked together, with no
+  // set of 90,000 ids to build (40 ms in one stretch, Phase B0 results). Should the orders ever differ, what was missed
+  // is found with a set, so the totals are right either way.
+  let next = 0
+  for (const t of data.transactions) {
+    await step()
+    if (t.id !== plan.remove[next]) continue
+    next++
+    if (!t.voided) totals.add(t)
+  }
+  if (next < plan.remove.length) {
+    const missed = new Set(plan.remove.slice(next))
+    for (const t of data.transactions) {
+      await step()
+      if (missed.has(t.id) && !t.voided) totals.add(t)
+    }
+  }
+  return totals.rows
+}
+
 export interface ArchiveApplied {
   result: ArchiveResult
   change: Partial<AccountsChange>
@@ -228,7 +278,9 @@ export interface ArchiveApplied {
  * Archives the accounts' data before `before`, through a transaction's collections: removes the planned transactions
  * and reconciliations by id (never with `$in`, which the storage kit runs in quadratic time), carries each account's
  * removed total into its opening balance with its last archival date, removes closed accounts left empty, then
- * checks the result (`verifyArchive`). Lets the event loop turn every `ARCHIVE_YIELD_EVERY` writes and between steps.
+ * checks the result (`verifyArchive`), and totals what it removed for the participants after it (`removedTotals`).
+ * Lets the event loop turn every `ARCHIVE_YIELD_EVERY` writes, every `TOTALS_YIELD_EVERY` transactions totalled, and
+ * between steps.
  */
 export async function applyArchive(
   c: Collections, before: string, options: Readonly<Record<string, boolean>>, turn: () => Promise<void>
@@ -265,11 +317,12 @@ export async function applyArchive(
   await turn()
 
   verifyArchive(data, { accounts: await c.accounts.find(), transactions: await c.transactions.find() }, plan)
+  const totals = await removedTotals(data, plan, turn)
 
   const touched = kept.map(k => k.id)
   const removedReconciliations = new Set(plan.removeReconciliations)
   const reconciled = new Set(data.reconciliations.filter(r => removedReconciliations.has(r.id)).map(r => r.accountId))
-  const shared: AccountsArchived = { transactionIds: plan.remove, accounts: kept, removedAccountIds: plan.removeAccounts }
+  const shared: AccountsArchived = { transactionIds: plan.remove, accounts: kept, removedAccountIds: plan.removeAccounts, removedTotals: totals }
   const { count, summary } = describePlan(plan, data.accounts)
   return {
     result: { count, summary, shared },

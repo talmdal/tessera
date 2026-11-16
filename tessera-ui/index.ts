@@ -29,6 +29,7 @@ export {
   FormLabel,
   IconButton,
   InputAdornment,
+  LinearProgress,
   List,
   ListItemButton,
   ListItemIcon,

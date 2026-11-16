@@ -9,8 +9,8 @@ import {
   type Account, type AccountBalances, type AccountFilter, type AccountInput, type AccountPatch, type AccountsChange,
   type AccountsService, type AccountSummary, type CategoryDirectory, type Chart, type ClearingStatus, type CurrencyTotals,
   type BankMatch, type BankUnmatch,
-  type PayeeDirectory, type ReconciliationService, type TransactionDraft, type TransactionManager, type TransactionPatch,
-  type WriteOptions
+  type PayeeDirectory, type ReconciliationService, type TotalsQuery, type TransactionDraft, type TransactionManager, type TransactionPatch,
+  type TransactionTotal, type WriteOptions
 } from '@tessera/accounts-api'
 import {
   Emitter, change, collectionsOf, invalid, optionalText, toAccount, translate,
@@ -284,6 +284,11 @@ export class AccountsServiceImpl implements AccountsService {
 
   async balances(id: string): Promise<AccountBalances> {
     return this.read(async c => core.balancesOf(c, toAccount(await core.accountOf(c, id))))
+  }
+
+  async transactionTotals(query: TotalsQuery): Promise<TransactionTotal[]> {
+    const checked = core.checkTotalsQuery(query)
+    return this.read(c => core.readTotals(c, checked))
   }
 
   // ---- Writing accounts

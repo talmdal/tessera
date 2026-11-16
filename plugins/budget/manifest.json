@@ -1,0 +1,22 @@
+{
+  "id": "budget",
+  "name": "Budget",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./BudgetView": "src/renderer/BudgetView.tsx",
+      "./BudgetList": "src/renderer/BudgetList.tsx",
+      "./BudgetDialog": "src/renderer/BudgetDialog.tsx",
+      "./LineDialog": "src/renderer/LineDialog.tsx",
+      "./TransactionsDialog": "src/renderer/TransactionsDialog.tsx",
+      "./HistoryDialog": "src/renderer/HistoryDialog.tsx",
+      "./DuplicateDialog": "src/renderer/DuplicateDialog.tsx"
+    }
+  },
+  "services": {
+    "requires": ["accounts.service", "ledger.session", "shell.prompts", "app.state"],
+    "provides": ["budget.service", "budget.migrator"]
+  }
+}

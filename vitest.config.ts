@@ -1,6 +1,9 @@
 import { defineConfig } from 'vitest/config'
 import path from 'node:path'
 
+/** Tests run with TZ set to a zone with half-hour daylight saving (the `timezone` project). */
+const TIMEZONE_TESTS = ['tests/packages/budgetApi.test.ts']
+
 export default defineConfig({
   // Files outside a folder with its own tsconfig (such as tessera-ui/) still get the automatic JSX runtime
   esbuild: { jsx: 'automatic' },
@@ -14,6 +17,7 @@ export default defineConfig({
       '@tessera/accounts-api': path.resolve(__dirname, 'packages/accounts-api/index.ts'),
       '@tessera/import-api': path.resolve(__dirname, 'packages/import-api/index.ts'),
       '@tessera/export-api': path.resolve(__dirname, 'packages/export-api/index.ts'),
+      '@tessera/budget-api': path.resolve(__dirname, 'packages/budget-api/index.ts'),
       '@tessera/ui': path.resolve(__dirname, 'tessera-ui/index.ts')
     }
   },
@@ -64,12 +68,24 @@ export default defineConfig({
           isolate: true
         }
       },
+      // - timezone: the budget's date arithmetic runs in a zone with half-hour daylight saving, where a date worked out
+      //   through a local Date slips a day at once (docs/budget-design.md, Phase B0 results). Isolated, so the zone
+      //   reaches no other file.
+      {
+        extends: true,
+        test: {
+          name: 'timezone',
+          include: TIMEZONE_TESTS,
+          isolate: true,
+          env: { TZ: 'Australia/Lord_Howe' }
+        }
+      },
       {
         extends: true,
         test: {
           name: 'shared',
           include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
-          exclude: ['dist', 'node_modules', 'tests/main/**', 'tests/preload/**'],
+          exclude: ['dist', 'node_modules', 'tests/main/**', 'tests/preload/**', ...TIMEZONE_TESTS],
           isolate: false,
           // The @tessera/ui fixture plugin the renderer tests load; only this project's tests use it
           globalSetup: ['./tests/setup/buildUiFixture.ts']

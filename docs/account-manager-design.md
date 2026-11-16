@@ -974,6 +974,8 @@ export interface AccountsService {
   chart(options?: { includeClosed?: boolean }): Promise<Chart>
   /** Until transactions exist, every balance is the opening balance; the shape won't change when they do. */
   balances(id: string): Promise<AccountBalances>
+  /** Transactions totalled by account, month, and category or transfer account (accounts-api 1.13; below). */
+  transactionTotals(query: TotalsQuery): Promise<TransactionTotal[]>
 
   createAccount(input: AccountInput): Promise<Account>
   /** `null` clears an optional field; a new subLedgerId moves the account to the end there. ACCOUNT_CLOSED if closed. */
@@ -1050,6 +1052,32 @@ manager turns these into documents. One collection holds every
 transaction; the manager is a per-account view over it. That keeps
 transfers, reports and aggregates in one collection, while giving callers
 the per-account object the feature calls for.
+
+**Totals for reports and budgets (implemented, accounts-api 1.13):** `transactionTotals({ from, to, accountIds?,
+includeTransfers? })` totals the transactions in a range of dates by account, month, and category (or none): money in
+and money out apart, so a refund shows, and a count. Voided transactions are left out and every clearing status is
+counted; transfers are left out unless asked for, when each side is totalled by its other account. A budget or a
+report can't read the transactions collection itself (the session scopes each plugin's database), and shouldn't: what
+counts is this plugin's to say, and when splits arrive each part will count by its own category, with no caller
+changing. It reads with one `find` on the dates and sums in a plain loop, under 50 ms for a year at 100,000
+transactions ([budget-design.md](budget-design.md#the-accounts-addition-transactiontotals), where it was designed and
+measured).
+
+**The usual currency (accounts-api 1.14):** `mostUsedCurrency(accounts, fallback)`, the currency most of the accounts
+given use (the first by code when tied), is what a new account, a statement with no currency and a new budget start
+with. The accounts, import and budget plugins each kept a copy of it until the budget's review moved it here.
+
+```ts
+export interface TransactionTotal {
+  accountId: string
+  month: string                         // YYYY-MM
+  categoryId: string | null             // null for transfers and uncategorised transactions
+  transferAccountId: string | null      // transfers: the other account
+  inflow: number                        // the positive amounts, minor units
+  outflow: number                       // the negative amounts, made positive
+  count: number
+}
+```
 
 **Change notification** comes from the service, not from the database's
 `onDidChange`. The service knows which accounts each write touched, while a

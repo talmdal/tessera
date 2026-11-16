@@ -6,6 +6,7 @@ import * as ledger from '@tessera/ledger-api'
 import * as accounts from '@tessera/accounts-api'
 import * as imports from '@tessera/import-api'
 import * as exports from '@tessera/export-api'
+import * as budget from '@tessera/budget-api'
 import { parseManifest, SERVICE_ID_PATTERN } from '../../shared/plugins/manifest'
 import { parseWhen } from '../../shared/context/when'
 
@@ -65,6 +66,21 @@ describe('@tessera/accounts-api', () => {
     expect(accounts.RECONCILE_ACTIONS_POINT.startsWith('accounts.')).toBe(true)
     // Archive options are contribution ids, named after the plugin
     for (const id of Object.values(accounts.ACCOUNTS_ARCHIVE_OPTIONS)) expect(id.startsWith('accounts.'), id).toBe(true)
+  })
+
+  it('is at 1.14, with transaction totals for reports and budgets, the totals an archive removed, and the usual currency', () => {
+    expect(accounts.ACCOUNTS_API_VERSION).toBe('1.14.0')
+    // 1.14: the rule a new account, a statement with no currency and a new budget start from, shared
+    expect(accounts.mostUsedCurrency([{ currency: 'USD' }, { currency: 'CAD' }, { currency: 'USD' }], 'EUR')).toBe('USD')
+    expect(accounts.mostUsedCurrency([{ currency: 'USD' }, { currency: 'CAD' }], 'EUR')).toBe('CAD')      // a tie: the first by code
+    expect(accounts.mostUsedCurrency([], 'EUR')).toBe('EUR')
+    // The shapes, held to the contract by the type checker (npx tsc --noEmit -p tests)
+    const query: accounts.TotalsQuery = { from: '2026-01-01', to: '2026-12-31', accountIds: ['a'], includeTransfers: true }
+    const total: accounts.TransactionTotal = { accountId: 'a', month: '2026-01', categoryId: null, transferAccountId: 'b', inflow: 0, outflow: 100, count: 1 }
+    const archived: accounts.ArchivedTotal = { ...total, currency: 'CAD', subLedgerId: null, transferSubLedgerId: 'sub' }
+    const shared: accounts.AccountsArchived = { transactionIds: [], accounts: [], removedAccountIds: [], removedTotals: [archived] }
+    const method: keyof accounts.AccountsService = 'transactionTotals'
+    expect([query, total, archived, shared, method]).toHaveLength(5)
   })
 
   it('classifies every account type, and labels its two amount columns', () => {
@@ -156,5 +172,63 @@ describe('@tessera/export-api', () => {
       accounts.ACCOUNTS_DIALOGS].flatMap(values))
     expect(ours.filter(name => theirs.has(name))).toEqual([])
     expect(new Set(ours).size).toBe(ours.length)
+  })
+})
+
+describe('@tessera/budget-api', () => {
+  it('names everything after the budget plugin, which is a valid plugin id', () => {
+    expect(() => parseManifest({ id: budget.BUDGET_PLUGIN_ID, name: 'x', version: '1', privileged: { entry: 'x' } })).not.toThrow()
+    for (const id of [budget.BUDGET_SERVICE, budget.BUDGET_MIGRATOR_SERVICE]) {
+      expect(id).toMatch(SERVICE_ID_PATTERN)
+      expect(id.startsWith(`${budget.BUDGET_PLUGIN_ID}.`)).toBe(true)
+    }
+    for (const name of Object.values(budget.BUDGET_COLLECTIONS)) expect(name.startsWith('budget.'), name).toBe(true)
+    namedAfter(budget.BUDGET_PLUGIN_ID, {
+      commands: budget.BUDGET_COMMANDS, keys: budget.BUDGET_CONTEXT_KEYS, channels: budget.BUDGET_CHANNELS,
+      events: budget.BUDGET_EVENTS, views: budget.BUDGET_VIEWS, dialogs: budget.BUDGET_DIALOGS
+    })
+    expect(budget.BUDGET_ICON.startsWith(`${budget.BUDGET_PLUGIN_ID}.`)).toBe(true)
+  })
+
+  it('is at 1.4, with the names and payloads of the budget\'s views (B3), the year, history and copies (B4), its settings (B5), and the review\'s additions', () => {
+    expect(budget.BUDGET_API_VERSION).toBe('1.4.0')
+    // 1.4: the change the service and the dialogs both apply; what Budget Properties needs to say what a change would do
+    expect(typeof budget.applyPlanChange).toBe('function')
+    const properties: Pick<budget.BudgetDialogInput, 'lineCount' | 'transferLines'> = { lineCount: 2, transferLines: [{ accountId: 'a', label: 'Transfers from A' }] }
+    expect(properties.lineCount).toBe(2)
+    // The shapes, held to the contract by the type checker (npx tsc --noEmit -p tests)
+    const row: budget.RowRef = { kind: 'line', group: 'expense', lineId: 'l' }
+    const args: budget.TransactionsArgs = { budgetId: 'b', row, months: { from: '2027-01', to: '2027-03' }, label: 'Groceries', period: 'Year to date' }
+    const report: budget.ViewReport = { budgetId: 'b', month: '2027-03', period: 'yearToDate', lineId: 'l' }
+    const change: budget.ChangeLineRequest = { lineId: 'l', change: { apply: 'only', month: '2027-03', amount: null }, notes: null, expectedRev: 2 }
+    expect([row, args, report, change]).toHaveLength(4)
+    expect(budget.STATUS_DEBOUNCE_MS).toBe(250)
+    // B4
+    const suggest: budget.SuggestRequest = { budgetId: 'b', months: budget.DEFAULT_HISTORY_MONTHS, start: '2027-03', step: 1000 }
+    const fill: budget.FillRequest = { budgetId: 'b', lines: [] }
+    const copy: budget.DuplicateRequest = { id: 'b', name: 'Household (2)' }
+    const own: Partial<budget.StatusRow> = { ownMonths: ['2027-03'] }
+    const totals: budget.BudgetStatus['monthlyTotals'] = []
+    expect([suggest, fill, copy, own, totals]).toHaveLength(5)
+    expect(budget.ROUND_TO_CHOICES).toContain(budget.DEFAULT_ROUND_TO)
+    // B5: the settings other plugins may read, whose defaults are the constants they replace
+    const settings: budget.BudgetSettings = { ...budget.BUDGET_SETTINGS_DEFAULTS }
+    expect(settings).toEqual({ warnAtPercent: 90, showBars: true, showEmptyLines: false, historyMonths: 12, roundTo: 10, statusBar: true })
+    expect(budget.BUDGET_SETTINGS_PAGE.startsWith(`${budget.BUDGET_SETTINGS_ID}.`)).toBe(true)
+  })
+
+  it('labels every frequency, and keeps every total exact within its limits', () => {
+    expect(Object.keys(budget.FREQUENCY_LABELS).sort()).toEqual([...budget.FREQUENCIES].sort())
+    // 500 lines, each due at most 106 times in 24 months (weekly), at the largest amount, still a safe integer
+    expect(budget.BUDGET_LINES_MAX * 106 * budget.BUDGET_AMOUNT_MAX).toBeLessThanOrEqual(Number.MAX_SAFE_INTEGER)
+    expect(budget.STATUS_MONTHS_MAX).toBe(24)
+  })
+
+  it('turns a BudgetError from any copy of the package into a result, and rethrows anything else', async () => {
+    const copy = Object.assign(new Error('Taken'), { name: 'BudgetError', code: 'DUPLICATE_NAME', field: 'name' })
+    expect(budget.isBudgetError(copy)).toBe(true)
+    expect(await budget.toBudgetResult(async () => { throw copy })).toEqual({ ok: false, error: { code: 'DUPLICATE_NAME', message: 'Taken', field: 'name' } })
+    expect(await budget.toBudgetResult(async () => 3)).toEqual({ ok: true, value: 3 })
+    await expect(budget.toBudgetResult(async () => { throw new Error('a bug') })).rejects.toThrow('a bug')
   })
 })

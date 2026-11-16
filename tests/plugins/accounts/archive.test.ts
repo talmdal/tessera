@@ -7,10 +7,11 @@ import { describe, expect, it } from 'vitest'
 import type { Doc } from '@tessera/types'
 import { displayDate } from '@tessera/ledger-api'
 import {
-  ACCOUNTS_ARCHIVE_OPTIONS, type Account, type AccountBalances, type AccountsChange, type ClearingStatus, type RegisterRow
+  ACCOUNTS_ARCHIVE_OPTIONS, ACCOUNTS_PLUGIN_ID, type Account, type AccountBalances, type AccountsArchived, type AccountsChange,
+  type ArchivedTotal, type ClearingStatus, type RegisterRow, type TransactionTotal
 } from '@tessera/accounts-api'
 import {
-  ArchiveCheckError, describePlan, planArchive, verifyArchive, type LedgerData
+  ArchiveCheckError, TOTALS_YIELD_EVERY, describePlan, planArchive, removedTotals, verifyArchive, type LedgerData
 } from '../../../plugins/accounts/src/privileged/archiveCore'
 import { collectionsOf, type StoredAccount, type StoredReconciliation, type StoredTransaction } from '../../../plugins/accounts/src/privileged/store'
 import { sumTransactions, sumsByAccount } from '../../../plugins/accounts/src/privileged/transactionsCore'
@@ -743,6 +744,115 @@ describe('on random ledgers', () => {
     expect(seen.closedKeptByOption).toBeGreaterThan(0)
     expect(seen.transfersKept).toBeGreaterThan(0)
     expect(seen.transfersRemoved).toBeGreaterThan(0)
+  })
+})
+
+describe('what the archive shares: the totals of what it removed', () => {
+  /** Every date a ledger here can hold. */
+  const ALL = { from: '2000-01-01', to: '2100-12-31', includeTransfers: true }
+  const key = (t: TransactionTotal) => `${t.accountId}|${t.month}|${t.categoryId}|${t.transferAccountId}`
+  /** Totals added up by account, month, and category or transfer account, ignoring any other field. */
+  function sum(...lists: TransactionTotal[][]) {
+    const all = new Map<string, [number, number, number]>()
+    for (const t of lists.flat()) {
+      const [inflow, outflow, count] = all.get(key(t)) ?? [0, 0, 0]
+      all.set(key(t), [inflow + t.inflow, outflow + t.outflow, count + t.count])
+    }
+    return all
+  }
+  /** A participant after accounts, as a budget is: it keeps what accounts shared. */
+  function listen(session: Awaited<ReturnType<typeof ledger>>['session']) {
+    const heard: { shared?: AccountsArchived } = {}
+    session.participateInArchive('budget', {
+      describe: async () => undefined,
+      archive: async (_tx, request) => { heard.shared = request.earlier.get(ACCOUNTS_PLUGIN_ID) as AccountsArchived; return { count: 0, summary: 'Nothing' } }
+    })
+    return heard
+  }
+
+  it('are, with what stays, exactly what there was: on random ledgers, transfers included', async () => {
+    let archived = 0, transfers = 0, removedAccounts = 0
+    for (let seed = 1; seed <= 40; seed++) {
+      const { service, archive, r, session } = await randomLedger(seed)
+      const heard = listen(session)
+      const before = r.pick(['2023-01-01', '2024-01-01', '2024-07-01', '2025-01-01', '2026-01-01'])
+      const accounts = new Map((await service.list()).map(a => [a.id, a]))
+      const was = await service.transactionTotals(ALL)
+      const label = `seed ${seed}, before ${before}`
+
+      const outcome = await archive(before, { [REMOVE_CLOSED]: r.next() < 0.7 }).catch(err => err as { code: string })
+      if ('code' in outcome) continue
+      archived++
+      const removed = heard.shared!.removedTotals!
+
+      expect(sum(await service.transactionTotals(ALL), removed), label).toEqual(sum(was))
+      // Each carries where its account was: a removed account's too
+      for (const t of removed) {
+        const a = accounts.get(t.accountId)!
+        expect([t.currency, t.subLedgerId], label).toEqual([a.currency, a.subLedgerId])
+        if (t.transferAccountId !== null) expect(t.transferSubLedgerId, label).toBe(accounts.get(t.transferAccountId)!.subLedgerId)
+        else expect('transferSubLedgerId' in t, label).toBe(false)
+        expect(t.inflow + t.outflow + t.count, label).toBeGreaterThan(0)
+      }
+      if (removed.some(t => t.transferAccountId !== null)) transfers++
+      if (removed.some(t => heard.shared!.removedAccountIds.includes(t.accountId))) removedAccounts++
+    }
+    // The generator reaches the cases: archives, transfers archived, accounts removed with their totals kept
+    expect(archived).toBeGreaterThan(25)
+    expect(transfers).toBeGreaterThan(0)
+    expect(removedAccounts).toBeGreaterThan(0)
+  })
+
+  it('leave voided transactions out, and count the rest by category, transfer account or none', async () => {
+    const { service, t, reconcile, archive, session } = await ledger()
+    const heard = listen(session)
+    const chq = await service.createAccount(chequing())
+    const sav = await service.createAccount(chequing({ name: 'Savings', type: 'savings', subLedgerId: null, openingBalance: 0 }))
+    const rent = (await service.categories.list()).find(c => c.name === 'Rent')!.id
+    const paid = await t(chq.id).create({ date: '2024-03-01', amount: -150000, categoryId: rent })
+    const refund = await t(chq.id).create({ date: '2024-03-09', amount: 2000, categoryId: rent })
+    const loose = await t(chq.id).create({ date: '2024-03-10', amount: -700 })
+    const moved = await t(chq.id).create({ date: '2024-04-02', amount: -30000, transferAccountId: sav.id })
+    const other = (await t(sav.id).list())[0]
+    const voided = await t(chq.id).create({ date: '2024-03-15', amount: -99900, categoryId: rent })
+    await t(chq.id).setVoided([voided.id], true)
+    await reconcile(chq.id, [paid.id, refund.id, loose.id, moved.id])
+    await reconcile(sav.id, [other.id])
+
+    await archive('2025-01-01')
+
+    const row = (accountId: string, month: string, over: Partial<ArchivedTotal>): ArchivedTotal => ({
+      accountId, month, categoryId: null, transferAccountId: null, inflow: 0, outflow: 0, count: 0, currency: 'CAD', subLedgerId: null, ...over
+    })
+    expect(new Set(heard.shared!.removedTotals)).toEqual(new Set([
+      row(chq.id, '2024-03', { categoryId: rent, inflow: 2000, outflow: 150000, count: 2 }),
+      row(chq.id, '2024-03', { outflow: 700, count: 1 }),
+      row(chq.id, '2024-04', { transferAccountId: sav.id, transferSubLedgerId: null, outflow: 30000, count: 1 }),
+      row(sav.id, '2024-04', { transferAccountId: chq.id, transferSubLedgerId: null, inflow: 30000, count: 1 })
+    ]))
+    expect(heard.shared!.transactionIds).toContain(voided.id)     // removed, but not totalled
+  })
+
+  it('are worked out letting the event loop turn every so many transactions read', async () => {
+    const turns: number[] = []
+    const accounts = [{ id: 'A', currency: 'CAD', subLedgerId: null }] as unknown as LedgerData['accounts']
+    const transactions = Array.from({ length: TOTALS_YIELD_EVERY * 2 + 10 }, (_, i) =>
+      ({ id: `T${i}`, accountId: 'A', date: '2024-01-01', amount: -1, voided: false })) as unknown as LedgerData['transactions']
+    const totals = await removedTotals({ accounts, transactions }, { remove: transactions.map(x => x.id) }, async () => { turns.push(turns.length) })
+    expect(turns).toHaveLength(2)
+    expect(totals).toEqual([{ accountId: 'A', month: '2024-01', categoryId: null, transferAccountId: null, inflow: 0, outflow: TOTALS_YIELD_EVERY * 2 + 10, count: TOTALS_YIELD_EVERY * 2 + 10, currency: 'CAD', subLedgerId: null }])
+  })
+
+  it('are right whatever order the plan lists its removals in', async () => {
+    const accounts = [{ id: 'A', currency: 'CAD', subLedgerId: null }] as unknown as LedgerData['accounts']
+    const transactions = ['2024-01-05', '2024-02-05', '2024-02-09', '2024-03-01'].map((date, i) =>
+      ({ id: `T${i}`, accountId: 'A', date, amount: -(i + 1) * 100, voided: false, categoryId: 'C' })) as unknown as LedgerData['transactions']
+    const totalsOf = async (remove: string[]) => (await removedTotals({ accounts, transactions }, { remove }, async () => {}))
+      .map(t => [t.month, t.outflow, t.count]).sort()
+    const expected = [['2024-01', 100, 1], ['2024-02', 500, 2]]
+    expect(await totalsOf(['T0', 'T1', 'T2'])).toEqual(expected)       // in the transactions' order, as planArchive lists them
+    expect(await totalsOf(['T2', 'T0', 'T1'])).toEqual(expected)       // in any other
+    expect(await totalsOf([])).toEqual([])
   })
 })
 

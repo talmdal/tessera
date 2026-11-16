@@ -24,6 +24,7 @@ extension points.
 - [Remembering application state](#remembering-application-state)
 - [Storing data in the ledger](#storing-data-in-the-ledger)
 - [Using accounts from another plugin](#using-accounts-from-another-plugin)
+- [Using budgets from another plugin](#using-budgets-from-another-plugin)
 - [Adding an import format](#adding-an-import-format)
 - [Adding an export format](#adding-an-export-format)
 - [Styling and theming](#styling-and-theming)
@@ -1326,8 +1327,9 @@ context.subscriptions.push(session.participate('budget', {
 **4. If you keep data about transactions, take part in archives.** *File › Archive Ledger…* keeps a copy of the
 ledger as an archive file, then removes the settled transactions before a date the user chooses. The `accounts`
 plugin carries their total into each account's opening balance, so no balance changes. A plugin that keeps anything
-about transactions (a budget's actuals, a report's cache, an importer's records) removes what it kept about the
-removed ones, in the same storage transaction:
+about transactions (a report's cache, an importer's records) removes what it kept about the removed ones, in the same
+storage transaction. A plugin that shows totals over time (a budget's actuals) keeps the totals of what was removed,
+which `accounts` shares as `removedTotals`, so past months don't change:
 
 ```ts
 import { type ArchiveParticipant } from '@tessera/ledger-api'
@@ -1338,13 +1340,11 @@ context.subscriptions.push(session.participateInArchive('budget', {
   describe: async before => undefined,
   archive: async (tx, { before, earlier }) => {
     const archived = earlier.get(ACCOUNTS_PLUGIN_ID) as AccountsArchived | undefined
-    const gone = new Set(archived?.transactionIds ?? [])
-    const actuals = tx.collection('budget.actuals')
-    let count = 0
-    for (const actual of await actuals.find()) {
-      if (gone.has(actual.transactionId)) { await actuals.deleteOne({ id: actual.id }); count++ }
-    }
-    return { count, summary: `${count} budget actuals` }
+    // What was removed, by account, month, and category or transfer account, with each account's currency and
+    // sub-ledger at the time. Read it defensively: it came with accounts-api 1.13
+    const totals = Array.isArray(archived?.removedTotals) ? archived.removedTotals : []
+    await keepArchivedTotals(tx.collection('budget.archivedMonths'), totals)   // yours: add them to what you keep
+    return { count: 0, summary: 'Nothing removed from budgets' }              // a count of 0: you removed nothing
   },
   committed: () => refreshMyViews()           // only once the archive is committed; never after a rollback
 } satisfies ArchiveParticipant))
@@ -1352,7 +1352,10 @@ context.subscriptions.push(session.participateInArchive('budget', {
 
 - **Participants run in the order they joined, which follows activation.** A plugin that requires `accounts.service`
   runs after `accounts`, and finds what it removed in `earlier`: the transactions, the accounts they came from
-  with their new `lastArchiveDate`, and the closed accounts it removed (`AccountsArchived`).
+  with their new `lastArchiveDate`, the closed accounts it removed, and the totals of what it removed
+  (`AccountsArchived`).
+- **The count you return is added to what the archive removed,** and your `summary` is listed in the message after it
+  ("Removed, all dated before …: …") only when your count is above 0. Return 0 if you only kept something.
 - **`tx` reaches only your collections,** as in a sub-ledger delete. Throwing rolls back the whole archive, every
   participant's part of it, and the user is told nothing was archived. Return `count` and `summary`. Anything in
   `shared` is passed to the participants after you.
@@ -1397,7 +1400,21 @@ const netWorth = chart.totals                     // { CAD: 46000 }: liabilities
 const cards = await accounts.list({ types: ['creditCard'], includeClosed: false })
 const business = await accounts.list({ subLedgerId: businessId, includeDescendants: true })
 formatAmount(netWorth.CAD, 'CAD')                 // "$460.00", in the user's locale
+
+// Spending by category, month by month: one row per account, month and category, money in and out apart
+const totals = await accounts.transactionTotals({
+  from: '2026-01-01', to: '2026-12-31',            // inclusive
+  accountIds: business.map(a => a.id),              // optional: every account, closed ones too, by default
+  includeTransfers: true                            // optional: transfers, by their other account (categoryId null)
+})
+// [{ accountId, month: '2026-03', categoryId, transferAccountId: null, inflow: 1500, outflow: 59830, count: 9 }, …]
 ```
+
+`transactionTotals` leaves voided transactions out and counts every clearing status; a row whose `categoryId` and
+`transferAccountId` are both null is uncategorised. Rows come in order of month, then account. A year of 100,000
+transactions takes well under 100 ms, but it all runs on the main process in one go: ask for the range you show, not
+all time, and not on every change (a view can wait a quarter of a second for changes to settle). `formatAmount` keeps
+its formatters, so formatting thousands of amounts is cheap.
 
 **An importer** matches a statement to an account (or creates one), then adds its lines:
 
@@ -1575,6 +1592,84 @@ const created = await prompts.show<{ id: string }>(ACCOUNTS_DIALOGS.account, {
   initial: { name: 'TD Visa 3456', type: 'creditCard', currency: 'CAD', openingDate: '2026-09-30', openingBalance: -54000 }
 } satisfies AccountDialogInput)                  // what is owed is negative, and shown as the amount owed
 ```
+
+## Using budgets from another plugin
+
+The bundled `budget` plugin provides **`budget.service`**: the open ledger's budgets, their lines, and how each month
+stands. Its contract is `@tessera/budget-api` ([packages/budget-api/](../packages/budget-api/)), which also holds the
+planning arithmetic (`plan.ts`), so a plugin works out a plan's months exactly as the budget does. Never read the
+`budget.*` collections: the service keeps the rules, and works actuals out from `accounts.service` each time.
+
+```json
+"services": { "requires": ["budget.service"] }
+```
+
+**A report** reads a budget against its actuals:
+
+```ts
+import { BUDGET_SERVICE, budgetYear, plannedAmount, type BudgetService } from '@tessera/budget-api'
+import { formatAmount } from '@tessera/accounts-api'
+
+const budgets = context.services.get<BudgetService>(BUDGET_SERVICE)
+
+const [household] = await budgets.list()                       // by name
+const year = budgetYear('2027-03', household.yearStartMonth)    // { from: '2027-01', to: '2027-12' }: its own year start
+const status = await budgets.status(household.id, year, { byMonth: true })   // at most 24 months
+for (const row of status.rows) {
+  // kind: 'line', 'subtotal', 'transferLine', 'other', 'uncategorised'…; group: 'income' or 'expense'
+  console.log(row.label, row.figures.budget, row.figures.actual, row.figures.remaining, row.months?.map(m => m.actual))
+}
+formatAmount(status.totals.net.remaining, household.currency)   // the net against the plan: negative when behind
+status.monthlyTotals?.map(t => t.expenses.actual)               // with byMonth: each month's totals, as the Year shows them
+
+// What a line plans in a month, as the service works it out: the amount times the times it falls due
+const [line] = await budgets.lines(household.id)
+plannedAmount(line, '2027-04')                                  // 630000 for 2,100.00 every two weeks from 8 January
+```
+
+**A reminder, or a widget,** reads one month, and when things fall due in it:
+
+```ts
+import { STATUS_DEBOUNCE_MS, dueDates, planFor } from '@tessera/budget-api'
+
+const april = await budgets.status(household.id, { from: '2027-04', to: '2027-04' })
+const over = april.rows.filter(r => r.group === 'expense' && r.warning === 'over')   // 'near' at the Budget page's Warn at
+april.rows.find(r => r.lineId === line.id)?.due                 // [2, 16, 30]: the days of April it falls due
+
+const plan = planFor(line.plans, '2027-04')                     // the plan that applies that month, if any
+if (plan) dueDates(plan, '2027-04')                             // ['2027-04-02', '2027-04-16', '2027-04-30']; [] for no particular day
+
+// Follow changes, letting a burst settle (an import is one change; typing in the register is many)
+let timer: ReturnType<typeof setTimeout> | undefined
+context.subscriptions.push(budgets.onDidChange(change => {
+  if (!change.actuals && !change.budgets.includes(household.id) && !change.lines.includes(household.id)) return
+  clearTimeout(timer)
+  timer = setTimeout(() => void refresh(), STATUS_DEBOUNCE_MS)
+}))
+```
+
+- **Figures are integer minor units**, positive for money in on an income row and for spending on an expense row.
+  A line's `ownMonths` names the months that have an amount of their own, typed in the Year, instead of the plan's.
+  `remaining` is `budget − actual`; for the net it is the actual net less the planned net. Subtotals repeat what
+  their children hold; every other row counts once in `totals`.
+- **A budget covers a sub-ledger and everything beneath it** (or the whole ledger), in one currency. Transfers count
+  only when they cross that scope: a business paying its owner is an expense of the *Business* budget and income of
+  the *Personal* one. `status.notCounted` names the accounts in scope that another currency leaves out.
+- **Follow changes** with `budgets.onDidChange`: `{ budgets, deleted, lines, actuals }`, after each change is stored.
+  `budgets` lists the budgets created, renamed, rescoped or deleted (and `deleted` those deleted), `lines` the budgets
+  whose lines changed; these come at once, one event a write. `actuals` is true after transactions, categories,
+  accounts, sub-ledgers, an archive or the open ledger changed: every budget's figures may have moved. Wait
+  `STATUS_DEBOUNCE_MS` (a quarter of a second) for changes to settle before reading a status again, as the budget view
+  does, and read only the months you show.
+- **Warnings follow the Budget page.** `status()` warns at the user's *Warn at* (90 % until changed), as the budget view
+  does; pass `warnAtPercent` for another share. Read the page's other settings with
+  `context.settings.read<BudgetSettings>(BUDGET_SETTINGS_ID).get()` (and its `onDidChange`): they are the user's, and
+  can be read, not changed.
+- **Writes** (`create`, `addLine`, `changeLine`, `fill`…) follow the same rules as the dialogs, and fail with a
+  `BudgetError` whose `code` (`DUPLICATE_NAME`, `DUPLICATE_LINE`, `INVALID`, `CONFLICT`, `READ_ONLY`, `NO_LEDGER`…)
+  and `field` say why. Test with `isBudgetError(err)`. A plan is checked with `planProblem(plan)` before it is sent.
+- **The Budget menu's commands** (`budget.new`, `budget.line.new`…) are user actions on what the budget view shows.
+  `budget.show` with `{ id }` shows a budget from anywhere (a report's link, say).
 
 ## Adding an import format
 
@@ -1806,8 +1901,9 @@ font roles (below), so your views match without choosing them.
 
 **Icons.** `<Icon name="Save" />` draws one of the shell's standard icons; see
 [the layout note](layout-controller-design.md#icons) for the set. For others, register
-your own with `shell.icons` (`{ id: 'budget.chart', file: './icons/chart.svg' }`) and use
-`<Icon name="budget.chart" />`: it is fetched when first drawn and cached, and is painted
+your own with `shell.icons` (`{ id: 'budget.pie', file: './icons/pie.svg' }`, as the budget plugin registers the
+Budgets tab's, from `plugins/budget/public/icons/pie.svg`) and use `<Icon name="budget.pie" />`: it is fetched when
+first drawn and cached, and is painted
 in the text colour. Or build a component from path data with `createSvgIcon` and ship it
 inside your view code. The same ids work for the `icon` of a view or bar item.
 
