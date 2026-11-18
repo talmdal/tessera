@@ -1,0 +1,114 @@
+!Account
+NChequing
+TBank
+DMaple Trust Bank
+^
+!Type:Bank
+D10/2/2026
+T-900.00
+U-900.00
+C*
+NPAP
+PBrightpath Early Learning
+LChildcare
+^
+D10/3/2026
+T-2,050.00
+U-2,050.00
+C*
+NEFT
+PMaple Ridge Properties
+LHousing:Rent
+^
+D10/3/2026
+T-129.79
+U-129.79
+NPOS
+PYour Independent Grocer
+LFood:Groceries
+^
+D10/4/2026
+T-95.00
+U-95.00
+C*
+NPAP
+PCo-operators Insurance
+LHousing:Home insurance
+^
+D10/6/2026
+T-185.00
+U-185.00
+C*
+NPAP
+PCo-operators Insurance
+LTransportation:Car insurance
+^
+D10/8/2026
+T-89.99
+U-89.99
+C*
+NPAP
+PRogers
+LUtilities:Internet
+^
+D10/8/2026
+T-75.50
+U-75.50
+C*
+NPAP
+PTelus
+LUtilities:Phone
+^
+D10/10/2026
+T-209.73
+U-209.73
+NPOS
+PYour Independent Grocer
+LFood:Groceries
+^
+D10/16/2026
+T-119.73
+U-119.73
+C*
+NPAP
+PHydro Ottawa
+LUtilities:Electricity
+^
+D10/17/2026
+T-143.06
+U-143.06
+NPOS
+PLoblaws
+LFood:Groceries
+^
+D10/20/2026
+T-252.86
+U-252.86
+C*
+NTFR
+MVisa payment
+L[Visa]
+^
+D10/24/2026
+T-233.98
+U-233.98
+NPOS
+PLoblaws
+LFood:Groceries
+^
+D10/28/2026
+T5,926.07
+U5,926.07
+C*
+NTFR
+MOwner’s draw
+L[Business Chequing]
+^
+D10/31/2026
+T-1,441.43
+U-1,441.43
+C*
+NTFR
+MMonth-end saving
+L[Savings]
+^

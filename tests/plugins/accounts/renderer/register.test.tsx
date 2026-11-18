@@ -68,6 +68,7 @@ function setup(options: { snapshot?: RegisterSnapshot | null, answers?: Record<s
     [ACCOUNTS_CHANNELS.deleteTransactions]: () => ({ ok: true }),
     [ACCOUNTS_CHANNELS.reconcileState]: () => null,
     [ACCOUNTS_CHANNELS.reconcileActions]: ({ scope }) => scope === 'account' ? [STATEMENT_ACTION] : [],
+    [ACCOUNTS_CHANNELS.registerOverlays]: () => [],
     'shell:commands.execute': () => undefined,
     ...options.answers
   }
@@ -371,5 +372,177 @@ describe('the register', () => {
     expect(note).toHaveTextContent(/statement of .*2026 is paused/)
     await userEvent.click(within(note).getByRole('button', { name: 'Resume' }))
     expect(calls('shell:commands.execute')).toEqual([{ id: 'accounts.reconcile.statement', args: [{ accountId: 'c' }] }])
+  })
+})
+
+describe('provisional rows (accounts.register.overlays)', () => {
+  const overlayRow = (over: Record<string, unknown> = {}) => ({
+    key: 'ex:s1:r0',
+    date: '2026-10-03',
+    amount: -15000,
+    payee: 'Hydro Ottawa',
+    note: 'New',
+    actions: [
+      { id: 'x.accept', label: 'Accept', command: 'x.accept', primary: true },
+      { id: 'x.change', label: 'Change…', command: 'x.change' }
+    ],
+    ...over
+  })
+
+  const withOverlay = (rows: unknown[] = [overlayRow()]) => setup({
+    answers: {
+      [ACCOUNTS_CHANNELS.registerOverlays]: () => [{ id: 'x.pending', channel: 'x:pending.rows' }],
+      'x:pending.rows': () => rows
+    }
+  })
+
+  const overlayLine = (key: string) => document.querySelector(`[data-overlay="${key}"]`) as HTMLElement
+
+  it('merges the provider’s rows into the register by date, bold with a ? in the gutter', async () => {
+    withOverlay()
+    await table()
+    await waitFor(() => expect(overlayLine('ex:s1:r0')).not.toBeNull())
+    const cells = within(overlayLine('ex:s1:r0')).getAllByRole('cell').map(c => c.textContent)
+    expect(cells[0]).toBe('?')
+    expect(cells[3]).toBe('Hydro Ottawa')
+    // Between b (10-03) and c2 (10-04): same-date register rows come first
+    const order = [...document.querySelectorAll('[data-row], [data-overlay]')]
+      .map(el => el.getAttribute('data-row') ?? el.getAttribute('data-overlay'))
+    expect(order).toEqual(['opening', 'a', 'b', 'ex:s1:r0', 'c2'])
+  })
+
+  it('adds an unmatched row to the shown balance, and a matched one not', async () => {
+    withOverlay([
+      overlayRow(),
+      overlayRow({ key: 'ex:s1:r1', date: '2026-10-05', amount: -5000, matchedId: 'a', note: 'Matches 2 Oct' })
+    ])
+    await table()
+    await waitFor(() => expect(overlayLine('ex:s1:r1')).not.toBeNull())
+    // After b the balance is 949.75; the unmatched -150.00 shows 799.75; the matched row adds nothing more…
+    expect(within(overlayLine('ex:s1:r0')).getAllByRole('cell').at(-1)).toHaveTextContent(/799\.75/)
+    // …but still reflects the unmatched one before it, over the last real row's balance
+    expect(within(overlayLine('ex:s1:r1')).getAllByRole('cell').at(-1)).toHaveTextContent(/3,799\.75/)
+  })
+
+  it('draws a matched row and its register transaction as one line, where the statement puts it', async () => {
+    withOverlay([overlayRow({ key: 'ex:s1:r1', date: '2026-10-05', amount: -5000, payee: 'METRO #4471', matchedId: 'a', note: 'Matches 2 Oct' })])
+    await table()
+    await waitFor(() => expect(overlayLine('ex:s1:r1')).not.toBeNull())
+
+    // The transaction's own line is gone; the combined one sits at the bank's date
+    const order = [...document.querySelectorAll('[data-row], [data-overlay]')]
+      .map(el => el.getAttribute('data-row') ?? el.getAttribute('data-overlay'))
+    expect(order).toEqual(['opening', 'b', 'c2', 'ex:s1:r1'])
+    expect(overlayLine('ex:s1:r1')).toHaveAttribute('data-matched', 'a')
+
+    // The bank's date and amount, the user's number, payee and category — every cell bold, ? in the gutter
+    const cells = within(overlayLine('ex:s1:r1')).getAllByRole('cell')
+    expect(cells.map(c => c.textContent)).toEqual(['?', '101', expect.stringMatching(/2026/), 'Metro', 'Food : Groceries', '50.00', '', expect.stringMatching(/3,949\.75/)])
+    expect(cells[2]).toHaveTextContent(/Oct 5|5 Oct|10\/05|2026-10-05/)
+    for (const cell of cells) expect(getComputedStyle(cell).fontWeight).toBe('600')
+  })
+
+  it('shows Accept and Change… only while the row is selected, and runs the command with the row’s key', async () => {
+    const { calls } = withOverlay()
+    await table()
+    await waitFor(() => expect(overlayLine('ex:s1:r0')).not.toBeNull())
+    expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
+
+    await userEvent.click(overlayLine('ex:s1:r0'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Accept' }))
+    expect(calls('shell:commands.execute').at(-1))
+      .toEqual({ id: 'x.accept', args: [{ accountId: 'c', key: 'ex:s1:r0' }] })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Change…' }))
+    expect(calls('shell:commands.execute').at(-1))
+      .toEqual({ id: 'x.change', args: [{ accountId: 'c', key: 'ex:s1:r0' }] })
+  })
+
+  describe('what the statement said, under a matched row', () => {
+    const statementLine = (key: string) =>
+      document.querySelector(`[data-statement-line="${key}"]`) as HTMLElement
+
+    /** A matched row whose bank values differ from the register's in payee and amount, but not in date. */
+    const matchedRow = (over: Record<string, unknown> = {}) => overlayRow({
+      key: 'ex:s1:r1', date: '2026-10-02', amount: -5000, payee: 'METRO #4471',
+      matchedId: 'a', note: 'Matches 2 Oct', ...over
+    })
+
+    it('appears only when a matched row is selected', async () => {
+      withOverlay([matchedRow()])
+      await table()
+      await waitFor(() => expect(overlayLine('ex:s1:r1')).not.toBeNull())
+      expect(statementLine('ex:s1:r1')).toBeNull()
+
+      await userEvent.click(overlayLine('ex:s1:r1'))
+      expect(statementLine('ex:s1:r1')).not.toBeNull()
+    })
+
+    it('does not appear for an unmatched row, which has nothing to compare against', async () => {
+      withOverlay()
+      await table()
+      await waitFor(() => expect(overlayLine('ex:s1:r0')).not.toBeNull())
+      await userEvent.click(overlayLine('ex:s1:r0'))
+      expect(statementLine('ex:s1:r0')).toBeNull()
+    })
+
+    it('puts the bank’s values in the same columns as the register’s, so they line up', async () => {
+      withOverlay([matchedRow()])
+      await table()
+      await waitFor(() => expect(overlayLine('ex:s1:r1')).not.toBeNull())
+      await userEvent.click(overlayLine('ex:s1:r1'))
+
+      const above = within(overlayLine('ex:s1:r1')).getAllByRole('cell')
+      const below = within(statementLine('ex:s1:r1')).getAllByRole('cell')
+      // Same number of columns, so every value sits under the one it should be compared with.
+      expect(below).toHaveLength(above.length)
+      expect(below[3]).toHaveTextContent('METRO #4471')   // the bank's payee, under the register's
+      expect(below[5]).toHaveTextContent('50.00')          // and its amount, in the debit column
+    })
+
+    it('draws the cells the bank disagrees with in full strength, and the rest dimmed', async () => {
+      withOverlay([matchedRow()])
+      await table()
+      await waitFor(() => expect(overlayLine('ex:s1:r1')).not.toBeNull())
+      await userEvent.click(overlayLine('ex:s1:r1'))
+
+      const cells = within(statementLine('ex:s1:r1')).getAllByRole('cell')
+      // The payee differs — METRO #4471 against Metro — so it is the one worth reading.
+      expect(getComputedStyle(cells[3]).fontWeight).toBe('600')
+      // The date agrees, so it is not competing for attention.
+      expect(getComputedStyle(cells[2]).fontWeight).toBe('400')
+    })
+
+    it('treats a payee differing only by case or spacing as agreeing', async () => {
+      withOverlay([matchedRow({ payee: '  metro  ' })])
+      await table()
+      await waitFor(() => expect(overlayLine('ex:s1:r1')).not.toBeNull())
+      await userEvent.click(overlayLine('ex:s1:r1'))
+
+      const cells = within(statementLine('ex:s1:r1')).getAllByRole('cell')
+      expect(getComputedStyle(cells[3]).fontWeight).toBe('400')
+    })
+
+    it('no longer says it in prose, which is what the columns replaced', async () => {
+      withOverlay([matchedRow()])
+      await table()
+      await waitFor(() => expect(overlayLine('ex:s1:r1')).not.toBeNull())
+      await userEvent.click(overlayLine('ex:s1:r1'))
+      expect(screen.queryByText(/the bank reported/)).toBeNull()
+      // The disposition is still said, because that is not a comparison.
+      expect(screen.getByText('Matches 2 Oct')).toBeInTheDocument()
+    })
+  })
+
+  it('leaves the register untouched when the provider fails', async () => {
+    setup({
+      answers: {
+        [ACCOUNTS_CHANNELS.registerOverlays]: () => [{ id: 'x.pending', channel: 'x:pending.rows' }],
+        'x:pending.rows': () => { throw new Error('boom') }
+      }
+    })
+    await table()
+    expect(line('a')).toBeInTheDocument()
+    expect(document.querySelector('[data-overlay]')).toBeNull()
   })
 })

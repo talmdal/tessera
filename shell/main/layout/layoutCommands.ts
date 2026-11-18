@@ -23,12 +23,15 @@ export function registerLayoutCommands(
   shell.commands.register(LAYOUT_COMMANDS.expandAll, () => { layout.setAllCollapsed(target(), false) })
   shell.commands.register(LAYOUT_COMMANDS.reset, () => { layout.reset(target()) })
 
-  // A view that is not there is a no-op with a warning, so a plugin's navigation command can't fail on it.
+  // A view that is not there is a no-op with a warning, so a plugin's navigation command can't fail on it. It
+  // resolves with whether the view was shown, so a caller whose whole point is that view can say when it wasn't.
   shell.commands.register(LAYOUT_COMMANDS.reveal, viewId => {
     try {
       layout.reveal(target(), viewId as string)
+      return true
     } catch (err) {
       log.warn(`[layout] Could not reveal ${String(viewId)}: ${err instanceof Error ? err.message : String(err)}`)
+      return false
     }
   })
 }

@@ -13,6 +13,7 @@ export default defineConfig({
       '@tessera/book-api': path.resolve(__dirname, 'packages/book-api/index.ts'),
       '@tessera/accounts-api': path.resolve(__dirname, 'packages/accounts-api/index.ts'),
       '@tessera/recurring-api': path.resolve(__dirname, 'packages/recurring-api/index.ts'),
+      '@tessera/exchange-api': path.resolve(__dirname, 'packages/exchange-api/index.ts'),
       '@tessera/ui': path.resolve(__dirname, 'tessera-ui/index.ts')
     }
   },

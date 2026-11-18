@@ -1,11 +1,44 @@
 {
   "compilerOptions": {
-    "outDir": "scripts-dist",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "types": ["node"],
+    // Type-checking only: the scripts run through ts-node and esbuild, never from an emitted copy
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": [
+      "node"
+    ],
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "@tessera/types": [
+        "../tessera-types/index.ts"
+      ],
+      "@tessera/storage-kit": [
+        "../packages/storage-kit/index.ts"
+      ],
+      "@tessera/book-api": [
+        "../packages/book-api/index.ts"
+      ],
+      "@tessera/accounts-api": [
+        "../packages/accounts-api/index.ts"
+      ],
+      "@tessera/exchange-api": [
+        "../packages/exchange-api/index.ts"
+      ]
+    },
+    "baseUrl": ".",
+    "strict": true,
+    "target": "ESNext",
+    "lib": [
+      "ESNext"
+    ]
   },
-  "include": ["dev.mts", "build-plugins.mts"]
+  "include": [
+    "dev.mts",
+    "build-plugins.mts",
+    "seed-book.mts",
+    "anonymize-statement.mts",
+    "seed/**/*.ts",
+    "anonymize/**/*.ts"
+  ]
 }

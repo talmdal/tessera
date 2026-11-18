@@ -27,6 +27,8 @@ export interface AccountInput {
   /** ISO 4217, e.g. 'CAD'. */
   currency: string
   institution?: string
+  /** A routing or transit number, as a downloaded statement gives it (OFX `BANKID`). */
+  routingNumber?: string
   accountNumber?: string
   /** YYYY-MM-DD. */
   openingDate: string

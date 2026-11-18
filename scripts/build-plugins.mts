@@ -46,7 +46,7 @@ const sharedUiRange = () => {
  * Plugins' published contracts (types and constants), which other plugins import. Each plugin bundles what it uses,
  * in both halves, since they hold no state. Resolved against the working directory, like the other aliases.
  */
-const API_PACKAGES = ['book-api', 'accounts-api', 'recurring-api']
+const API_PACKAGES = ['book-api', 'accounts-api', 'recurring-api', 'exchange-api']
 const API_PACKAGE_ALIASES = (): Record<string, string> => Object.fromEntries(
   API_PACKAGES.map(name => [`@tessera/${name}`, path.resolve(process.cwd(), 'packages', name, 'index.ts')]))
 
@@ -74,6 +74,10 @@ export async function buildPlugins({ pluginsDir, outDir, only, log = () => {} }:
     .map(d => d.name)
     .filter(name => !only?.length || only.includes(name))
 
+  // A full build starts from an empty output folder, so plugins whose source is gone (a deleted plugin, or one
+  // from another branch) don't linger and get loaded. Dotfiles, such as modules/.gitignore, stay.
+  if (!only?.length) clearOutput(outDir)
+
   const results: BuildResult[] = []
   for (const folder of folders) {
     try {
@@ -87,6 +91,13 @@ export async function buildPlugins({ pluginsDir, outDir, only, log = () => {} }:
     }
   }
   return results
+}
+
+function clearOutput(outDir: string) {
+  if (!fs.existsSync(outDir)) return
+  for (const entry of fs.readdirSync(outDir)) {
+    if (!entry.startsWith('.')) fs.rmSync(path.join(outDir, entry), { recursive: true, force: true })
+  }
 }
 
 async function buildPlugin(srcDir: string, outDir: string): Promise<string> {

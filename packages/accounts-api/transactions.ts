@@ -19,6 +19,12 @@ export interface TransactionDraft {
   transferAccountId?: string
   /** Default 'uncleared'. Setting 'reconciled' needs `confirm: ['reconciled']`. */
   status?: ClearingStatus
+  /**
+   * The source's own id for this transaction — an OFX `FITID`, say — set by an importer so that re-importing the
+   * same statement does not enter it twice. Unique within the account: a second transaction with the same one is
+   * refused. Only the other side of a transfer is left without it, since the bank reported only this side.
+   */
+  externalId?: string
 }
 
 /** An edit: only the fields given change. `null` clears an optional field (`categoryId: null` leaves it uncategorised). */
@@ -42,6 +48,12 @@ export interface TransactionManager {
   register(): Promise<RegisterSnapshot>
   get(id: string): Promise<Transaction | undefined>
   create(draft: TransactionDraft): Promise<Transaction>
+  /**
+   * Creates many at once, for an import: one storage transaction, each payee looked up once, and the account
+   * checked once. Each draft behaves as it would through `create`, transfers included. Returns them in the order
+   * given. Nothing is written if any draft is refused, so a statement is never half-entered.
+   */
+  createMany(drafts: TransactionDraft[], options?: WriteOptions): Promise<Transaction[]>
   update(id: string, patch: TransactionPatch, options?: WriteOptions): Promise<Transaction>
   delete(ids: string[], options?: WriteOptions): Promise<void>
   setStatus(ids: string[], status: ClearingStatus, options?: WriteOptions): Promise<void>

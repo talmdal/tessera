@@ -50,8 +50,9 @@ export class IpcRouterImpl implements IpcRouter {
     try {
       return { ok: true, data: await handler({ channel, data, correlationId, sender }), correlationId }
     } catch (err) {
-      this.log?.error(`[ipc] Handler for ${channel} failed`, err)
       const message = err instanceof Error ? err.message : String(err)
+      // The reason in the message itself, so a list of problems says what failed without opening each one
+      this.log?.error(`[ipc] Handler for ${channel} failed: ${message}`, err)
       return { ok: false, error: { code: 'HANDLER_ERROR', message }, correlationId }
     }
   }

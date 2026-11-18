@@ -15,6 +15,7 @@ import { publishChange, registerIpc } from './ipc'
 import { NavigatorItems } from './navigatorItems'
 import { ReconcileActions } from './reconcileActions'
 import { RegisterFigures } from './registerFigures'
+import { RegisterOverlays } from './registerOverlays'
 import { TransactionActions } from './rowActions'
 import { RegisterState } from './register'
 import { ACCOUNTS_SCHEMA, accountsMigrator } from './schema'
@@ -51,6 +52,7 @@ export async function activate(context: PluginContext) {
   const rowActions = new TransactionActions(context.extensions, context.commands, context.logger, actions)
   const navigatorItems = new NavigatorItems(context.extensions, context.commands, context.contextKeys, context.logger)
   const figures = new RegisterFigures(context.extensions, context.commands, context.logger)
+  const overlays = new RegisterOverlays(context.extensions, context.logger)
 
   const reveal = async (viewId: string) => {
     if (context.commands.has('shell.layout.reveal')) await context.commands.execute('shell.layout.reveal', viewId).catch(() => undefined)
@@ -77,7 +79,7 @@ export async function activate(context: PluginContext) {
     navigatorItems.watchBadges(() => context.events.emit(local(ACCOUNTS_EVENTS.navigatorItems), navigatorItems.resolved())),
     ...contributions().map(([point, id, impl]) => context.extensions.contribute(ACCOUNTS_PLUGIN_ID, point, id, impl)),
     ...registerCommands(context, service, selection, register, prompts),
-    ...registerIpc(context, service, session, selection, register, actions, rowActions, navigatorItems, figures)
+    ...registerIpc(context, service, session, selection, register, actions, rowActions, navigatorItems, figures, overlays)
   )
 
   await selection.refresh()

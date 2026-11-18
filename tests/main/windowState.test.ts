@@ -75,6 +75,10 @@ function fakeWindow(initial: Rect = { x: 10, y: 20, width: 1000, height: 700 }) 
     bounds: initial,
     maximized: false,
     destroyed: false,
+    getBounds: vi.fn(() => {
+      if (win.destroyed) throw new Error('Object has been destroyed')
+      return win.bounds
+    }),
     getNormalBounds: vi.fn(() => {
       if (win.destroyed) throw new Error('Object has been destroyed')
       return win.bounds
@@ -146,6 +150,74 @@ describe('trackWindowState', () => {
     await vi.advanceTimersByTimeAsync(500)
 
     expect(saved).toEqual([{ x: 10, y: 20, width: 1000, height: 700, maximized: true }])
+  })
+
+  it('keeps the size the user last had when maximizing resizes the window to the screen, as Linux does', async () => {
+    const { win, saved } = setup()
+    win.bounds = { x: 30, y: 40, width: 800, height: 600 }
+    win.emit('resize')
+    await vi.advanceTimersByTimeAsync(500)
+
+    // Electron on Linux reports the maximized bounds from getNormalBounds too; the tracker must not believe it
+    win.maximized = true
+    win.bounds = { x: 0, y: 0, width: 1920, height: 1080 }
+    win.emit('maximize')
+    win.emit('resize')
+    win.emit('move')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(saved.at(-1)).toEqual({ x: 30, y: 40, width: 800, height: 600, maximized: true })
+
+    // Restoring puts the window back where it was, and that is what is saved
+    win.maximized = false
+    win.bounds = { x: 30, y: 40, width: 800, height: 600 }
+    win.emit('unmaximize')
+    win.emit('resize')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(saved.at(-1)).toEqual({ x: 30, y: 40, width: 800, height: 600, maximized: false })
+  })
+
+  it('does not take a resize that fills the work area as the restored size, even before the flag has flipped', async () => {
+    const win = fakeWindow()
+    const saved: WindowState[] = []
+    trackWindowState(win, async state => { saved.push(state) }, {
+      delayMs: 500,
+      workAreaOf: () => ({ x: 0, y: 27, width: 1920, height: 1053 })
+    })
+    win.bounds = { x: 100, y: 100, width: 900, height: 650 }
+    win.emit('resize')
+    await vi.advanceTimersByTimeAsync(500)
+
+    // The maximize's resize arrives while isMaximized() still says false
+    win.bounds = { x: 0, y: 27, width: 1920, height: 1053 }
+    win.emit('resize')
+    win.maximized = true
+    win.emit('maximize')
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(saved.at(-1)).toEqual({ x: 100, y: 100, width: 900, height: 650, maximized: true })
+  })
+
+  it('ignores resizes while the window is full screen or minimized', async () => {
+    const win = Object.assign(fakeWindow(), { fullScreen: false, minimized: false })
+    win.isFullScreen = () => win.fullScreen
+    win.isMinimized = () => win.minimized
+    const saved: WindowState[] = []
+    trackWindowState(win, async state => { saved.push(state) }, { delayMs: 500 })
+    win.bounds = { x: 10, y: 20, width: 1000, height: 700 }
+    win.emit('resize')
+    await vi.advanceTimersByTimeAsync(500)
+
+    win.fullScreen = true
+    win.bounds = { x: 0, y: 0, width: 2560, height: 1440 }
+    win.emit('resize')
+    await vi.advanceTimersByTimeAsync(500)
+    win.fullScreen = false
+    win.minimized = true
+    win.bounds = { x: -32000, y: -32000, width: 160, height: 28 }
+    win.emit('move')
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(saved.at(-1)).toMatchObject({ x: 10, y: 20, width: 1000, height: 700 })
   })
 
   it('does not write again when nothing differs from the last save', async () => {
@@ -313,5 +385,50 @@ describe('createWindowStateGroup', () => {
     await group.flush()
 
     expect(save).not.toHaveBeenCalled()
+  })
+})
+
+describe('a session that starts maximized', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  /** A window opened maximized: Electron, on Linux, reports the maximized bounds from every getter. */
+  function openedMaximized() {
+    const win = fakeWindow({ x: 0, y: 0, width: 1920, height: 1080 })
+    win.maximized = true
+    const saved: WindowState[] = []
+    return { win, saved, save: vi.fn(async (state: WindowState) => { saved.push(state) }) }
+  }
+
+  it('keeps the size and place it was opened with, rather than saving the screen’s', async () => {
+    const { win, saved, save } = openedMaximized()
+    const tracker = trackWindowState(win, save, {
+      initial: { x: 120, y: 80, width: 1000, height: 700, maximized: true }
+    })
+    win.emit('resize')
+    win.emit('move')
+    await tracker.flush()
+    expect(saved.at(-1)).toEqual({ x: 120, y: 80, width: 1000, height: 700, maximized: true })
+    expect(win.getNormalBounds).not.toHaveBeenCalled()
+  })
+
+  it('keeps the opened size when no position was remembered, and leaves placing it to the system', async () => {
+    const { win, saved, save } = openedMaximized()
+    const tracker = trackWindowState(win, save, { initial: { width: 1000, height: 700, maximized: true } })
+    await tracker.flush()
+    expect(saved.at(-1)).toEqual({ width: 1000, height: 700, maximized: true })
+  })
+
+  it('takes the restored size once the user un-maximizes, as before', async () => {
+    const { win, saved, save } = openedMaximized()
+    const tracker = trackWindowState(win, save, {
+      initial: { x: 120, y: 80, width: 1000, height: 700, maximized: true }
+    })
+    win.maximized = false
+    win.bounds = { x: 200, y: 150, width: 900, height: 650 }
+    win.emit('unmaximize')
+    win.emit('resize')
+    await tracker.flush()
+    expect(saved.at(-1)).toEqual({ x: 200, y: 150, width: 900, height: 650, maximized: false })
   })
 })

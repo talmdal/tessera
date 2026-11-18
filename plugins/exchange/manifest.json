@@ -1,0 +1,36 @@
+{
+  "id": "exchange",
+  "name": "Import and Export",
+  "version": "0.1.0",
+  "privileged": {
+    "entry": "privileged/index.js"
+  },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./StatementsView": "src/renderer/StatementsView.tsx",
+      "./ChooseAccountDialog": "src/renderer/ChooseAccountDialog.tsx",
+      "./MatchingDialog": "src/renderer/MatchingDialog.tsx",
+      "./QuestionDialog": "src/renderer/QuestionDialog.tsx",
+      "./CsvProfileDialog": "src/renderer/CsvProfileDialog.tsx",
+      "./ExportDialog": "src/renderer/ExportDialog.tsx",
+      "./HistoryDialog": "src/renderer/HistoryDialog.tsx",
+      "./RenameDialog": "src/renderer/RenameDialog.tsx",
+      "./RulesDialog": "src/renderer/RulesDialog.tsx",
+      "./OptionsPage": "src/renderer/OptionsPage.tsx",
+      "./SourcesDialog": "src/renderer/SourcesDialog.tsx"
+    }
+  },
+  "services": {
+    "requires": [
+      "book.session",
+      "accounts.service",
+      "shell.prompts",
+      "shell.files"
+    ],
+    "provides": [
+      "exchange.service",
+      "exchange.migrator"
+    ]
+  }
+}

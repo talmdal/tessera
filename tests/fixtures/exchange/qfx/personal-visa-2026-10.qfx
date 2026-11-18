@@ -1,0 +1,112 @@
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+  <SONRS>
+    <STATUS>
+      <CODE>0
+      <SEVERITY>INFO
+    </STATUS>
+    <DTSERVER>20261031235959[-5:EST]
+    <LANGUAGE>ENG
+    <FI>
+      <ORG>Maple Trust Bank
+      <FID>021000021
+    </FI>
+    <INTU.BID>2001
+    <INTU.USERID>householder@example.invalid
+  </SONRS>
+</SIGNONMSGSRSV1>
+<CREDITCARDMSGSRSV1>
+  <CCSTMTTRNRS>
+    <TRNUID>2026-10-9043
+    <STATUS>
+      <CODE>0
+      <SEVERITY>INFO
+    </STATUS>
+    <CCSTMTRS>
+      <CURDEF>CAD
+      <CCACCTFROM>
+        <ACCTID>4510220011889043
+      </CCACCTFROM>
+      <BANKTRANLIST>
+        <DTSTART>20261001000000[-5:EST]
+        <DTEND>20261031235959[-5:EST]
+        <STMTTRN>
+          <TRNTYPE>DEBIT
+          <DTPOSTED>20261003120000[-5:EST]
+          <TRNAMT>-18.99
+          <FITID>37D3FCD258B9EBB6
+          <NAME>Netflix
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DEBIT
+          <DTPOSTED>20261007120000[-5:EST]
+          <TRNAMT>-31.34
+          <FITID>88C73D8678418290
+          <NAME>Boulangerie Côté
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DEBIT
+          <DTPOSTED>20261012120000[-5:EST]
+          <TRNAMT>-93.65
+          <FITID>90520418A8B88B7F
+          <NAME>Petro-Canada
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DEBIT
+          <DTPOSTED>20261018120000[-5:EST]
+          <TRNAMT>-93.58
+          <FITID>0F74386EBADB926C
+          <NAME>Café Martin
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>XFER
+          <DTPOSTED>20261020120000[-5:EST]
+          <TRNAMT>252.86
+          <FITID>EF87E43E79A5C71D
+          <NAME>Visa payment
+          <MEMO>Visa payment
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DEBIT
+          <DTPOSTED>20261022120000[-5:EST]
+          <TRNAMT>-31.89
+          <FITID>685D0D94809ABBBF
+          <NAME>Shoppers Drug Mart
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DEBIT
+          <DTPOSTED>20261026120000[-5:EST]
+          <TRNAMT>-72.77
+          <FITID>3205C3B234201531
+          <NAME>Esso
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DEBIT
+          <DTPOSTED>20261031120000[-5:EST]
+          <TRNAMT>-172.70
+          <FITID>24F84F96F2222535
+          <NAME>Loblaws
+        </STMTTRN>
+      </BANKTRANLIST>
+      <LEDGERBAL>
+        <BALAMT>-2378.92
+        <DTASOF>20261031235959[-5:EST]
+      </LEDGERBAL>
+      <AVAILBAL>
+        <BALAMT>-2378.92
+        <DTASOF>20261031235959[-5:EST]
+      </AVAILBAL>
+    </CCSTMTRS>
+  </CCSTMTTRNRS>
+</CREDITCARDMSGSRSV1>
+</OFX>

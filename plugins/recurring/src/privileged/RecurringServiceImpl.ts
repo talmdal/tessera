@@ -14,7 +14,7 @@ import {
 import {
   HOLIDAY_NAME_MAX_LENGTH, MAX_FORECAST_ENTRIES, MAX_FORECAST_YEARS, RecurringError, SOURCE_POSTING_INDEX,
   addIsoDays, firstIndexOnOrAfter, isRecurringError, occurrenceAt, occurrencesFrom, seriesKind,
-  type BusinessCalendar, type EnterRequest, type EnterResult, type EnteredOccurrence, type ForecastEntry, type Holiday, type Posting,
+  type BusinessCalendar, type EnterRequest, type PayeeHint, type EnterResult, type EnteredOccurrence, type ForecastEntry, type Holiday, type Posting,
   type RecurringChange, type RecurringConfirmation, type RecurringService, type RecurringSnapshot,
   type Schedule, type Series, type SeriesFilter, type SeriesInput, type SeriesPatch, type SeriesTemplate,
   type WriteOptions
@@ -133,8 +133,62 @@ export class RecurringServiceImpl implements RecurringService {
       if ((series.nextDate === null || series.endedOn !== undefined) && options.includeEnded !== true) return false
       return true
     })
-    const [accounts, categories, calendar] = await Promise.all([this.allAccounts(), this.allCategories(), this.calendar()])
-    return buildSnapshot(wanted, accounts, categories, this.today(), calendar)
+    const [accounts, categories, calendar, hints] = await Promise.all([
+      this.allAccounts(), this.allCategories(), this.calendar(), this.payeeHints(wanted)
+    ])
+    return buildSnapshot(wanted, accounts, categories, this.today(), calendar, hints)
+  }
+
+  /**
+   * For each series, whether the last transaction it entered now has another payee — renamed by a bank import
+   * (which takes the bank's payee as the truth) or by hand. The register is read once per account involved, and
+   * a problem reading one only costs that account its hints: they are a suggestion, never worth a failed view.
+   */
+  private async payeeHints(series: readonly Series[]): Promise<Map<string, PayeeHint>> {
+    const hints = new Map<string, PayeeHint>()
+    const named = series.filter(one => one.template.transferAccountId === undefined && one.enteredCount > 0)
+    if (named.length === 0) return hints
+
+    const last = await this.read(async c => {
+      const found = new Map<string, string>()
+      for (const one of named) {
+        const postings = await c.postings.find({ seriesId: one.id }, { sort: { dueDate: -1 } })
+        const entered = postings.find(posting => posting.outcome === 'entered' && typeof posting.transactionId === 'string')
+        if (entered?.transactionId !== undefined) found.set(one.id, entered.transactionId)
+      }
+      return found
+    })
+
+    const registers = new Map<string, Map<string, { payee?: string, date: string, voided: boolean }>>()
+    for (const one of named) {
+      const transactionId = last.get(one.id)
+      if (transactionId === undefined) continue
+      if (!registers.has(one.accountId)) {
+        const rows = await this.deps.accounts.transactions(one.accountId).register().then(r => r.rows, () => [])
+        registers.set(one.accountId, new Map(rows.map(row => [row.transaction.id, {
+          date: row.transaction.date, voided: row.transaction.voided, ...(row.payeeName !== undefined && { payee: row.payeeName })
+        }])))
+      }
+      const entry = registers.get(one.accountId)!.get(transactionId)
+      if (entry === undefined || entry.voided || entry.payee === undefined) continue
+      if (!samePayee(entry.payee, one.template.payee)) hints.set(one.id, { name: entry.payee, date: entry.date })
+    }
+    return hints
+  }
+
+  /**
+   * Takes the payee a hint offered. The series' name follows when it was only ever the old payee's name, which is
+   * the default; a name the user chose is theirs and stays.
+   */
+  async usePayee(id: string, payee: string): Promise<Series> {
+    const name = typeof payee === 'string' ? payee.trim() : ''
+    if (name === '') throw invalid('payee', 'Give the payee to use.')
+    const current = await this.require(id)
+    const renameToo = current.template.payee !== undefined && samePayee(current.name, current.template.payee)
+    return this.update(id, {
+      template: { ...current.template, payee: name },
+      ...(renameToo && { name })
+    })
   }
 
   async forecast(range: { from: string, to: string }, filter: SeriesFilter = {}): Promise<ForecastEntry[]> {
@@ -729,4 +783,10 @@ export class RecurringServiceImpl implements RecurringService {
       this.deps.log.error('[recurring] Could not follow a change to the accounts', err)
     }
   }
+}
+
+/** The same payee as far as a person is concerned: case and spacing aside. */
+function samePayee(a: string | undefined, b: string | undefined): boolean {
+  const norm = (text: string | undefined) => (text ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
+  return norm(a) === norm(b)
 }

@@ -15,7 +15,7 @@ import { Alert, Autocomplete, Button, Checkbox, DialogActions, DialogContent, Fo
 export const IN_BOOK = '(book)'
 
 type Field = 'name' | 'type' | 'subBookId' | 'currency' | 'openingDate' | 'openingBalance' | 'creditLimit' | 'minimumBalance'
-  | 'showAvailableBalance' | 'institution' | 'accountNumber' | 'notes'
+  | 'showAvailableBalance' | 'institution' | 'routingNumber' | 'accountNumber' | 'notes'
 
 const currencyName = (() => {
   try {
@@ -43,6 +43,7 @@ interface Form {
   /** Show the balance less the minimum. */
   showAvailableBalance: boolean
   institution: string
+  routingNumber: string
   accountNumber: string
   notes: string
 }
@@ -56,12 +57,21 @@ function initialForm(input: AccountDialogInput): Form {
       openingBalance: amountToInput(shown, a.currency), creditLimit: a.creditLimit === undefined ? '' : amountToInput(a.creditLimit, a.currency),
       minimumBalance: a.minimumBalance === undefined ? '' : amountToInput(a.minimumBalance, a.currency),
       showAvailableBalance: a.showAvailableBalance === true,
-      institution: a.institution ?? '', accountNumber: a.accountNumber ?? '', notes: a.notes ?? ''
+      institution: a.institution ?? '', routingNumber: a.routingNumber ?? '',
+      accountNumber: a.accountNumber ?? '', notes: a.notes ?? ''
     }
   }
+  // A caller may know the account already (an import read it from a statement); the user can still change it all
+  const d = input.defaults ?? {}
+  const type = d.type ?? 'chequing'
+  const currency = d.currency ?? input.defaultCurrency
+  const opening = d.openingBalance ?? 0
   return {
-    name: '', type: 'chequing', subBook: input.subBookId ?? IN_BOOK, currency: input.defaultCurrency, openingDate: todayIso(),
-    openingBalance: '0', creditLimit: '', minimumBalance: '', showAvailableBalance: false, institution: '', accountNumber: '', notes: ''
+    name: d.name ?? '', type, subBook: input.subBookId ?? IN_BOOK, currency, openingDate: d.openingDate ?? todayIso(),
+    openingBalance: opening === 0 ? '0' : amountToInput(isLiability(type) ? -opening : opening, currency),
+    creditLimit: '', minimumBalance: '', showAvailableBalance: false,
+    institution: d.institution ?? '', routingNumber: d.routingNumber ?? '',
+    accountNumber: d.accountNumber ?? '', notes: ''
   }
 }
 
@@ -108,6 +118,7 @@ export function toInput(form: Form): { input?: AccountInput, problems: Partial<R
     ...(minimumBalance !== undefined && { minimumBalance }),
     ...(showAvailableBalance && { showAvailableBalance: true }),
     ...(optional(form.institution) !== undefined && { institution: optional(form.institution) }),
+    ...(optional(form.routingNumber) !== undefined && { routingNumber: optional(form.routingNumber) }),
     ...(optional(form.accountNumber) !== undefined && { accountNumber: optional(form.accountNumber) }),
     ...(optional(form.notes) !== undefined && { notes: optional(form.notes) })
   }
@@ -240,6 +251,12 @@ export default function AccountDialog({ input, close, setBusy }: DialogProps<Acc
               onChange={event => set('accountNumber', event.target.value)} {...text('accountNumber')}
               slotProps={{ htmlInput: { maxLength: ACCOUNT_NUMBER_MAX_LENGTH, autoComplete: 'off' } }} />
           </Stack>
+
+          {/* Filled in from a downloaded statement; rarely typed by hand, so it sits below the two that are. */}
+          <TextField size="small" label="Routing number" value={form.routingNumber} sx={{ maxWidth: 240 }}
+            onChange={event => set('routingNumber', event.target.value)} {...text('routingNumber')}
+            helperText="From your bank’s statement files; leave blank if you don’t know it"
+            slotProps={{ htmlInput: { maxLength: ACCOUNT_NUMBER_MAX_LENGTH, autoComplete: 'off' } }} />
 
           <TextField size="small" label="Notes" value={form.notes} multiline minRows={2}
             onChange={event => set('notes', event.target.value)} {...text('notes')}

@@ -7,7 +7,7 @@ import {
   RECURRING_CHANNELS, RECURRING_CONTEXT_KEYS as K, RECURRING_EVENTS, RECURRING_PLUGIN_ID,
   RecurringError, isRecurringError, toRecurringResult,
   type EnterRequest, type ForecastEntry, type Holiday, type Posting, type RecurringSnapshot, type SaveFromTransactionRequest,
-  type SaveSeriesRequest, type SeriesInput
+  type SaveSeriesRequest, type UsePayeeRequest, type SeriesInput
 } from '@tessera/recurring-api'
 import type { RecurringServiceImpl } from './RecurringServiceImpl'
 import { overdueSummary } from './snapshot'
@@ -88,6 +88,14 @@ export function registerIpc(context: PluginContext, service: RecurringServiceImp
         return service.update(id, { ...input, notes: input.notes ?? null }, {
           ...(typeof expectedRev === 'number' && { expectedRev })
         })
+      })
+    }),
+
+    context.ipc.register(RECURRING_CHANNELS.usePayee, async (msg: IpcMessage<UsePayeeRequest>) => {
+      const { id, payee } = msg.data ?? {} as Partial<UsePayeeRequest>
+      return toRecurringResult(() => {
+        if (typeof id !== 'string' || typeof payee !== 'string') throw new RecurringError('INVALID', 'Choose the series and the payee.', 'payee')
+        return service.usePayee(id, payee)
       })
     }),
 

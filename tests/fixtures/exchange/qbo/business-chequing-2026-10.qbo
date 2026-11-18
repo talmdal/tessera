@@ -1,0 +1,131 @@
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+  <SONRS>
+    <STATUS>
+      <CODE>0
+      <SEVERITY>INFO
+    </STATUS>
+    <DTSERVER>20261031235959[-5:EST]
+    <LANGUAGE>ENG
+    <FI>
+      <ORG>Riverstone Credit Union
+      <FID>026009593
+    </FI>
+    <INTU.BID>3000
+    <INTU.USERID>householder@example.invalid
+  </SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+  <STMTTRNRS>
+    <TRNUID>2026-10-3344
+    <STATUS>
+      <CODE>0
+      <SEVERITY>INFO
+    </STATUS>
+    <STMTRS>
+      <CURDEF>CAD
+      <BANKACCTFROM>
+        <BANKID>026009593
+        <ACCTID>00819-2003344
+        <ACCTTYPE>CHECKING
+      </BANKACCTFROM>
+      <BANKTRANLIST>
+        <DTSTART>20261001000000[-5:EST]
+        <DTEND>20261031235959[-5:EST]
+        <STMTTRN>
+          <TRNTYPE>DEP
+          <DTPOSTED>20261006120000[-5:EST]
+          <TRNAMT>5143.87
+          <FITID>204CC7CAFC3F3079
+          <NAME>Ironwood Property Group
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DIRECTDEBIT
+          <DTPOSTED>20261010120000[-5:EST]
+          <TRNAMT>-89.00
+          <FITID>B8CF47E2E9026B9E
+          <NAME>Atlassian
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DIRECTDEBIT
+          <DTPOSTED>20261010120000[-5:EST]
+          <TRNAMT>-62.00
+          <FITID>EAF1930BA4C47D75
+          <NAME>Telus Business
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DEP
+          <DTPOSTED>20261014120000[-5:EST]
+          <TRNAMT>4890.92
+          <FITID>5359AD527F15C114
+          <NAME>Harbourview Legal
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DIRECTDEBIT
+          <DTPOSTED>20261015120000[-5:EST]
+          <TRNAMT>-450.00
+          <FITID>D30E752D37EFA5E1
+          <NAME>Pelletier &amp; Co. CPA
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>XFER
+          <DTPOSTED>20261015120000[-5:EST]
+          <TRNAMT>10698.95
+          <FITID>19DE8E4C59A3AD23
+          <NAME>For the quarterly remittance
+          <MEMO>For the quarterly remittance
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DIRECTDEBIT
+          <DTPOSTED>20261015120000[-5:EST]
+          <TRNAMT>-10698.95
+          <FITID>D478266CC15EFB2C
+          <NAME>Canada Revenue Agency
+          <MEMO>Quarterly remittance
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>POS
+          <DTPOSTED>20261017120000[-5:EST]
+          <TRNAMT>-296.59
+          <FITID>E9DDB301197B6051
+          <NAME>Staples
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>XFER
+          <DTPOSTED>20261028120000[-5:EST]
+          <TRNAMT>-3211.13
+          <FITID>545884B1D64D4D95
+          <NAME>Tax set-aside
+          <MEMO>Tax set-aside
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>XFER
+          <DTPOSTED>20261028120000[-5:EST]
+          <TRNAMT>-5926.07
+          <FITID>FBA47D86B8D9E9F5
+          <NAME>Owner’s draw
+          <MEMO>Owner’s draw
+        </STMTTRN>
+      </BANKTRANLIST>
+      <LEDGERBAL>
+        <BALAMT>10000.00
+        <DTASOF>20261031235959[-5:EST]
+      </LEDGERBAL>
+      <AVAILBAL>
+        <BALAMT>10000.00
+        <DTASOF>20261031235959[-5:EST]
+      </AVAILBAL>
+    </STMTRS>
+  </STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>

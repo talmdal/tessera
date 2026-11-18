@@ -254,7 +254,7 @@ describe('the account dialog', () => {
   })
 
   it('asks for the amount owed on a credit card, stores it negative, and takes a credit limit', () => {
-    const form = { name: 'Visa', type: 'creditCard' as const, subBook: '(book)', currency: 'CAD', openingDate: '2026-01-01', openingBalance: '540', creditLimit: '5,000', minimumBalance: '', showAvailableBalance: false, institution: '', accountNumber: '', notes: '' }
+    const form = { name: 'Visa', type: 'creditCard' as const, subBook: '(book)', currency: 'CAD', openingDate: '2026-01-01', openingBalance: '540', creditLimit: '5,000', minimumBalance: '', showAvailableBalance: false, institution: '', routingNumber: '', accountNumber: '', notes: '' }
     expect(toInput(form).input).toMatchObject({ openingBalance: -54000, creditLimit: 500000, subBookId: null })
     expect(toInput({ ...form, type: 'chequing' }).input).not.toHaveProperty('creditLimit')
     expect(toInput({ ...form, openingBalance: '5.555' }).problems).toEqual({ openingBalance: 'Use at most 2 decimal places.' })

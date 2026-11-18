@@ -2,10 +2,13 @@
 import type { ComponentType } from 'react'
 import type { DialogProps } from '@tessera/types'
 import { PROMPT_DIALOG_MODULE } from '../../../shared/dialogs/types'
+import { PROBLEMS_DIALOG_MODULE } from '../../../shared/problems/types'
+import { ProblemsDialog } from './ProblemsDialog'
 import { PromptDialog } from './PromptDialog'
 
 export type DialogComponent = ComponentType<DialogProps<any, any>>
 
 export const BUILT_IN_DIALOGS: Readonly<Record<string, DialogComponent>> = {
-  [PROMPT_DIALOG_MODULE]: PromptDialog
+  [PROMPT_DIALOG_MODULE]: PromptDialog,
+  [PROBLEMS_DIALOG_MODULE]: ProblemsDialog
 }

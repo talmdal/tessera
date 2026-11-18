@@ -206,6 +206,7 @@ try.
 |---|---|
 | `npm run dev` | Build main, preload and bundled plugins, start the renderer dev server, launch Electron |
 | `npm run build:plugins` | Build `plugins/<id>/` into `modules/<id>/` |
+| `npm run seed:book` | Build the “Household” test book (four years, five accounts, reconciled) and the bank files that go with it |
 | `npm test` | Run the test suite once (Vitest) |
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:ui` | Vitest UI |
@@ -259,9 +260,17 @@ modules/              Build output of plugins/ (gitignored); loaded at startup
   of the first Finance feature: books and sub-books, accounts,
   transactions, the register and reconciliation; with its
   [implementation outline](docs/account-manager-implementation.md)
+- [docs/import-export-design.md](docs/import-export-design.md): proposed
+  import and export: OFX, QFX, QBO, QIF (in two dialects) and CSV behind one
+  `read → resolve → match → review → apply` pipeline, where the user accepts
+  or re-matches each row before anything is written, with an undoable import
+  batch. **File ▸ Import Transactions… works** for OFX, QFX and QBO, with the
+  seeded **Household** test book (`npm run seed:book`) to try it against. QIF,
+  CSV and export are not built
 - [docs/vault-design.md](docs/vault-design.md): the earlier proposal for
   pluggable storage, importers and file handling; its session half is
-  superseded by the account manager design
+  superseded by the account manager design, and its importer half by the
+  import and export note
 - [docs/storage-api-design.md](docs/storage-api-design.md): proposed
   `Store` API that storage backends implement and domain plugins use (the
   lower-level `StorageEngine` it would build on already exists)

@@ -6,8 +6,8 @@ import { DEFAULT_SELECTION } from '../theme/selection'
 
 const shell = (event: string) => channelFor(SHELL_CONTRIBUTOR_ID, event)
 
-/** Extension point plugins contribute option pages to. */
-export const OPTIONS_EXTENSION_POINT = 'shell.options.pages'
+/** Extension point plugins contribute option pages to. Defined in `@tessera/types`, where plugins can reach it. */
+export { OPTIONS_EXTENSION_POINT } from '@tessera/types'
 
 /** Commands the shell registers for options. */
 export const OPTIONS_COMMANDS = {

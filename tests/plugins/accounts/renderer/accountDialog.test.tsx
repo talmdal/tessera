@@ -69,7 +69,7 @@ describe('the account dialog: minimum balance', () => {
   })
 
   it('asks for the minimum before the balance above it can be shown', () => {
-    const form = { name: 'S', type: 'savings' as const, subBook: '(book)', currency: 'CAD', openingDate: '2026-01-01', openingBalance: '0', creditLimit: '', minimumBalance: '', showAvailableBalance: true, institution: '', accountNumber: '', notes: '' }
+    const form = { name: 'S', type: 'savings' as const, subBook: '(book)', currency: 'CAD', openingDate: '2026-01-01', openingBalance: '0', creditLimit: '', minimumBalance: '', showAvailableBalance: true, institution: '', routingNumber: '', accountNumber: '', notes: '' }
     expect(toInput(form).problems.minimumBalance).toBe('Enter the minimum balance, to show the balance above it.')
     expect(toInput({ ...form, type: 'creditCard', minimumBalance: '100' }).input).not.toHaveProperty('minimumBalance')
   })
@@ -118,5 +118,56 @@ describe('the navigator, with registers and minimum balances', () => {
       { id: 'accounts.register.show', args: [{ id: 's' }] }, { id: 'accounts.account.edit', args: [{ id: 's' }] },
       { id: 'accounts.register.show', args: [{ id: 'c' }] }
     ]))
+  })
+})
+
+describe('the account dialog: filled in by the caller', () => {
+  it('starts from the defaults it was given, such as an import read from a statement', async () => {
+    const { calls } = showDialog({
+      ...base, mode: 'create', subBookId: null,
+      defaults: { name: 'Maple chequing', type: 'savings', currency: 'CAD', openingDate: '2026-10-01', openingBalance: 800_000, institution: 'Maple Trust Bank', accountNumber: '00412-1234567' }
+    })
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Maple chequing')
+    expect(screen.getByRole('textbox', { name: 'Opening balance' })).toHaveValue('8000.00')
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }))
+    expect(calls(ACCOUNTS_CHANNELS.saveAccount)[0].input).toMatchObject({
+      name: 'Maple chequing', type: 'savings', openingDate: '2026-10-01', openingBalance: 800_000,
+      institution: 'Maple Trust Bank', accountNumber: '00412-1234567'
+    })
+  })
+
+  it('shows a liability’s opening balance as the amount owed', () => {
+    showDialog({ ...base, mode: 'create', subBookId: null, defaults: { name: 'Visa', type: 'creditCard', openingBalance: -25_000 } })
+    expect(screen.getByRole('textbox', { name: 'Amount owed' })).toHaveValue('250.00')
+  })
+})
+
+describe('the account dialog: the bank’s identifiers', () => {
+  it('saves a routing number, which a downloaded statement supplies', async () => {
+    const { calls } = showDialog({ ...base, mode: 'create', subBookId: null })
+    await userEvent.type(screen.getByRole('textbox', { name: 'Name' }), 'Chequing')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Routing number' }), '001002003')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Account number' }), '1234567890')
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    expect(calls(ACCOUNTS_CHANNELS.saveAccount)[0].input).toMatchObject({
+      routingNumber: '001002003', accountNumber: '1234567890'
+    })
+  })
+
+  it('shows an account’s routing number when editing it', () => {
+    const account: Account = {
+      id: 'a', rev: 1, name: 'Chequing', type: 'chequing', subBookId: null, currency: 'CAD',
+      openingDate: '2026-01-01', openingBalance: 0, order: 0, closed: false, routingNumber: '001002003'
+    }
+    showDialog({ ...base, mode: 'edit', account })
+    expect(screen.getByRole('textbox', { name: 'Routing number' })).toHaveValue('001002003')
+  })
+
+  it('leaves it out when it is blank, rather than saving an empty string', async () => {
+    const { calls } = showDialog({ ...base, mode: 'create', subBookId: null })
+    await userEvent.type(screen.getByRole('textbox', { name: 'Name' }), 'Cash')
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }))
+    expect(calls(ACCOUNTS_CHANNELS.saveAccount)[0].input).not.toHaveProperty('routingNumber')
   })
 })

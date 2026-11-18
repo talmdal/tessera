@@ -64,7 +64,12 @@ export function translate(err: unknown): unknown {
     return err
   }
   const code = (err as { code?: unknown } | null)?.code
-  if (code === 'UNIQUE_VIOLATION') return new AccountsError('DUPLICATE_NAME', 'There is already one with this name.', 'name')
+  if (code === 'UNIQUE_VIOLATION') {
+    // The index that was violated says which field to name; `uniqueExternalId` is an importer writing a row twice
+    return /uniqueExternalId/.test(String((err as Error).message))
+      ? new AccountsError('INVALID', 'This transaction has already been imported into this account.', 'externalId')
+      : new AccountsError('DUPLICATE_NAME', 'There is already one with this name.', 'name')
+  }
   if (code === 'CONFLICT') return new AccountsError('CONFLICT', 'This was changed elsewhere. Try again.')
   if (code === 'READ_ONLY') return new AccountsError('READ_ONLY', 'This book is open read-only.')
   if (code === 'NOT_OPEN') return new AccountsError('NO_BOOK', 'No book is open.')

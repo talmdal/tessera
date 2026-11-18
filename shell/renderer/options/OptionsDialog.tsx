@@ -14,6 +14,7 @@ import { Loading } from '../Loading'
 import { useWindowTheme } from '../theme/ShellThemeProvider'
 import type { ViewLoader } from '../views/ports'
 import { BUILT_IN_OPTION_PAGES, OptionsPageComponent } from './builtIns'
+import { reportCaught } from '../problems/reportWindowErrors'
 
 type Bridge = Pick<TesseraBridge, 'invoke' | 'on'>
 
@@ -495,6 +496,7 @@ class PageBoundary extends Component<{ pageId: string, onError(): void, children
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
     console.error(`[options] Page "${this.props.pageId}" failed`, error, info.componentStack)
+    reportCaught(`Options page "${this.props.pageId}" could not be displayed`, error, info.componentStack)
     this.props.onError()
   }
 

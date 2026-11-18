@@ -60,6 +60,13 @@ export interface ItemArgs {
 /** Optional argument of `accounts.account.new`: the sub-book to create it in (null: the book itself). */
 export interface NewAccountArgs {
   subBookId?: string | null
+  /**
+   * What to fill the dialog in with, for a caller that knows something about the account — an import that read
+   * it from a bank statement, say. The user still sees the dialog and can change any of it.
+   */
+  defaults?: Partial<Pick<AccountInput, 'name' | 'type' | 'currency' | 'openingDate' | 'openingBalance' | 'institution' | 'routingNumber' | 'accountNumber'>>
+  /** Default true: select the new account in the navigator and reveal it. An import leaves the screen where it is. */
+  reveal?: boolean
 }
 
 /**
@@ -147,7 +154,9 @@ export const ACCOUNTS_CHANNELS = {
   /** → `ResolvedNavigatorItem[]`: the rows other plugins add to the navigator. */
   navigatorItems: channel('navigator.items'),
   /** `{ accountId }` → `ResolvedRegisterFigure[]`: the figures other plugins add above the register. */
-  registerFigures: channel('register.figures')
+  registerFigures: channel('register.figures'),
+  /** `{ accountId }` → `ResolvedRegisterOverlay[]`: the provisional-row providers other plugins add to the register. */
+  registerOverlays: channel('register.overlays')
 } as const
 
 /** Push events, main → renderer. */
@@ -280,7 +289,7 @@ export type AccountDialogInput = {
   bookName: string
   /** Suggested for a new account: the currency most accounts in the book use. */
   defaultCurrency: string
-} & ({ mode: 'create', subBookId: string | null } | { mode: 'edit', account: Account })
+} & ({ mode: 'create', subBookId: string | null, defaults?: NewAccountArgs['defaults'] } | { mode: 'edit', account: Account })
 
 /** The move dialog: what moves, and the sub-books it can move to. */
 export interface MoveDialogInput {
@@ -421,6 +430,76 @@ export interface RegisterFigure {
   currency: string
   /** A line under the figure: 'after 3 scheduled payments'. */
   detail?: string
+}
+
+// ---- Register overlays (`accounts.register.overlays`)
+
+/**
+ * Extension point for `RegisterOverlayContribution`s: provisional rows another plugin lays over the register —
+ * a statement's downloaded transactions waiting to be read, say. The register draws them in date order among
+ * the real rows, in bold with a `?` in the status gutter, and shows each row's actions while it is selected.
+ * The rows are display only: the truth stays with the contributing plugin, which changes it through the
+ * commands its actions name and then fires `refreshOn`.
+ */
+export const REGISTER_OVERLAYS_POINT = 'accounts.register.overlays'
+
+/**
+ * A provisional-row provider. Plain data: the rows come from the IPC channel it names, invoked with
+ * `{ accountId }` and resolving `OverlayRow[]`. Contributed with
+ * `context.extensions.contribute(pluginId, REGISTER_OVERLAYS_POINT, id, contribution)`.
+ */
+export interface RegisterOverlayContribution {
+  /** `<pluginId>.<name>`. */
+  id: string
+  /** The IPC channel the register invokes with `{ accountId }`; resolves `OverlayRow[]`. */
+  channel: string
+  /** An event channel (`window.api.on`) after which the register asks again. Its payload may carry `{ accounts: string[] }` to scope the refresh. */
+  refreshOn?: string
+  order?: number
+}
+
+/** A contribution as the register receives it. */
+export interface ResolvedRegisterOverlay {
+  id: string
+  channel: string
+  refreshOn?: string
+}
+
+/** One provisional row, as the register draws it. */
+export interface OverlayRow {
+  /** Unique across every overlay of the account: the provider should namespace it. */
+  key: string
+  /** YYYY-MM-DD; decides where the row sits in the register. */
+  date: string
+  number?: string
+  payee?: string
+  memo?: string
+  categoryLabel?: string
+  /** Minor units, signed like a transaction. */
+  amount: number
+  /**
+   * The id of the register transaction this row is matched to. A matched row adds nothing to the running
+   * balance — its transaction is already in it — and the register marks that transaction as spoken for.
+   */
+  matchedId?: string
+  /** A short explanation shown with the row: 'Matches 5 Oct', 'New'. */
+  note?: string
+  /** Buttons shown while the row is selected. Each runs its command with `OverlayActionArgs`. */
+  actions: OverlayAction[]
+}
+
+export interface OverlayAction {
+  id: string
+  label: string
+  command: string
+  /** The row's default action: Enter runs it, and it is drawn emphasised. */
+  primary?: boolean
+}
+
+export interface OverlayActionArgs {
+  accountId: string
+  /** The row's `key`. */
+  key: string
 }
 
 // ---- Navigator rows (`accounts.navigator.items`)

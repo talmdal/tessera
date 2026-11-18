@@ -6,6 +6,7 @@ import { DialogHost } from './dialogs/DialogHost'
 import { IconsProvider } from './icons/IconsProvider'
 import { BarItemsProvider, createIpcBarItemSource } from './layout/BarItemsProvider'
 import { OptionsDialog } from './options/OptionsDialog'
+import { reportWindowErrors } from './problems/reportWindowErrors'
 import { ShellStateProvider } from './state/ShellState'
 import { ShellThemeProvider } from './theme/ShellThemeProvider'
 import { createFederationViewLoader } from './views/federationViewLoader'
@@ -17,6 +18,9 @@ const bridge = window.api as ShellBridge
 const source = createIpcViewSource(window.api)
 const barItems = createIpcBarItemSource(window.api)
 const loader = createFederationViewLoader()
+
+// Before anything renders, so an error in the first render (a plugin's view, say) is reported too
+reportWindowErrors(window, bridge)
 
 const root = createRoot(document.getElementById('root')!)
 // Nothing is drawn until the window's theme is known; the main process keeps the window hidden until then.

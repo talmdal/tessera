@@ -7,7 +7,7 @@
 import { KeyboardEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   LATE_STATES, RECURRING_CHANNELS, RECURRING_COMMANDS as C, RECURRING_EVENTS,
-  type EnterResult, type RecurringRow, type RecurringSnapshot
+  type EnterResult, type PayeeHint, type RecurringResult, type RecurringRow, type RecurringSnapshot, type Series
 } from '@tessera/recurring-api'
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Divider, FormControlLabel, Icon, ListItemIcon, ListItemText,
@@ -360,6 +360,14 @@ function Line({ row, selected, ticked, onSelect, onToggle, onOpen, onContextMenu
       <TableCell sx={{ color: quiet ? 'text.disabled' : undefined }} title={row.blockedReason ?? row.scheduleLabel}>
         {row.series.name}
         {row.series.template.estimated && <Box component="span" sx={{ color: 'text.secondary', ml: 0.5, fontSize: '0.75em' }}>est.</Box>}
+        {row.payeeHint !== undefined && (
+          // Quiet on purpose: a suggestion, offered where the series is, never a box that interrupts
+          <Tooltip title={`The register now calls this payee “${row.payeeHint.name}”. Select the row to use that name here.`}>
+            <Box component="span" sx={{ ml: 0.5, verticalAlign: 'middle', color: 'info.main' }} data-payee-hint>
+              <Icon name="Info" fontSize="inherit" titleAccess="New payee name" />
+            </Box>
+          </Tooltip>
+        )}
       </TableCell>
       <TableCell sx={{ color: quiet ? 'text.disabled' : undefined }}>{row.account.name}</TableCell>
       <TableCell sx={{ color: row.categoryLabel ? quiet ? 'text.disabled' : undefined : 'text.secondary' }}>
@@ -393,6 +401,7 @@ function Detail({ row }: { row: RecurringRow }) {
       {row.blockedReason && (
         <Typography variant="body2" color="error.main" noWrap data-detail="blocked">{row.blockedReason}</Typography>
       )}
+      {row.payeeHint !== undefined && <PayeeHintLine row={row} hint={row.payeeHint} />}
       {series.notes && <Typography variant="body2" color="text.secondary" noWrap>{series.notes}</Typography>}
     </Box>
   )
@@ -408,6 +417,33 @@ function Empty({ onNew }: { onNew(): void }) {
         listed here as they fall due. You can also right-click a transaction in a register and make it recurring.
       </Typography>
       <Button variant="contained" startIcon={<Icon name="Add" />} onClick={onNew}>New Recurring Transaction</Button>
+    </Stack>
+  )
+}
+
+/**
+ * The last transaction this series entered is now paid to someone else by name — usually because a bank import
+ * took the bank's payee. One line and one button: the user decides, and ignoring it costs nothing.
+ */
+function PayeeHintLine({ row, hint }: { row: RecurringRow, hint: PayeeHint }) {
+  const [problem, setProblem] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const use = async () => {
+    setBusy(true)
+    setProblem(undefined)
+    const reply = await window.api.invoke<RecurringResult<Series>>(RECURRING_CHANNELS.usePayee, { id: row.series.id, payee: hint.name })
+      .catch(err => ({ ok: false as const, error: { message: String((err as Error)?.message ?? err) } }))
+    setBusy(false)
+    if (!reply.ok) setProblem(reply.error.message)
+  }
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }} data-detail="payee-hint">
+      <Typography variant="body2" color="info.main" noWrap sx={{ flex: 1, minWidth: 0 }}>
+        The transaction it entered on {showDate(hint.date)} is now paid to “{hint.name}”
+        {row.payeeName !== undefined ? `, not “${row.payeeName}”` : ''}.
+      </Typography>
+      <Button size="small" onClick={() => { void use() }} disabled={busy} data-payee-hint-use>Use “{hint.name}”</Button>
+      {problem !== undefined && <Typography variant="body2" color="error.main" noWrap>{problem}</Typography>}
     </Stack>
   )
 }

@@ -6,7 +6,8 @@ import { KeyboardEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 
 import {
   ACCOUNTS_CHANNELS, ACCOUNTS_COMMANDS, ACCOUNTS_EVENTS, ACCOUNTS_VIEWS, ACCOUNT_TYPE_LABELS, STATUS_LETTERS, formatAmount,
   maskAccountNumber, shownRunningBalance, showsAvailable, todayIso,
-  type Account, type AccountsResult, type Category, type Chart, type Confirmation, type ReconcileActionArgs, type RegisterRow,
+  type Account, type AccountsResult, type Category, type Chart, type Confirmation, type OverlayActionArgs,
+  type OverlayRow, type ReconcileActionArgs, type RegisterRow,
   type RegisterFigure, type RegisterFigureArgs, type RegisterSnapshot, type ResolvedReconcileAction, type ResolvedRegisterFigure,
   type ResolvedTransactionAction, type SaveTransactionRequest, type Transaction, type TransactionActionArgs, type TransactionsRequest
 } from '@tessera/accounts-api'
@@ -23,10 +24,23 @@ import {
   type Draft, type DraftField
 } from './model'
 import { TransactionEditor } from './TransactionEditor'
-import { useRegisterData } from './useRegister'
+import { useOverlayRows, useRegisterData } from './useRegister'
 
 const NEW = 'new'
 const OPENING = 'opening'
+const OVERLAY_PREFIX = 'overlay:'
+
+/** An overlay row's selection key, distinct from every transaction id. */
+const overlayId = (key: string) => `${OVERLAY_PREFIX}${key}`
+
+/**
+ * A register row, or a provisional row laid over the register, with the balance it is shown with. A provisional
+ * row matched to a register transaction carries that transaction too: the two are drawn as one line, in the
+ * place the statement puts it, and the transaction's own line is not drawn.
+ */
+type MergedEntry =
+  | { kind: 'row', row: RegisterRow }
+  | { kind: 'overlay', row: OverlayRow, balance: number, matched?: RegisterRow }
 
 export default function Register() {
   const { snapshot, chart, categories, reload } = useRegisterData()
@@ -70,6 +84,44 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
   const [menu, setMenu] = useState<{ top: number, left: number }>()
   const [reconcileMenu, setReconcileMenu] = useState<HTMLElement>()
   const tableRef = useRef<HTMLDivElement>(null)
+
+  // Provisional rows other plugins lay over the register (`accounts.register.overlays`), merged in by date.
+  // A row matched to a register transaction is drawn as one line with it, where the statement puts it, and
+  // adds nothing to the shown balance — its transaction is already in the running balance.
+  const overlays = useOverlayRows(account.id)
+  const merged = useMemo(() => {
+    const pending = [...overlays].sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
+    const byId = new Map(rows.map(row => [row.transaction.id, row]))
+    const absorbed = new Set(pending.map(row => row.matchedId).filter((id): id is string => id !== undefined && byId.has(id)))
+    const entries: MergedEntry[] = []
+    const minimum = available ? account.minimumBalance! : 0
+    let lastReal = account.openingBalance - minimum
+    let extra = 0
+    let at = 0
+    const flush = (before: string | undefined) => {
+      while (at < pending.length && (before === undefined || pending[at].date < before)) {
+        const row = pending[at++]
+        const matched = row.matchedId === undefined ? undefined : byId.get(row.matchedId)
+        if (row.matchedId === undefined) extra += row.amount
+        entries.push({ kind: 'overlay', row, balance: lastReal + extra, ...(matched !== undefined && { matched }) })
+      }
+    }
+    for (const row of rows) {
+      flush(row.transaction.date)
+      lastReal = shownRunningBalance(account, row)
+      // Its line is the combined one above or below; the balance still counts it
+      if (absorbed.has(row.transaction.id)) continue
+      entries.push({ kind: 'row', row })
+    }
+    flush(undefined)
+    return entries
+  }, [rows, overlays, account, available])
+  const overlayByKey = (key: string) => overlays.find(row => overlayId(row.key) === key)
+
+  const runOverlayAction = (action: OverlayRow['actions'][number], key: string) => {
+    const args: OverlayActionArgs = { accountId: account.id, key }
+    runCommand(action.command, args).catch(err => setNotice(String((err as Error)?.message ?? err)))
+  }
 
   // Reconciling: the statement's list replaces the register until it is completed, paused or cancelled
   const reconciliation = useReconcileState(account.id)
@@ -242,10 +294,21 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
   }
 
   // Keys on the table when no row is being edited
-  const order = [OPENING, ...rows.map(r => r.transaction.id), ...(editable ? [NEW] : [])]
+  const order = [
+    OPENING,
+    ...merged.map(entry => entry.kind === 'row' ? entry.row.transaction.id : overlayId(entry.row.key)),
+    ...(editable ? [NEW] : [])
+  ]
+  const selectedOverlay = selected.startsWith(OVERLAY_PREFIX) ? overlayByKey(selected) : undefined
   const onKeyDown = (event: KeyboardEvent) => {
     if (editing || event.target !== tableRef.current) return
     const index = order.indexOf(selected)
+    if (selectedOverlay !== undefined && event.key === 'Enter') {
+      const primary = selectedOverlay.actions.find(a => a.primary) ?? selectedOverlay.actions[0]
+      if (primary) runOverlayAction(primary, selectedOverlay.key)
+      event.preventDefault()
+      return
+    }
     const handled = (() => {
       switch (event.key) {
         case 'ArrowDown': if (index < order.length - 1) void select(order[index + 1]); return true
@@ -394,28 +457,41 @@ function AccountRegister({ snapshot, chart, categories, reload }: { snapshot: Re
               </TableCell>
             </TableRow>
 
-            {rows.map(row => row.transaction.id === editing?.draft.id
-              ? (
-                <TransactionEditor
-                  key={row.transaction.id}
-                  draft={editing.draft}
-                  onChange={update => setEditing(current => current && { ...current, draft: update(current.draft) })}
-                  account={account} choices={choices}
-                  problems={problemsFor(row.transaction.id)?.fields ?? {}} error={problemsFor(row.transaction.id)?.error}
-                  busy={busy} focus={focus} isNew={false}
-                  onSave={() => void save(row.transaction.id, editing.draft)}
-                  onCancel={() => { setEditing(null); setProblems(undefined); tableRef.current?.focus() }}
-                />
-              )
-              : (
-                <TransactionLine
-                  key={row.transaction.id} row={row} account={account} selected={selected === row.transaction.id}
-                  onSelect={() => void select(row.transaction.id)}
-                  onEdit={() => startEditing(row)}
-                  onToggle={() => toggleCleared(row)}
-                  onContextMenu={event => onContextMenu(event, row)}
-                />
-              ))}
+            {merged.map(entry => {
+              if (entry.kind === 'overlay') {
+                return (
+                  <OverlayLine
+                    key={overlayId(entry.row.key)} row={entry.row} matched={entry.matched} balance={entry.balance} account={account}
+                    selected={selected === overlayId(entry.row.key)}
+                    onSelect={() => void select(overlayId(entry.row.key))}
+                    onAction={action => runOverlayAction(action, entry.row.key)}
+                  />
+                )
+              }
+              const row = entry.row
+              return row.transaction.id === editing?.draft.id
+                ? (
+                  <TransactionEditor
+                    key={row.transaction.id}
+                    draft={editing.draft}
+                    onChange={update => setEditing(current => current && { ...current, draft: update(current.draft) })}
+                    account={account} choices={choices}
+                    problems={problemsFor(row.transaction.id)?.fields ?? {}} error={problemsFor(row.transaction.id)?.error}
+                    busy={busy} focus={focus} isNew={false}
+                    onSave={() => void save(row.transaction.id, editing.draft)}
+                    onCancel={() => { setEditing(null); setProblems(undefined); tableRef.current?.focus() }}
+                  />
+                )
+                : (
+                  <TransactionLine
+                    key={row.transaction.id} row={row} account={account} selected={selected === row.transaction.id}
+                    onSelect={() => void select(row.transaction.id)}
+                    onEdit={() => startEditing(row)}
+                    onToggle={() => toggleCleared(row)}
+                    onContextMenu={event => onContextMenu(event, row)}
+                  />
+                )
+            })}
 
             {entryRow}
           </TableBody>
@@ -480,6 +556,111 @@ function Figure({ label, minor, currency, detail, description, id }: {
       <Typography variant="subtitle1" component="div"><Balance minor={minor} currency={currency} /></Typography>
       {detail && <Typography variant="caption" color="text.secondary" component="div">{detail}</Typography>}
     </Box>
+  )
+}
+
+/**
+ * One provisional row (`accounts.register.overlays`): bold, a `?` in the status gutter, and — while it is
+ * selected — its actions on a second line, as Money showed Accept and Change on the focused statement row.
+ *
+ * A row matched to a register transaction is drawn as one combined line: the statement's date and amount (the
+ * bank is the source of truth for those), the transaction's number, payee and category (the user's). Bold on
+ * every cell says the match has not been accepted yet.
+ */
+function OverlayLine({ row, matched, balance, account, selected, onSelect, onAction }: {
+  row: OverlayRow, matched?: RegisterRow, balance: number, account: Account, selected: boolean
+  onSelect(): void, onAction(action: OverlayRow['actions'][number]): void
+}) {
+  const amount = formatAmount(row.amount, account.currency, { sign: 'never', currency: false })
+  const number = matched?.transaction.number ?? row.number
+  const payee = matched?.payeeName ?? row.payee
+  const category = matched?.categoryLabel ?? row.categoryLabel
+  const memo = matched?.transaction.memo ?? row.memo
+  const cell = { fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } as const
+  const numeric = { ...cell, fontVariantNumeric: 'tabular-nums' } as const
+  return (
+    <>
+      <TableRow
+        hover selected={selected} onClick={onSelect}
+        data-overlay={row.key} data-matched={matched?.transaction.id}
+        sx={{ cursor: 'default' }}
+      >
+        <TableCell align="center" sx={{ ...cell, color: 'warning.main' }}
+          title={matched ? `Matched to the transaction of ${showDate(matched.transaction.date)}; not yet accepted` : row.note ?? 'From a statement, not yet read'}>
+          ?
+        </TableCell>
+        <TableCell sx={cell}>{number}</TableCell>
+        <TableCell sx={cell}>{showDate(row.date)}</TableCell>
+        <TableCell sx={cell} title={memo}>{payee}</TableCell>
+        <TableCell sx={{ ...cell, color: category ? undefined : 'text.secondary' }}>{category ?? row.note ?? ''}</TableCell>
+        <TableCell align="right" sx={numeric}>{row.amount < 0 ? amount : ''}</TableCell>
+        <TableCell align="right" sx={numeric}>{row.amount > 0 ? amount : ''}</TableCell>
+        <TableCell align="right" sx={cell}><Balance minor={balance} currency={account.currency} /></TableCell>
+      </TableRow>
+      {selected && matched !== undefined && (
+        <StatementLine row={row} matched={matched} account={account} />
+      )}
+      {selected && row.actions.length > 0 && (
+        <TableRow data-overlay-actions={row.key} selected>
+          <TableCell colSpan={8} sx={{ py: 0.5 }}>
+            <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center', mr: 'auto' }}>
+                {row.note}
+              </Typography>
+              {row.actions.map(action => (
+                <Button key={action.id} size="small" variant={action.primary ? 'contained' : 'outlined'}
+                  onClick={event => { event.stopPropagation(); onAction(action) }}>
+                  {action.label}
+                </Button>
+              ))}
+            </Stack>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  )
+}
+
+/**
+ * What the bank actually reported, under the matched transaction and **in the same columns**.
+ *
+ * A matched overlay row draws the register transaction's fields, because that is the row that will survive the
+ * merge. The bank's own values used to be flattened into a sentence — "the bank reported “Telus” for -CA$75.50
+ * on Oct 8" — which asks the reader to hold three values in their head and hunt for each one in the line above.
+ * Lining them up under the columns they belong to turns that into a glance, and lets the cells that *differ*
+ * be the only ones drawn in full strength.
+ */
+function StatementLine({ row, matched, account }: {
+  row: OverlayRow, matched: RegisterRow, account: Account
+}) {
+  const amount = formatAmount(row.amount, account.currency, { sign: 'never', currency: false })
+  const t = matched.transaction
+
+  /** A cell the bank disagrees with is worth reading; one it agrees with is just confirmation. */
+  const cell = (differs: boolean) => ({
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', borderTop: 'none',
+    color: differs ? 'warning.main' : 'text.disabled',
+    fontWeight: differs ? 600 : 400
+  } as const)
+  const numeric = (differs: boolean) => ({ ...cell(differs), fontVariantNumeric: 'tabular-nums' } as const)
+
+  const sameText = (a: string | undefined, b: string | undefined) =>
+    (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase()
+
+  return (
+    <TableRow data-statement-line={row.key} selected>
+      <TableCell align="center" sx={{ ...cell(false), fontSize: '0.7rem' }} title="What the statement said">
+        ↳
+      </TableCell>
+      <TableCell sx={cell(!sameText(row.number, t.number))}>{row.number ?? ''}</TableCell>
+      <TableCell sx={cell(row.date !== t.date)}>{showDate(row.date)}</TableCell>
+      <TableCell sx={cell(!sameText(row.payee, matched.payeeName))} title={row.memo}>{row.payee ?? ''}</TableCell>
+      {/* The statement has no category of its own to compare; the cell stays empty rather than echoing. */}
+      <TableCell sx={cell(false)}>{row.memo ?? ''}</TableCell>
+      <TableCell align="right" sx={numeric(row.amount !== t.amount)}>{row.amount < 0 ? amount : ''}</TableCell>
+      <TableCell align="right" sx={numeric(row.amount !== t.amount)}>{row.amount > 0 ? amount : ''}</TableCell>
+      <TableCell sx={cell(false)} />
+    </TableRow>
   )
 }
 

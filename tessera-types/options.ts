@@ -57,6 +57,12 @@ export interface OptionsRegistrar {
   unregister(namespace: string): void
 }
 
+/**
+ * Extension point plugins contribute `OptionsPageDescriptor`s to. Here rather than only in `shared/` because a
+ * plugin reaches the framework through `@tessera/*` alone, and a page is contributed from a plugin.
+ */
+export const OPTIONS_EXTENSION_POINT = 'shell.options.pages'
+
 /** A page in the options dialog. Plain data, contributed to `shell.options.pages`, like a view or a menu item. */
 export interface OptionsPageDescriptor {
   /** Prefixed with the contributing plugin's id, like every contribution. */

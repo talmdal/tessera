@@ -1,0 +1,158 @@
+{
+  "generatedBy": "npm run seed:book",
+  "book": "Household",
+  "period": {
+    "from": "2023-01-01",
+    "to": "2026-10-31"
+  },
+  "reconciledThrough": "2026-09-30",
+  "openMonth": "2026-10",
+  "seed": 20260101,
+  "note": "Generated, not anonymised: no real person’s money is in here. Rebuild with `npm run seed:book`. The counts below are what a reader should find; `inBook` rows should match something in the seeded book, and `notInBook` rows should import as new.",
+  "statements": [
+    {
+      "file": "ofx/personal-chequing-2026-10.ofx",
+      "format": "ofx-sgml",
+      "account": {
+        "name": "Chequing",
+        "number": "00412-1234567",
+        "bankId": "021000021",
+        "type": "chequing"
+      },
+      "month": "2026-10",
+      "note": "OFX 1.0.2 (SGML, Windows-1252): the open month, with rows the household has not entered yet",
+      "rows": 14,
+      "inBook": 10,
+      "notInBook": 4,
+      "staggered": 4,
+      "closingBalance": 800000,
+      "carriesReferences": true
+    },
+    {
+      "file": "ofx/personal-chequing-2026-09.ofx",
+      "format": "ofx-xml",
+      "account": {
+        "name": "Chequing",
+        "number": "00412-1234567",
+        "bankId": "021000021",
+        "type": "chequing"
+      },
+      "month": "2026-09",
+      "note": "OFX 2.1.1 (XML): a month already reconciled, so every row should be found and none written",
+      "rows": 14,
+      "inBook": 14,
+      "notInBook": 0,
+      "staggered": 0,
+      "closingBalance": 800000,
+      "carriesReferences": true
+    },
+    {
+      "file": "qfx/personal-visa-2026-10.qfx",
+      "format": "qfx",
+      "account": {
+        "name": "Visa",
+        "number": "4510 2200 1188 9043",
+        "bankId": "021000021",
+        "type": "creditCard"
+      },
+      "month": "2026-10",
+      "note": "QFX (Quicken Web Connect): a credit card, with Intuit’s extension tags",
+      "rows": 8,
+      "inBook": 1,
+      "notInBook": 7,
+      "staggered": 0,
+      "closingBalance": -237892,
+      "carriesReferences": true
+    },
+    {
+      "file": "qbo/business-chequing-2026-10.qbo",
+      "format": "qbo",
+      "account": {
+        "name": "Business Chequing",
+        "number": "00819-2003344",
+        "bankId": "026009593",
+        "type": "chequing"
+      },
+      "month": "2026-10",
+      "note": "QBO (QuickBooks Web Connect): the business account, transfers included",
+      "rows": 10,
+      "inBook": 2,
+      "notInBook": 8,
+      "staggered": 0,
+      "closingBalance": 1000000,
+      "carriesReferences": true
+    },
+    {
+      "file": "csv/personal-savings-2026-10.csv",
+      "format": "csv-debit-credit",
+      "account": {
+        "name": "Savings",
+        "number": "00412-7654321",
+        "bankId": "021000021",
+        "type": "savings"
+      },
+      "month": "2026-10",
+      "note": "CSV with separate debit and credit columns, a title line above the header and a total below",
+      "rows": 2,
+      "inBook": 2,
+      "notInBook": 0,
+      "staggered": 0,
+      "closingBalance": 13312140,
+      "carriesReferences": false
+    },
+    {
+      "file": "csv/business-tax-2026-10.csv",
+      "format": "csv-signed",
+      "account": {
+        "name": "Tax Set-Aside",
+        "number": "00819-2003351",
+        "bankId": "026009593",
+        "type": "savings"
+      },
+      "month": "2026-10",
+      "note": "CSV with one signed amount column, ISO dates and a UTF-8 BOM",
+      "rows": 3,
+      "inBook": 2,
+      "notInBook": 1,
+      "staggered": 0,
+      "closingBalance": 513062,
+      "carriesReferences": false
+    },
+    {
+      "file": "qif/personal-chequing-2026-10.qif",
+      "format": "qif-microsoft",
+      "account": {
+        "name": "Chequing",
+        "number": "00412-1234567",
+        "bankId": "021000021",
+        "type": "chequing"
+      },
+      "month": "2026-10",
+      "note": "QIF, Microsoft dialect: full names, M/D/YYYY dates, an !Account block, cleared marks, Windows-1252 — the migration path off Money",
+      "rows": 14,
+      "inBook": 10,
+      "notInBook": 4,
+      "staggered": 4,
+      "closingBalance": 800000,
+      "carriesReferences": false
+    },
+    {
+      "file": "qif/personal-visa-2026-10.qif",
+      "format": "qif-standard",
+      "account": {
+        "name": "Visa",
+        "number": "4510 2200 1188 9043",
+        "bankId": "021000021",
+        "type": "creditCard"
+      },
+      "month": "2026-10",
+      "note": "QIF, standard dialect: a credit card, names truncated to fifteen characters, M/D'YY dates",
+      "rows": 8,
+      "inBook": 1,
+      "notInBook": 7,
+      "staggered": 0,
+      "closingBalance": -237892,
+      "carriesReferences": false
+    }
+  ]
+}

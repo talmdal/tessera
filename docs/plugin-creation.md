@@ -419,6 +419,11 @@ naming and to bind events to your plugin id. The calls you will use:
 | `services` | `provide(provider, id, impl): Disposable`<br>`get<T>(id)`, `has(id)`, `providerOf(id)` | Pass your plugin id as `provider`. |
 | `contextKeys` | `set(key, value)`, `get(key)`, `snapshot()`, `onDidChange`, `deleteNamespace(ns)` | `undefined` removes a key. |
 | `lifecycle` | `phase`, `onStarted(listener)`, `onShuttingDown(listener): Disposable`, `onDidChangePhase(listener)` | The shell-only members (`markStarted`, `requestShutdown`, `onShutDown`, `markShutDown`) are on the same object; don't call them. |
+| `logger` | `info(message)`, `warn(message)`, `error(message, error?)` | Start the message with `[yourPluginId]`. Warnings and errors are also shown to the user: the status bar counts them and **Help ▸ Show Problems…** lists them, with the prefix as the source and the error's stack as the details. So `warn` is for what a user should know about (a contribution you skipped, a file you could not read), not for tracing. |
+
+Uncaught errors and unhandled rejections in a window, a view that fails to
+render, and a command a view runs that rejects are all reported to the same
+list, so a failure is visible even where your code swallows it.
 
 ---
 
