@@ -3,7 +3,7 @@
 import { categoryLabel, transferLabel, type Account, type Category, type CurrencyTotals } from '@tessera/accounts-api'
 import {
   countThrough, describeSchedule, dueStateOf, occurrenceAt, seriesKind,
-  type BusinessCalendar, type DueState, type RecurringRow, type RecurringSnapshot, type Series
+  type BusinessCalendar, type DueState, type PayeeHint, type RecurringRow, type RecurringSnapshot, type Series
 } from '@tessera/recurring-api'
 
 /** Where a row sorts: live series first, then ones the user paused, then ones that have finished. */
@@ -70,10 +70,15 @@ const add = (totals: CurrencyTotals, currency: string, amount: number) => {
  * actually outstanding: three months of a £142 bill is £426.
  */
 export function buildSnapshot(
-  series: readonly Series[], accountList: readonly Account[], categories: readonly Category[], today: string, calendar?: BusinessCalendar
+  series: readonly Series[], accountList: readonly Account[], categories: readonly Category[], today: string, calendar?: BusinessCalendar,
+  payeeHints: ReadonlyMap<string, PayeeHint> = new Map()
 ): RecurringSnapshot {
   const accounts = new Map(accountList.map(account => [account.id, account]))
-  const rows = series.map(one => rowOf(one, accounts, categories, today, calendar))
+  const rows = series.map(one => {
+    const row = rowOf(one, accounts, categories, today, calendar)
+    const hint = payeeHints.get(one.id)
+    return hint === undefined ? row : { ...row, payeeHint: hint }
+  })
 
   rows.sort((a, b) => {
     const group = GROUPS[a.state] - GROUPS[b.state]

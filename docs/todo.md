@@ -120,9 +120,227 @@ The storage engine it builds on is done ([storage-engine-redesign.md](storage-en
       dialog, added as marked transactions (deleted again on Cancel).
 - [ ] **Reconciliation, later:** undo last reconciliation, and a history of
       past statements.
-- [ ] **Later:** statement import (`accounts.importers`, from
-      [vault-design.md](vault-design.md)), per-file storage formats, splits,
-      `.mny` migration.
+- [ ] **Later:** per-file storage formats, splits, `.mny` migration.
+      Statement import has its own design now; see *Finance: import and
+      export* below.
+
+## Finance: import and export (proposed design)
+
+Design: [import-export-design.md](import-export-design.md). Phases 1, 2, 3,
+4, 5, S and A are done: **File ▸ Import Transactions… and File ▸ Export
+Transactions… both work end to end** for OFX, QFX, QBO, QIF and CSV, with a
+seeded book and matching bank files to test against. Four plugins — `exchange`,
+`exchange-ofx`, `exchange-qif` and `exchange-csv`, all built — and
+`@tessera/exchange-api`, building on `accounts.service`. It replaces the
+`accounts.importers` sketch in [vault-design.md](vault-design.md).
+
+- [x] **Phase 0, the parts phase 1 needed:** `@tessera/exchange-api` and its
+      entry in `API_PACKAGES`; `externalId` on `TransactionDraft` (and so on
+      `TransactionPatch`, which is how a merge adopts one and an undo clears
+      it); `TransactionManager.createMany` (one storage transaction, each
+      payee and account looked up once); the `exchange` plugin itself.
+- [ ] **Phase 0, the rest:** `shell.files.writeFileAtomic` and
+      `shell.contextMenus` (this feature is the fifth bespoke action point —
+      see "Context menus and toolbars" above). Neither blocks phase 1: the
+      atomic write lives in the plugin's own disk port, and the menus arrive
+      with the review view in phase 3.
+- [x] **Phase 1, the pipeline, headless:** the neutral `ExchangeDocument`,
+      the `exchange.formats` point with sniffing,
+      `read`/`plan`/`apply`/`undo`/`history`/`candidates`, account resolution
+      and `exchange.links`, the four-tier matcher (bank id, near match, merge
+      into an uncleared manual entry, and the user's own match overriding all
+      three) with transfer pairing, the rule that only accepted rows are
+      written and land as `E`, the currency rules, `ImportBatch` and an
+      **all-or-nothing undo** (confirmations for since-reconciled or
+      since-edited rows gathered before anything is written, then the whole
+      batch reversed), and the IPC. Driven by a fake format plugin. 98 tests,
+      over a real accounts service on the memory engine. Results in
+      [import-export-design.md](import-export-design.md#phase-1-results),
+      including the one decision that changed the design: an import is **not**
+      a single storage transaction, because it writes through
+      `accounts.service` and a plugin cannot enlist another's transaction, so
+      a part-done import is recorded and undoable instead.
+- [x] **Phase 2, OFX, QFX and QBO:** one tokeniser for both the SGML (1.x)
+      and XML (2.x) syntaxes, the encoding rules (including Windows-1252
+      declared as `USASCII`), bank and credit-card statements, `STMTTRN` in
+      full, `CORRECTFITID`, balances, the three sign conventions, currencies,
+      and investments counted as unsupported. Read only — Tessera does not
+      write QFX or QBO. 95 tests, a third of them whole statements from the
+      seeded fixtures and a third the pipeline importing one into a register.
+      Two contract changes it needed: `sniff` is told which descriptor is
+      asking (one service, three formats), and `ReadContext` gained `answers`
+      so a settled convention never prompts again. Results in
+      [import-export-design.md](import-export-design.md#phase-2-results).
+- [x] **Phase 3, the review view, with Accept and Change…:** per-row
+      **Accept** (confirms the match or non-match and marks the transaction
+      `E`), **Accept All** / **Accept New**, and the **Change…** dialog for
+      matching a row by hand against the account's unmatched transactions —
+      including "import as a new transaction" and the amount correction.
+      Plus dispositions, in-place payee and category editing, the
+      statement-difference line, and the result banner with Undo. The first
+      phase a user can use. 79 tests. Still to come, from this phase's list:
+      progress and cancel during a long read (it matters for the whole-book
+      QIF in phase 4), and windowed rendering of the grid (share the
+      register's, when that lands). Results in
+      [import-export-design.md](import-export-design.md#phase-3-results).
+- [x] **Phase 4 (QIF, built 2026-11-18), QIF:** both dialects with detection (a name over 15
+      characters settles it as Microsoft), date-order inference, every
+      control line, the `!Account` whole-book form, opening-balance records,
+      and the QIF writer in both flavours. **This is the migration path off
+      Microsoft Money** — `.mny` is a private format, so a Money user exports
+      Microsoft-dialect QIF and imports that.
+- [x] **Phase 5, CSV and export (built 2026-11-18):** the `exchange-csv`
+      plugin — RFC 4180 parsing, encoding and delimiter detection, column
+      guessing from the header, dates and amounts read against the profile
+      rather than guessed at, and the fixed-column writer with its BOM and
+      formula-injection quoting. Profiles are matched by a fingerprint of the
+      normalised header and saved in `exchange.profiles`, so the second import
+      of a shape asks nothing; the mapping dialog's live preview calls the
+      very same date and amount functions the reader does, which is why they
+      cannot disagree. Plus the export dialog (scope, range, format, what to
+      include), **File ▸ Export Transactions…**, and the per-account
+      `exchange.exportAccount`. 162 tests, plus the export cases added to the
+      activation suite. Two things it changed:
+      `FormatProfile.answers` is a list rather than a map, because storage
+      forbids a dot in a field name and every question id has one — as a map
+      it silently never saved; and `exchange.formats.writable.count` is its
+      own context key, since the readable and writable sets differ (QFX and
+      QBO are read but never written).
+      Plus **OFX 2.x writing** and the
+      **`exchange.exportOptions`** point: `exchange` owns the one export
+      dialog, and a format plugin contributes its own questions to it as
+      declarative fields (a choice, a switch or a short text) rather than as a
+      renderer module — a format plugin ships no renderer bundle, and data can
+      be validated before any plugin code runs. QIF contributes its flavour,
+      CSV its separator and BOM, and **OFX contributes nothing**, which the
+      dialog renders as no section at all. OFX is written as **2.x only and
+      the version is not an option**: 1.x is a second SGML write path whose
+      only customer is software that would rather have QIF, which is already
+      written. The write-side entries that were in `ExchangeOptions`
+      (`writeFlavour`, `writeVersion`, `writeBom`, `delimiter`) are gone with
+      it — a per-export choice belongs to the export, not the application, and
+      keeping it in both places would be two sources of truth.
+- [x] **Phase 6, rules and history (built 2026-11-19):**
+      - **Per-row acceptance times, and the undo bug they fix.** A batch is
+        accreted as rows are accepted, so "has this row been edited since it
+        was imported?" is a question about the *row*: `CreatedRecord` holds
+        `{ id, at }` and `MergedRecord` carries an `at`. Before this,
+        `importedAt` was rewritten on every acceptance, so an edit made
+        between two acceptances was **silently discarded** by undo instead of
+        being asked about. `importedAt` is now when the batch began,
+        `lastAcceptedAt` when it last grew, and `closedAt` when its statement
+        was read through — a batch stays open until then, so undo takes back
+        the whole statement however many sittings it took. Schema 3 → 4.
+      - **Import history and undo, reachable at last.** `exchange.undo` was
+        declared but never registered, so there had been no way to undo from
+        the UI at all. Now **File ▸ Import History…** with per-import undo,
+        `exchange.undo` for the most recent, confirmation gathered before
+        anything is written, and `history.keep` trimming on batch close
+        (deleting, not emptying — a batch you cannot undo must not look as
+        though you could).
+      - **Payee rules apply before matching.** They did not: the matcher saw
+        the bank's raw text, so a rule-renamed row showed the tidy name,
+        stayed *New* beside the user's own identical transaction, and
+        accepting it made a duplicate. `resolveRename` now settles the name
+        once per row before `effectiveRows`, and it is carried on the row —
+        the name matched on is the name drawn and the name written.
+      - **Learning, rethought for phase 3.** There is no review grid to edit
+        any more, so a pending row offers **Rename…** beside Accept and
+        Change…, persisting as `PendingRow.userPayee`, with *Always rename
+        this payee* writing a `learned` rule. (Now **Edit…**, below.) The dialog shows the resulting
+        disposition live, because renaming can turn a row from new into a
+        merge and that must not happen unseen.
+      - **File ▸ Payee Rules…**: the list, reordered and renumbered from
+        position, enable/disable, per-account and per-category scoping.
+      - **A category on an unmatched row.** A row that matches nothing
+        arrived with none — OFX and most CSV exports carry no category — so
+        the only way to categorise it was to accept it uncategorised and find
+        it again in the register. The Rename action became **Edit…** (Edit
+        Statement Line) and now carries the category too, persisting as
+        `PendingRow.userCategoryId`. A row that *merges* still takes the
+        register transaction's own category, which is already the user's.
+      - **The bank's two identifiers kept on the account.** `BANKID` was read
+        from files, used for the account link, then discarded — so every
+        exported OFX wrote `<BANKID>Tessera</BANKID>`, which is not a routing
+        number and is what a receiving program keys the account on.
+        `Account.routingNumber` now holds it, captured when an account is
+        created from a statement, editable in the account dialog, and written
+        back on export — or **omitted** when the account has none.
+      - **The statement line, under the match it found.** A matched overlay
+        row draws the register transaction's fields; the bank's own used to be
+        flattened into a sentence — *the bank reported “Telus” for -CA$75.50
+        on Oct 8* — which asks the reader to hold three values in their head
+        and hunt for each. They now sit in the **same columns**, one row
+        below, with the cells that *differ* in full strength and the ones that
+        agree dimmed.
+      - **Putting rows aside.** **Skip** on a statement row, and
+        `exchange.skip` with `all` for the rest of a statement (confirmed).
+        Skipped rows are counted on the batch, so `counts.skipped` finally
+        means something, and a file taken nothing from still opens a batch.
+      - **What an import created** is carried on the pending statement and
+        taken by the batch when it opens, so Undo Import names the accounts
+        and categories it is leaving behind.
+      - **Re-import detection against the history**, not only against what is
+        still waiting: `ALREADY_IMPORTED` with *Import Anyway*, and an undone
+        batch does not count.
+      - **The options page** at Tools ▸ Options ▸ Import and export, the
+        first options page any plugin contributes. `OPTIONS_EXTENSION_POINT`
+        moved to `@tessera/types`, since a plugin reaches the framework
+        through `@tessera/*` alone and the architecture test says so.
+      - **The per-source matching window.** `AccountLink.dateWindow` was
+        declared and kept by `rememberLink` but never read. Matching now
+        takes it through `dateWindowFor`, using the same `linkForSource`
+        predicate as account resolution, and only for a statement filed in
+        the account its link points at. Set in **File ▸ Statement Sources…**,
+        which is also the first UI for forgetting a link. The 0–60 range is
+        one shared check, `isDateWindow`, for the option and the override.
+      - **Review follow-ups (2026-11-19):** undo journalled ahead of each
+        step and backed out on failure (and recovered on the next undo if
+        the app closed mid-way); CSV one account per file; Import History
+        disabled on a read-only book; every timestamp shown as the user's
+        local day by one helper (three places took the UTC day off the
+        string); a window opened maximized keeps its opening size; a row's
+        category can only be set to a real one ("None" is only how a row
+        arrives); and the CSV anonymiser finds the header past a bank's
+        preamble, keeps a preamble line as written unless it carries a name
+        or a number, and shifts its dates — month names included — with the
+        rest.
+      Not built from the original design: showing the window in force on the
+      register's overlay row as a link to the setting (it was a review-view
+      label, and the review view is gone).
+      **Splits are deferred** to double-entry bookkeeping rather than being
+      done here, and ***Import rules from another book…* is dropped**: it
+      would mean opening a second book's database alongside the open one, and
+      books being independent is the point of decision 10.
+- [x] **Phase S, the seeded book:** `npm run seed:book` writes the
+      “Household” book — four years (Jan 2023 – Oct 2026), five accounts in a
+      Personal and a Business sub-book, monthly reconciliations through
+      September 2026 — through the real plugins, so the app opens it like any
+      other book. With it, the statement fixtures in
+      `tests/fixtures/exchange/`: OFX in both syntaxes, QFX, QBO and two
+      disagreeing CSV shapes, with rows the book has and rows it has not,
+      dates the bank posted late, and Windows-1252 bytes. 25 tests check the
+      generator's arithmetic and that the committed fixtures are still what
+      it writes. See
+      [import-export-design.md](import-export-design.md#the-seeded-book).
+- [x] **Phase A, the anonymiser (OFX family, CSV and QIF, 2026-11-18):** `scripts/anonymize-statement.mts` —
+      default-deny policy routing, HMAC-derived synthetic values, date shift
+      by a multiple of 7, amount buckets with recomputed balances, and a
+      verification pass that fails the run if anything from the input
+      survives. Plus `--check` in the test suite, the gitignore rules and
+      the pre-commit hook. **No longer blocks the parsers**: phase S gives
+      them realistic files without a real statement to handle. This is worth
+      building when a real file from a real bank defeats a parser and has to
+      become a fixture. The gitignore rules it would have brought are in
+      place already.
+- [ ] **Later:** investment transactions, multi-currency, import without
+      review, a watched folder, Direct Connect.
+- **Not planned**, decided in review: reading `.mny` directly (the path is
+  Microsoft QIF, phase 4) and a native round-trip export format — keeping a
+  book whole is backup, restore and archive, not export, and round-tripping
+  stays a test technique. Import never starts a reconciliation either; the
+  review's Accept/Change step is where a statement is matched to the
+  register.
 
 ## Finance: recurring transactions (proposed design)
 

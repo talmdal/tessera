@@ -217,6 +217,14 @@ describe('layout controller frame', () => {
       expect(screen.getByText(/Renderer shell is running/i)).toBeInTheDocument()
     })
 
+    it('gives each main view the main area’s full height, so a view that fills it scrolls its own rows', async () => {
+      await renderFrame(main('home'), mainViews)
+      const section = document.querySelector('[data-region="main"] > section[data-view-id="home"]') as HTMLElement
+      // Without this a view's `height: 100%` means nothing, the whole main area scrolls, and a view's header
+      // and footer (the import review's, the register's) scroll away with its rows
+      expect(getComputedStyle(section).height).toBe('100%')
+    })
+
     it('isolates a main view that fails', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => {})
       const Broken = () => { throw new Error('render failure') }

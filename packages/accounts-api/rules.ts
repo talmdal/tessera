@@ -84,6 +84,9 @@ export const PAYEE_NAME_MAX_LENGTH = 100
 export const MEMO_MAX_LENGTH = 500
 export const CATEGORY_NAME_MAX_LENGTH = 60
 
+/** An OFX `FITID` is specified as at most 255 characters; nothing a source supplies should exceed that. */
+export const EXTERNAL_ID_MAX_LENGTH = 255
+
 /** Separates a parent category from its child in labels and paths: "Food : Groceries". */
 export const CATEGORY_SEPARATOR = ' : '
 

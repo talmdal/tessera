@@ -1,0 +1,50 @@
+!Type:CCard
+D10/3'26
+T-18.99
+U-18.99
+PNetflix
+LEntertainment
+^
+D10/7'26
+T-31.34
+U-31.34
+PBoulangerie Côt
+LFood:Groceries
+^
+D10/12'26
+T-93.65
+U-93.65
+PPetro-Canada
+LTransportation:
+^
+D10/18'26
+T-93.58
+U-93.58
+PCafé Martin
+LFood:Dining out
+^
+D10/20'26
+T252.86
+U252.86
+NTFR
+MVisa payment
+L[Chequing]
+^
+D10/22'26
+T-31.89
+U-31.89
+PShoppers Drug M
+LHealth:Pharmacy
+^
+D10/26'26
+T-72.77
+U-72.77
+PEsso
+LTransportation:
+^
+D10/31'26
+T-172.70
+U-172.70
+PLoblaws
+LFood:Groceries
+^

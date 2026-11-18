@@ -61,9 +61,13 @@ function overlaps(window: Rect, area: Rect) {
 
 /** The part of an Electron BrowserWindow this needs. */
 export interface TrackedWindow {
-  /** The bounds the window has, or will have again, when it is not maximized or fullscreen. */
+  /** The bounds the window has right now, whatever its state. */
+  getBounds(): Rect
+  /** What Electron believes the window restores to. Not trusted while maximized: on Linux it answers with the maximized bounds. */
   getNormalBounds(): Rect
   isMaximized(): boolean
+  isFullScreen?(): boolean
+  isMinimized?(): boolean
   on(event: 'resize' | 'move' | 'maximize' | 'unmaximize' | 'close' | 'closed', listener: () => void): unknown
 }
 
@@ -77,24 +81,74 @@ export interface WindowStateTracker {
  * resizing fire continuously, so a save waits until they have been quiet for
  * `delayMs`; closing saves at once, while the window can still be asked where it
  * is. A save that fails is logged and the next change tries again.
+ *
+ * The restored size is the window's own last size while it was *not* maximized,
+ * tracked here rather than asked of Electron: on Linux `getNormalBounds()` reports
+ * the maximized bounds while the window is maximized, which saved the screen's size
+ * as the size to restore to. A resize that merely fills the display's work area is
+ * not taken as the restored size either, since that is the maximize itself arriving
+ * before the flag has flipped — `workAreaOf` says what the work area is.
  */
 export function trackWindowState(
   win: TrackedWindow,
   save: (state: WindowState) => Promise<void>,
-  options: { delayMs?: number, log?: Logger } = {}
+  options: {
+    delayMs?: number
+    log?: Logger
+    workAreaOf?: (bounds: Rect) => Rect | undefined
+    /**
+     * The state the window was opened with. Its size and position are the restored ones until the window is
+     * seen in its normal state: a session that starts maximized and is closed without ever being restored
+     * otherwise had only Electron's `getNormalBounds()` to go on, which on Linux is the maximized bounds — so
+     * the screen's size was saved as the size to restore to.
+     */
+    initial?: WindowState
+  } = {}
 ): WindowStateTracker {
-  const { delayMs = 500, log } = options
+  const { delayMs = 500, log, workAreaOf, initial } = options
   let timer: ReturnType<typeof setTimeout> | undefined
   let saved = ''
   let last: WindowState | undefined
+  let normal: Rect | undefined =
+    initial?.x !== undefined && initial.y !== undefined
+      ? { x: initial.x, y: initial.y, width: initial.width, height: initial.height }
+      : undefined
   let writes: Promise<void> = Promise.resolve()
   let closed = false
+
+  /** Whether `bounds` are the display's whole work area, give or take a frame: a maximized window's, not a restored one's. */
+  const fillsWorkArea = (bounds: Rect) => {
+    const area = workAreaOf?.(bounds)
+    if (area === undefined) return false
+    const slack = 2
+    return Math.abs(bounds.x - area.x) <= slack && Math.abs(bounds.y - area.y) <= slack &&
+      bounds.width >= area.width - slack && bounds.height >= area.height - slack
+  }
+
+  /** Remembers the window's bounds as the ones to restore to, when it is in its normal state. */
+  const capture = () => {
+    if (closed) return
+    try {
+      if (win.isMaximized() || win.isFullScreen?.() === true || win.isMinimized?.() === true) return
+      const bounds = win.getBounds()
+      if (fillsWorkArea(bounds)) return
+      normal = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
+    } catch {
+      // the window was destroyed under us; keep what we last saw
+    }
+  }
 
   const read = (): WindowState | undefined => {
     if (closed) return last
     try {
-      const { x, y, width, height } = win.getNormalBounds()
-      return last = { x, y, width, height, maximized: win.isMaximized() }
+      const maximized = win.isMaximized()
+      // With nothing seen yet and no remembered position, a window that is not maximized can be asked; one
+      // that is cannot — so it keeps the size it was opened with, and lets the system place it next time.
+      if (normal === undefined && maximized && initial !== undefined) {
+        return last = { width: initial.width, height: initial.height, maximized }
+      }
+      const { x, y, width, height } = normal ?? win.getNormalBounds()
+      return last = { x, y, width, height, maximized }
     } catch {
       return last      // the window was destroyed under us; keep what we last saw
     }
@@ -123,7 +177,8 @@ export function trackWindowState(
     timer = setTimeout(() => { void flush() }, delayMs)
   }
 
-  for (const event of ['resize', 'move', 'maximize', 'unmaximize'] as const) win.on(event, schedule)
+  for (const event of ['resize', 'move'] as const) win.on(event, () => { capture(); schedule() })
+  for (const event of ['maximize', 'unmaximize'] as const) win.on(event, schedule)
   win.on('close', () => { void flush() })
   win.on('closed', () => { closed = true; clearTimeout(timer) })
 
@@ -147,7 +202,7 @@ export function createWindowStateStore(appState: () => AppState | undefined) {
 export function createWindowStateGroup() {
   const trackers = new Set<WindowStateTracker>()
   return {
-    track(win: TrackedWindow, save: (state: WindowState) => Promise<void>, options?: { delayMs?: number, log?: Logger }) {
+    track(win: TrackedWindow, save: (state: WindowState) => Promise<void>, options?: Parameters<typeof trackWindowState>[2]) {
       const tracker = trackWindowState(win, save, options)
       trackers.add(tracker)
       win.on('closed', () => { trackers.delete(tracker) })

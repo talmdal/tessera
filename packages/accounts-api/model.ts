@@ -56,6 +56,13 @@ export interface Account {
   /** ISO 4217, e.g. 'CAD'. Can change only while the account has no transactions. */
   currency: string
   institution?: string
+  /**
+   * The bank's own identifier for the institution — a routing or transit number — as a statement gives it:
+   * OFX's `BANKID`. Kept because it is half of how a downloaded statement names an account, the other half
+   * being `accountNumber`, and because an exported OFX has to write it back. Never guessed at: an account the
+   * user typed in has none, and a file exported from one simply leaves the element out.
+   */
+  routingNumber?: string
   /** As entered (books are not encrypted in the first release); shown masked, •••• 1234. */
   accountNumber?: string
   openingDate: string

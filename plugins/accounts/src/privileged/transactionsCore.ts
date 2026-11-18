@@ -6,7 +6,8 @@
 import { randomUUID } from 'node:crypto'
 import type { Doc } from '@tessera/types'
 import {
-  AccountsError, CATEGORY_NAME_MAX_LENGTH, CATEGORY_SEPARATOR, CLEARED_STATUSES, CLEARING_STATUSES, MEMO_MAX_LENGTH,
+  AccountsError, CATEGORY_NAME_MAX_LENGTH, CATEGORY_SEPARATOR, CLEARED_STATUSES, CLEARING_STATUSES,
+  EXTERNAL_ID_MAX_LENGTH, MEMO_MAX_LENGTH,
   PAYEE_NAME_MAX_LENGTH, TRANSACTION_NUMBER_MAX_LENGTH, accountNameKey, categoryLabel, isAmount, isIsoDate,
   transferLabel,
   type Account, type AccountBalances, type Category, type ClearingStatus, type Confirmation, type PayeeSuggestion,
@@ -79,6 +80,43 @@ export async function payeeNamed(c: Collections, name: string): Promise<string> 
   return existing ? existing.id : (await c.payees.insert({ name, nameKey: key })).id
 }
 
+/**
+ * What a batch of creates remembers between its rows, so an import of twenty thousand transactions does not look
+ * the same payee, account and category up twenty thousand times. Nothing in a batch changes any of them, so the
+ * answers cannot go stale within it. A single `create` passes none and behaves exactly as before.
+ */
+export interface CreateCaches {
+  payees: Map<string, string>
+  accounts: Map<string, Doc<StoredAccount>>
+  categories: Set<string>
+}
+
+export const newCaches = (): CreateCaches => ({ payees: new Map(), accounts: new Map(), categories: new Set() })
+
+async function cachedPayee(c: Collections, name: string, caches?: CreateCaches): Promise<string> {
+  if (!caches) return payeeNamed(c, name)
+  const key = accountNameKey(name)
+  const known = caches.payees.get(key)
+  if (known !== undefined) return known
+  const id = await payeeNamed(c, name)
+  caches.payees.set(key, id)
+  return id
+}
+
+async function cachedOpenAccount(c: Collections, id: string, field: string | undefined, caches?: CreateCaches): Promise<Doc<StoredAccount>> {
+  const known = caches?.accounts.get(id)
+  if (known) return known
+  const account = await openAccount(c, id, field)
+  caches?.accounts.set(id, account)
+  return account
+}
+
+async function cachedCheckCategory(c: Collections, id: string, caches?: CreateCaches) {
+  if (caches?.categories.has(id)) return
+  await checkCategory(c, id)
+  caches?.categories.add(id)
+}
+
 export async function searchPayees(c: Collections, prefix: string, limit = 20): Promise<PayeeSuggestion[]> {
   const key = accountNameKey(String(prefix ?? ''))
   const payees = (await c.payees.find(undefined, { sort: { nameKey: 1 } })).filter(p => p.nameKey.startsWith(key)).slice(0, Math.max(0, limit))
@@ -133,6 +171,7 @@ interface Checked {
   categoryId?: string
   transferAccountId?: string
   status: ClearingStatus
+  externalId?: string
 }
 
 export function checkDraft(draft: TransactionDraft): Checked {
@@ -145,13 +184,27 @@ export function checkDraft(draft: TransactionDraft): Checked {
   const number = optionalText(draft.number, 'number', TRANSACTION_NUMBER_MAX_LENGTH)
   const payee = optionalText(draft.payee, 'payee', PAYEE_NAME_MAX_LENGTH)
   const memo = optionalText(draft.memo, 'memo', MEMO_MAX_LENGTH)
+  const externalId = optionalText(draft.externalId, 'externalId', EXTERNAL_ID_MAX_LENGTH)
   return {
     date: draft.date, amount: draft.amount, status,
     ...(number !== undefined && { number }),
     ...(payee !== undefined && { payee }),
     ...(memo !== undefined && { memo }),
     ...(draft.categoryId != null && { categoryId: draft.categoryId }),
-    ...(draft.transferAccountId != null && { transferAccountId: draft.transferAccountId })
+    ...(draft.transferAccountId != null && { transferAccountId: draft.transferAccountId }),
+    ...(externalId !== undefined && { externalId })
+  }
+}
+
+/**
+ * Refuses a second transaction with the same `externalId` in the same account. The unique index enforces this
+ * anyway; checking first turns a storage error into one that names the field and says what happened, which is
+ * what an importer reports to the user.
+ */
+async function checkExternalId(c: Collections, accountId: string, externalId: string, exceptId?: string) {
+  const existing = await c.transactions.findOne({ accountId, externalId })
+  if (existing && existing.id !== exceptId) {
+    throw new AccountsError('INVALID', 'This transaction has already been imported into this account.', 'externalId')
   }
 }
 
@@ -160,9 +213,9 @@ async function checkCategory(c: Collections, id: string) {
 }
 
 /** The other account of a transfer: open, another account, and in the same currency. */
-async function transferTarget(c: Collections, from: Doc<StoredAccount>, id: string): Promise<Doc<StoredAccount>> {
+async function transferTarget(c: Collections, from: Doc<StoredAccount>, id: string, caches?: CreateCaches): Promise<Doc<StoredAccount>> {
   if (id === from.id) throw invalid('category', 'A transfer needs another account.')
-  const to = await openAccount(c, id, 'category')
+  const to = await cachedOpenAccount(c, id, 'category', caches)
   if (to.currency !== from.currency) {
     throw new AccountsError('CURRENCY_MISMATCH', `“${to.name}” is in ${to.currency}; “${from.name}” is in ${from.currency}.`, 'category')
   }
@@ -189,13 +242,16 @@ const sides = (mine: Pick<StoredTransaction, 'accountId'>, other?: Pick<StoredTr
 
 // ---- Writing
 
-export async function createTransaction(c: Collections, accountId: string, draft: TransactionDraft, now: string): Promise<{ transaction: Transaction, touched: Touched }> {
-  const account = await openAccount(c, accountId)
+export async function createTransaction(
+  c: Collections, accountId: string, draft: TransactionDraft, now: string, caches?: CreateCaches
+): Promise<{ transaction: Transaction, touched: Touched }> {
+  const account = await cachedOpenAccount(c, accountId, undefined, caches)
   const fields = checkDraft(draft)
   if (fields.status === 'reconciled') throw invalid('status', 'Transactions become reconciled by reconciling the account.')
-  if (fields.categoryId !== undefined) await checkCategory(c, fields.categoryId)
-  const target = fields.transferAccountId === undefined ? undefined : await transferTarget(c, account, fields.transferAccountId)
-  const payeeId = fields.payee === undefined ? undefined : await payeeNamed(c, fields.payee)
+  if (fields.categoryId !== undefined) await cachedCheckCategory(c, fields.categoryId, caches)
+  if (fields.externalId !== undefined) await checkExternalId(c, accountId, fields.externalId)
+  const target = fields.transferAccountId === undefined ? undefined : await transferTarget(c, account, fields.transferAccountId, caches)
+  const payeeId = fields.payee === undefined ? undefined : await cachedPayee(c, fields.payee, caches)
 
   const transferId = target ? randomUUID() : undefined
   const doc: StoredTransaction = {
@@ -204,10 +260,12 @@ export async function createTransaction(c: Collections, accountId: string, draft
     ...(payeeId !== undefined && { payeeId }),
     ...(fields.memo !== undefined && { memo: fields.memo }),
     ...(fields.categoryId !== undefined && { categoryId: fields.categoryId }),
+    ...(fields.externalId !== undefined && { externalId: fields.externalId }),
     ...(target && { transferId, transferAccountId: target.id })
   }
   const created = await c.transactions.insert(doc)
   if (target) {
+    // The other side carries no externalId: the source reported this side of the transfer, not that one
     await c.transactions.insert({
       accountId: target.id, date: fields.date, amount: -fields.amount, status: 'uncleared', voided: false,
       createdAt: now, updatedAt: now, transferId, transferAccountId: accountId,
@@ -216,6 +274,36 @@ export async function createTransaction(c: Collections, accountId: string, draft
     })
   }
   return { transaction: toTransaction(created), touched: new Set([accountId, ...(target ? [target.id] : [])]) }
+}
+
+/**
+ * Creates many transactions in the order given, sharing one set of lookups. The caller runs it in a storage
+ * transaction, so a draft refused part-way leaves nothing behind.
+ */
+export async function createTransactions(
+  c: Collections, accountId: string, drafts: TransactionDraft[], now: string
+): Promise<{ transactions: Transaction[], touched: Touched }> {
+  if (!Array.isArray(drafts)) throw invalid('date', 'Enter the transactions.')
+  const caches = newCaches()
+  // Checked even for an empty batch, so "that account is closed" is reported the same way whatever the size
+  await cachedOpenAccount(c, accountId, undefined, caches)
+
+  const transactions: Transaction[] = []
+  const touched: Touched = new Set([accountId])
+  // Two rows of one statement carrying the same id is the file's fault, not the user's; the index would catch it
+  // at the end of a long import, so it is caught here instead, with the row named
+  const seen = new Set<string>()
+  for (const [at, draft] of drafts.entries()) {
+    const externalId = (draft as { externalId?: unknown } | null)?.externalId
+    if (typeof externalId === 'string' && externalId !== '') {
+      if (seen.has(externalId)) throw invalid('externalId', `Two of these transactions share the reference “${externalId}” (number ${at + 1}).`)
+      seen.add(externalId)
+    }
+    const one = await createTransaction(c, accountId, draft, now, caches)
+    transactions.push(one.transaction)
+    for (const id of one.touched) touched.add(id)
+  }
+  return { transactions, touched }
 }
 
 /** A transaction of this account, or NOT_FOUND. */
@@ -239,13 +327,18 @@ export async function updateTransaction(
   const payeeName = current.payeeId === undefined ? undefined : (await c.payees.get(current.payeeId))?.name
   const merged: Record<string, unknown> = {
     date: current.date, number: current.number, amount: current.amount, payee: payeeName, memo: current.memo,
-    categoryId: current.categoryId, transferAccountId: current.transferAccountId, status: current.status
+    categoryId: current.categoryId, transferAccountId: current.transferAccountId, status: current.status,
+    externalId: current.externalId
   }
   for (const [key, value] of Object.entries(patch)) if (value !== undefined) merged[key] = value === null ? undefined : value
   if (patch.categoryId != null && patch.transferAccountId === undefined) merged.transferAccountId = undefined
   if (patch.transferAccountId != null && patch.categoryId === undefined) merged.categoryId = undefined
   const fields = checkDraft(merged as unknown as TransactionDraft)
   if (fields.categoryId !== undefined && fields.categoryId !== current.categoryId) await checkCategory(c, fields.categoryId)
+  // An import adopts the bank's reference on a transaction the user typed; it still has to be unique here
+  if (fields.externalId !== undefined && fields.externalId !== current.externalId) {
+    await checkExternalId(c, accountId, fields.externalId, id)
+  }
 
   const other = await otherSide(c, current)
   const sameTransfer = other !== undefined && fields.transferAccountId === current.transferAccountId
@@ -293,7 +386,7 @@ export async function updateTransaction(
     id, accountId, date: fields.date, amount: fields.amount, status: fields.status, voided: current.voided,
     createdAt: keep.createdAt, updatedAt: now, number: fields.number, payeeId, memo: fields.memo,
     categoryId: fields.categoryId, transferId, transferAccountId: transferId === undefined ? undefined : fields.transferAccountId,
-    externalId: keep.externalId, splits: keep.splits
+    externalId: fields.externalId, splits: keep.splits
   })
   const saved = await c.transactions.replace(next as StoredTransaction & { id: string })
   return { transaction: toTransaction(saved), touched }

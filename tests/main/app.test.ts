@@ -123,6 +123,7 @@ vi.mock('electron', () => {
     } }), { getAllWindows: () => [liveWindow], fromWebContents: () => ({ id: 7 }), getFocusedWindow: () => null }),
 
     app: {
+      commandLine: { appendSwitch: vi.fn() },
       getVersion: () => '1.2.3',
       whenReady: () => Promise.resolve(), // resolves immediately
       on: vi.fn(),
@@ -271,7 +272,9 @@ describe('main process (dynamic plugin system)', () => {
 
     const response = await (electron.ipcMain as any).__invoke('tessera:invoke', { channel: 'shell:bar.items.list' })
 
-    expect(response).toEqual({ ok: true, data: [] })
+    // The shell's own problem count shows only while something has been logged; plugins contributed nothing
+    expect(response.ok).toBe(true)
+    expect(response.data.filter((item: { pluginId: string }) => item.pluginId !== 'shell')).toEqual([])
   })
 
   it('follows the focused window', async () => {

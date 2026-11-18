@@ -252,3 +252,32 @@ describe('paused and finished series', () => {
     await waitFor(() => expect(b.calls(RECURRING_CHANNELS.snapshot).at(-1)).toEqual({ includePaused: true, includeEnded: true }))
   })
 })
+
+describe('a payee the register now calls something else', () => {
+  const hinted = snapshot([
+    row({ state: 'upcoming', dueCount: 0, payeeHint: { name: 'Hydro Ottawa', date: '2026-10-03' } }, { id: 's1', name: 'Hydro', nextDate: '2026-12-01' })
+  ])
+
+  it('is marked quietly on the row, and offered in full with one button once the row is selected', async () => {
+    const b = setup(hinted, { [RECURRING_CHANNELS.usePayee]: () => ({ ok: true, value: series() }) })
+    await screen.findByRole('table')
+    expect(document.querySelector('[data-row="s1"] [data-payee-hint]')).not.toBeNull()
+
+    await userEvent.click(line('Hydro'))
+    const offer = await waitFor(() => {
+      const found = document.querySelector('[data-detail="payee-hint"]')
+      if (!found) throw new Error('not yet')
+      return found as HTMLElement
+    })
+    expect(offer.textContent).toContain('now paid to “Hydro Ottawa”, not “Hydro”')
+
+    await userEvent.click(within(offer).getByRole('button', { name: 'Use “Hydro Ottawa”' }))
+    expect(b.calls(RECURRING_CHANNELS.usePayee)).toEqual([{ id: 's1', payee: 'Hydro Ottawa' }])
+  })
+
+  it('is not shown on a row without one', async () => {
+    setup()
+    await screen.findByRole('table')
+    expect(document.querySelector('[data-payee-hint]')).toBeNull()
+  })
+})

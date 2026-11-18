@@ -21,7 +21,7 @@ import * as core from './transactionsCore'
 export { translate }
 
 /** The fields a patch clears with `null`. Elsewhere `null` is a value: `subBookId: null` is the book itself. */
-const CLEARABLE: ReadonlySet<string> = new Set(['institution', 'accountNumber', 'notes', 'creditLimit', 'minimumBalance', 'showAvailableBalance'])
+const CLEARABLE: ReadonlySet<string> = new Set(['institution', 'routingNumber', 'accountNumber', 'notes', 'creditLimit', 'minimumBalance', 'showAvailableBalance'])
 
 /** Checks and normalises every field of an account. Throws INVALID naming the field at fault. */
 export function checkAccountInput(input: AccountInput): Omit<StoredAccount, 'order' | 'closed' | 'closedOn' | 'lastReconciled'> {
@@ -57,6 +57,7 @@ export function checkAccountInput(input: AccountInput): Omit<StoredAccount, 'ord
 
   const name = input.name.trim()
   const institution = optionalText(input.institution, 'institution', ACCOUNT_TEXT_MAX_LENGTH)
+  const routingNumber = optionalText(input.routingNumber, 'routingNumber', ACCOUNT_NUMBER_MAX_LENGTH)
   const accountNumber = optionalText(input.accountNumber, 'accountNumber', ACCOUNT_NUMBER_MAX_LENGTH)
   const notes = optionalText(input.notes, 'notes', ACCOUNT_NOTES_MAX_LENGTH, true)
   return {
@@ -66,6 +67,7 @@ export function checkAccountInput(input: AccountInput): Omit<StoredAccount, 'ord
     ...(minimumBalance !== undefined && { minimumBalance }),
     ...(input.showAvailableBalance === true && { showAvailableBalance: true }),
     ...(institution !== undefined && { institution }),
+    ...(routingNumber !== undefined && { routingNumber }),
     ...(accountNumber !== undefined && { accountNumber, numberKey: accountNumberKey(accountNumber) }),
     ...(notes !== undefined && { notes })
   }
@@ -78,7 +80,8 @@ function applyPatch(account: Account, patch: AccountPatch): AccountInput {
     name: account.name, type: account.type, subBookId: account.subBookId, currency: account.currency,
     openingDate: account.openingDate, openingBalance: account.openingBalance,
     creditLimit: account.creditLimit, minimumBalance: account.minimumBalance, showAvailableBalance: account.showAvailableBalance,
-    institution: account.institution, accountNumber: account.accountNumber, notes: account.notes
+    institution: account.institution, routingNumber: account.routingNumber,
+    accountNumber: account.accountNumber, notes: account.notes
   }
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue
@@ -379,6 +382,8 @@ export class AccountsServiceImpl implements AccountsService {
       }),
       create: (draft: TransactionDraft) => this.write(c => core.createTransaction(c, accountId, draft, this.now()),
         result => touchedChange(result.touched)).then(result => result.transaction),
+      createMany: (drafts: TransactionDraft[]) => this.write(c => core.createTransactions(c, accountId, drafts, this.now()),
+        result => touchedChange(result.touched)).then(result => result.transactions),
       update: (id: string, patch: TransactionPatch, options: WriteOptions = {}) =>
         this.write(c => core.updateTransaction(c, accountId, id, patch, options, this.now()),
           result => touchedChange(result.touched)).then(result => result.transaction),

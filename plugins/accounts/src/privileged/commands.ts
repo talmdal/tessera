@@ -84,13 +84,15 @@ export function registerCommands(
 
   return [
     context.commands.register(ACCOUNTS_COMMANDS.newAccount, async (args?: unknown) => {
-      const requested = (args as NewAccountArgs | undefined)?.subBookId
+      const given = args as NewAccountArgs | undefined
+      const requested = given?.subBookId
       const { basics } = await dialogBasics()
       const subBookId = requested !== undefined && (requested === null || basics.subBooks.some(s => s.id === requested))
         ? requested : await selection.targetSubBook()
-      const input: AccountDialogInput = { ...basics, mode: 'create', subBookId }
+      const defaults = typeof given?.defaults === 'object' && given.defaults !== null ? given.defaults : undefined
+      const input: AccountDialogInput = { ...basics, mode: 'create', subBookId, ...(defaults !== undefined && { defaults }) }
       const created = await prompts.show<{ id: string }>(ACCOUNTS_DIALOGS.account, input)
-      if (created) {
+      if (created && given?.reveal !== false) {
         await selection.set({ kind: 'account', id: created.id }, { announce: true })
         await reveal(ACCOUNTS_VIEWS.navigator)
       }

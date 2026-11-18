@@ -9,6 +9,8 @@
     "dev:renderer": "vite dev --config shell/renderer/vite.config.ts",
     "dev:electron": "electron .",
     "build:plugins": "ts-node-esm --transpile-only scripts/build-plugins.mts",
+    "seed:book": "ts-node-esm --transpile-only scripts/seed-book.mts",
+    "anonymize": "ts-node-esm --transpile-only scripts/anonymize-statement.mts",
     "dev": "ts-node-esm --transpile-only scripts/dev.mts",
     "test": "vitest run",
     "test:ui": "vitest --ui",

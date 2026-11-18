@@ -274,11 +274,12 @@ describe('registerLayout: commands', () => {
     expect(layout.get(1).main.activeView).toBe('register')
   })
 
-  it('treats revealing a view that is not there as a no-op with a warning', async () => {
+  it('treats revealing a view that is not there as a no-op with a warning, and says it was not shown', async () => {
     const { host, layout, runtime, log } = setup()
     await host.attachWindow(1, 'main')
 
-    await expect(runtime.commands.execute(LAYOUT_COMMANDS.reveal, 'ghost')).resolves.toBeUndefined()
+    // false, so a caller whose whole point is that view can tell the user rather than seem to do nothing
+    await expect(runtime.commands.execute(LAYOUT_COMMANDS.reveal, 'ghost')).resolves.toBe(false)
 
     expect(log.warn).toHaveBeenCalledWith('[layout] Could not reveal ghost: View "ghost" is not present')
     expect(layout.get(1).main.activeView).toBeUndefined()

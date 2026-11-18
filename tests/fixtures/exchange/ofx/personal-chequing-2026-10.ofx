@@ -1,0 +1,156 @@
+OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1>
+  <SONRS>
+    <STATUS>
+      <CODE>0
+      <SEVERITY>INFO
+    </STATUS>
+    <DTSERVER>20261031235959[-5:EST]
+    <LANGUAGE>ENG
+    <FI>
+      <ORG>Maple Trust Bank
+      <FID>021000021
+    </FI>
+  </SONRS>
+</SIGNONMSGSRSV1>
+<BANKMSGSRSV1>
+  <STMTTRNRS>
+    <TRNUID>2026-10-4567
+    <STATUS>
+      <CODE>0
+      <SEVERITY>INFO
+    </STATUS>
+    <STMTRS>
+      <CURDEF>CAD
+      <BANKACCTFROM>
+        <BANKID>021000021
+        <ACCTID>00412-1234567
+        <ACCTTYPE>CHECKING
+      </BANKACCTFROM>
+      <BANKTRANLIST>
+        <DTSTART>20261001000000[-5:EST]
+        <DTEND>20261031235959[-5:EST]
+        <STMTTRN>
+          <TRNTYPE>DIRECTDEBIT
+          <DTPOSTED>20261002120000[-5:EST]
+          <TRNAMT>-900.00
+          <FITID>5E6109886F9CF2CB
+          <NAME>Brightpath Early Learning
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DIRECTDEBIT
+          <DTPOSTED>20261003120000[-5:EST]
+          <TRNAMT>-2050.00
+          <FITID>8F3BD287C130233B
+          <NAME>Maple Ridge Properties
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>POS
+          <DTPOSTED>20261003120000[-5:EST]
+          <TRNAMT>-129.79
+          <FITID>FF61D5EF0EA52A18
+          <NAME>Your Independent Grocer
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DIRECTDEBIT
+          <DTPOSTED>20261004120000[-5:EST]
+          <TRNAMT>-95.00
+          <FITID>BC88A54364C48E10
+          <NAME>Co-operators Insurance
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DIRECTDEBIT
+          <DTPOSTED>20261006120000[-5:EST]
+          <TRNAMT>-185.00
+          <FITID>D38DF00AC08729B1
+          <NAME>Co-operators Insurance
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DIRECTDEBIT
+          <DTPOSTED>20261008120000[-5:EST]
+          <TRNAMT>-89.99
+          <FITID>EBD129477E97315E
+          <NAME>Rogers
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DIRECTDEBIT
+          <DTPOSTED>20261008120000[-5:EST]
+          <TRNAMT>-75.50
+          <FITID>47945C387FDA44F1
+          <NAME>Telus
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>POS
+          <DTPOSTED>20261010120000[-5:EST]
+          <TRNAMT>-209.73
+          <FITID>FDC2DA10211F5B6F
+          <NAME>Your Independent Grocer
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>DIRECTDEBIT
+          <DTPOSTED>20261016120000[-5:EST]
+          <TRNAMT>-119.73
+          <FITID>FA1AA8F91C93D8D8
+          <NAME>Hydro Ottawa
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>POS
+          <DTPOSTED>20261017120000[-5:EST]
+          <TRNAMT>-143.06
+          <FITID>9DE9F90D17C96D56
+          <NAME>Loblaws
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>XFER
+          <DTPOSTED>20261020120000[-5:EST]
+          <TRNAMT>-252.86
+          <FITID>4C75968A671DC89F
+          <NAME>Visa payment
+          <MEMO>Visa payment
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>POS
+          <DTPOSTED>20261024120000[-5:EST]
+          <TRNAMT>-233.98
+          <FITID>F7131D0771F13C3C
+          <NAME>Loblaws
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>XFER
+          <DTPOSTED>20261028120000[-5:EST]
+          <TRNAMT>5926.07
+          <FITID>DCEACB8659CF4060
+          <NAME>Owner’s draw
+          <MEMO>Owner’s draw
+        </STMTTRN>
+        <STMTTRN>
+          <TRNTYPE>XFER
+          <DTPOSTED>20261031120000[-5:EST]
+          <TRNAMT>-1441.43
+          <FITID>4551F2597BD5665D
+          <NAME>Month-end saving
+          <MEMO>Month-end saving
+        </STMTTRN>
+      </BANKTRANLIST>
+      <LEDGERBAL>
+        <BALAMT>8000.00
+        <DTASOF>20261031235959[-5:EST]
+      </LEDGERBAL>
+      <AVAILBAL>
+        <BALAMT>8000.00
+        <DTASOF>20261031235959[-5:EST]
+      </AVAILBAL>
+    </STMTRS>
+  </STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>

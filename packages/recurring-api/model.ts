@@ -150,6 +150,18 @@ export interface RecurringRow {
   scheduleLabel: string
   /** Why this row can't be entered: a closed account, a missing transfer account. */
   blockedReason?: string
+  /**
+   * The last transaction this series entered now has a different payee from the series — a bank import renamed
+   * it, or the user did. Offered on the row as a suggestion; nothing changes unless the user takes it.
+   */
+  payeeHint?: PayeeHint
+}
+
+/** What the register now calls the payee of the last transaction a series entered. */
+export interface PayeeHint {
+  name: string
+  /** That transaction's date. */
+  date: string
 }
 
 export interface RecurringSummary {

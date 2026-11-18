@@ -3,6 +3,7 @@ import { Menu, MenuItemConstructorOptions } from 'electron'
 import { CommandRegistry } from '../../../core/commands/CommandRegistry'
 import { ExtensionRegistry } from '../../../core/extensions/ExtensionRegistry'
 import { Disposable } from '../../../core/ports'
+import type { Logger } from '@tessera/types'
 import { normalizeMenuNodes } from '../../../shared/menus/normalize'
 import { resolveMenus } from '../../../shared/menus/resolveMenus'
 import {
@@ -13,22 +14,25 @@ import {
 } from '../../../shared/menus/types'
 
 /** Renders resolved menu bar entries as an Electron menu template. */
+type MenuLog = Pick<Logger, 'warn' | 'error'>
+
 export function toElectronTemplate(
   menus: readonly SubmenuNode[],
-  commands: CommandRegistry
+  commands: CommandRegistry,
+  log: MenuLog = console
 ): MenuItemConstructorOptions[] {
   return menus
     .map(menu => ({ ...menu, children: normalizeMenuNodes(menu.children) }))
     .filter(menu => menu.children.length > 0 || isReservedTopLevelMenu(menu.id))
-    .map(menu => toElectronItem(menu, commands))
+    .map(menu => toElectronItem(menu, commands, log))
 }
 
-function toElectronItem(node: MenuNode, commands: CommandRegistry): MenuItemConstructorOptions {
+function toElectronItem(node: MenuNode, commands: CommandRegistry, log: MenuLog): MenuItemConstructorOptions {
   switch (node.type) {
     case 'separator':
       return { type: 'separator' }
     case 'submenu':
-      return { id: node.id, label: node.label, submenu: node.children.map(child => toElectronItem(child, commands)) }
+      return { id: node.id, label: node.label, submenu: node.children.map(child => toElectronItem(child, commands, log)) }
     case 'item':
       return {
         id: node.id,
@@ -39,7 +43,7 @@ function toElectronItem(node: MenuNode, commands: CommandRegistry): MenuItemCons
           // State can change while the menu is open; a now-disabled command is skipped, not an error.
           if (!commands.isEnabled(node.command)) return
           commands.execute(node.command).catch(err =>
-            console.error(`[menus] Command "${node.command}" failed`, err))
+            log.error(`[menus] Command "${node.command}" failed`, err))
         }
       }
   }
@@ -51,13 +55,13 @@ function toElectronItem(node: MenuNode, commands: CommandRegistry): MenuItemCons
  * context keys change, each item's `enabled` flag is updated in place.
  * Dispose to stop tracking.
  */
-export function applyApplicationMenu(extensions: ExtensionRegistry, commands: CommandRegistry): Disposable {
+export function applyApplicationMenu(extensions: ExtensionRegistry, commands: CommandRegistry, log: MenuLog = console): Disposable {
   const contributions = extensions.getContributions(MENUS_EXTENSION_POINT).map(c => c.impl)
   const { menus, diagnostics } = resolveMenus(contributions)
 
-  for (const message of diagnostics) console.warn(`[menus] ${message}`)
+  for (const message of diagnostics) log.warn(`[menus] ${message}`)
 
-  const menu = Menu.buildFromTemplate(toElectronTemplate(menus, commands))
+  const menu = Menu.buildFromTemplate(toElectronTemplate(menus, commands, log))
   Menu.setApplicationMenu(menu)
 
   const items = menus.flatMap(collectItems)

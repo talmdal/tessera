@@ -15,7 +15,13 @@ export function MainArea({ fallback }: { fallback: ReactNode }) {
   const shown = useEverShown(main.activeView, true)
 
   return (
-    <Box component="main" aria-label="Main" tabIndex={-1} data-region="main" sx={{ gridArea: 'main', minWidth: 0, minHeight: 0, overflow: 'auto', p: 2.5 }}>
+    <Box component="main" aria-label="Main" tabIndex={-1} data-region="main" sx={{
+      gridArea: 'main', minWidth: 0, minHeight: 0, overflow: 'auto', p: 2.5,
+      // Each view gets exactly the main area's height, so one that fills it (`height: 100%`) — the register, the
+      // import review — keeps its header and footer in place and scrolls its own rows. A view that does not
+      // bound itself still overflows, and the main area scrolls it as before.
+      '& > section': { height: '100%' }
+    }}>
       {main.views.length === 0 && fallback}
       {main.views.filter(id => shown.has(id)).map(id => {
         const view = catalogue?.find(v => v.id === id)

@@ -158,3 +158,29 @@ package-lock.json
 .__mf__temp
 
 .history
+
+# Real financial files never belong in the repository, and neither does the seeded book: it is large,
+# binary, and rebuilt in seconds with `npm run seed:book`. See docs/import-export-design.md.
+private/
+*.ofx
+*.qfx
+*.qbo
+*.qif
+*.mny
+*.tessera
+
+# Those patterns match directories as well as files, and the format plugins are named for the formats they
+# read — `plugins/exchange.ofx/`, and `exchange.qif` and `exchange.csv` to come. Let git descend into them.
+!plugins/exchange.*/
+!tests/plugins/exchange.*/
+
+# The anonymiser's seed reverses everything it wrote; anonymised fixtures fall under the exception below.
+.anon-seed
+
+# The generated statement fixtures are the other exception. They hold no real person's money —
+# `npm run seed:book` invents all of it — so they are committed and the import tests read them.
+!tests/fixtures/exchange/**/*.ofx
+!tests/fixtures/exchange/**/*.qfx
+!tests/fixtures/exchange/**/*.qbo
+!tests/fixtures/exchange/**/*.qif
+!tests/fixtures/exchange/**/*.csv

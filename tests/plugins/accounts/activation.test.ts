@@ -155,6 +155,15 @@ describe('the accounts plugin: commands and selection', () => {
     expect(last(ACCOUNTS_EVENTS.selection)).toEqual({ kind: 'book' })    // 'new-id' doesn't exist, so the book
   })
 
+  it('New Account passes on the defaults it is given, and can leave the navigator alone', async () => {
+    const { open, run, prompts, last } = await setup()
+    await open()
+    prompts.show.mockResolvedValueOnce({ id: 'new-id' })
+    await run(C.newAccount, { defaults: { name: 'From the bank', accountNumber: '0099' }, reveal: false })
+    expect(prompts.show.mock.calls[0][1]).toMatchObject({ mode: 'create', defaults: { name: 'From the bank', accountNumber: '0099' } })
+    expect(last(ACCOUNTS_EVENTS.selection)).not.toEqual({ kind: 'account', id: 'new-id' })
+  })
+
   it('New Account with an argument puts it there, whatever is selected', async () => {
     const { open, run, prompts } = await setup()
     await open()

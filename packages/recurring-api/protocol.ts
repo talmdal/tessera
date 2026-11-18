@@ -98,6 +98,8 @@ export const RECURRING_CHANNELS = {
   saveSeries: channel('series.save'),
   /** `{ ids }` → `RecurringResult<void>`. */
   deleteSeries: channel('series.delete'),
+  /** `UsePayeeRequest` → `RecurringResult<Series>`: takes the payee a `payeeHint` offered. */
+  usePayee: channel('series.usePayee'),
   /** `{ ids, paused }` → `RecurringResult<void>`. */
   setPaused: channel('series.setPaused'),
   /** `{ requests, confirm? }` → `RecurringResult<EnterResult>`. */
@@ -149,6 +151,12 @@ export const RECURRING_DIALOGS = {
 export interface HolidaysDialogInput {
   holidays: Holiday[]
   today: string
+}
+
+/** `recurring:series.usePayee`: gives a series the payee its last entered transaction now has. */
+export interface UsePayeeRequest {
+  id: string
+  payee: string
 }
 
 /** `recurring:series.save`: creates a series, or with `id`, edits it. */

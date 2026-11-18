@@ -1,3 +1,6 @@
 {
-  "extends": "../tsconfig.base.json"
+  "extends": "../tsconfig.base.json",
+  // Type-checking only: Vite bundles these. Emitting here would leave .js files beside the sources, which
+  // Vite and Vitest then resolve instead of the TypeScript.
+  "compilerOptions": { "noEmit": true }
 }

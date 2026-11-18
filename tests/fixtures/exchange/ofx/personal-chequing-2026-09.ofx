@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?OFX OFXHEADER="200" VERSION="211" SECURITY="NONE" OLDFILEUID="NONE" NEWFILEUID="NONE"?>
+<OFX>
+  <SIGNONMSGSRSV1>
+    <SONRS>
+      <STATUS>
+        <CODE>0</CODE>
+        <SEVERITY>INFO</SEVERITY>
+      </STATUS>
+      <DTSERVER>20260930235959[-5:EST]</DTSERVER>
+      <LANGUAGE>ENG</LANGUAGE>
+      <FI>
+        <ORG>Maple Trust Bank</ORG>
+        <FID>021000021</FID>
+      </FI>
+    </SONRS>
+  </SIGNONMSGSRSV1>
+  <BANKMSGSRSV1>
+    <STMTTRNRS>
+      <TRNUID>2026-09-4567</TRNUID>
+      <STATUS>
+        <CODE>0</CODE>
+        <SEVERITY>INFO</SEVERITY>
+      </STATUS>
+      <STMTRS>
+        <CURDEF>CAD</CURDEF>
+        <BANKACCTFROM>
+          <BANKID>021000021</BANKID>
+          <ACCTID>00412-1234567</ACCTID>
+          <ACCTTYPE>CHECKING</ACCTTYPE>
+        </BANKACCTFROM>
+        <BANKTRANLIST>
+          <DTSTART>20260901000000[-5:EST]</DTSTART>
+          <DTEND>20260930235959[-5:EST]</DTEND>
+          <STMTTRN>
+            <TRNTYPE>DIRECTDEBIT</TRNTYPE>
+            <DTPOSTED>20260901120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-2050.00</TRNAMT>
+            <FITID>7BE6F1573A98D8FC</FITID>
+            <NAME>Maple Ridge Properties</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DIRECTDEBIT</TRNTYPE>
+            <DTPOSTED>20260902120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-900.00</TRNAMT>
+            <FITID>81138DF72E3780A7</FITID>
+            <NAME>Brightpath Early Learning</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DIRECTDEBIT</TRNTYPE>
+            <DTPOSTED>20260904120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-185.00</TRNAMT>
+            <FITID>3107E61328A3B07E</FITID>
+            <NAME>Co-operators Insurance</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DIRECTDEBIT</TRNTYPE>
+            <DTPOSTED>20260904120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-95.00</TRNAMT>
+            <FITID>83A448FA338D4A8F</FITID>
+            <NAME>Co-operators Insurance</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DIRECTDEBIT</TRNTYPE>
+            <DTPOSTED>20260905120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-89.99</TRNAMT>
+            <FITID>261FA23B5ADC5F5D</FITID>
+            <NAME>Rogers</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>POS</TRNTYPE>
+            <DTPOSTED>20260905120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-189.69</TRNAMT>
+            <FITID>C39CCEA803332FEA</FITID>
+            <NAME>Your Independent Grocer</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DIRECTDEBIT</TRNTYPE>
+            <DTPOSTED>20260908120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-75.50</TRNAMT>
+            <FITID>08E86B7A923AD84A</FITID>
+            <NAME>Telus</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>POS</TRNTYPE>
+            <DTPOSTED>20260912120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-193.39</TRNAMT>
+            <FITID>50EC808CE39F0BFA</FITID>
+            <NAME>Farm Boy</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DIRECTDEBIT</TRNTYPE>
+            <DTPOSTED>20260915120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-106.71</TRNAMT>
+            <FITID>AFF12C15A30E5854</FITID>
+            <NAME>Hydro Ottawa</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>POS</TRNTYPE>
+            <DTPOSTED>20260919120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-153.04</TRNAMT>
+            <FITID>237E50260735D229</FITID>
+            <NAME>Farm Boy</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>XFER</TRNTYPE>
+            <DTPOSTED>20260920120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-885.34</TRNAMT>
+            <FITID>5BBE8FF58444E1C4</FITID>
+            <NAME>Visa payment</NAME>
+            <MEMO>Visa payment</MEMO>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>POS</TRNTYPE>
+            <DTPOSTED>20260926120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-145.59</TRNAMT>
+            <FITID>05AA539416A9C124</FITID>
+            <NAME>Loblaws</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>XFER</TRNTYPE>
+            <DTPOSTED>20260928120000[-5:EST]</DTPOSTED>
+            <TRNAMT>5566.61</TRNAMT>
+            <FITID>B9BDE3D67CCFAEE8</FITID>
+            <NAME>Owner’s draw</NAME>
+            <MEMO>Owner’s draw</MEMO>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>XFER</TRNTYPE>
+            <DTPOSTED>20260930120000[-5:EST]</DTPOSTED>
+            <TRNAMT>-497.36</TRNAMT>
+            <FITID>0849B646BF9D7570</FITID>
+            <NAME>Month-end saving</NAME>
+            <MEMO>Month-end saving</MEMO>
+          </STMTTRN>
+        </BANKTRANLIST>
+        <LEDGERBAL>
+          <BALAMT>8000.00</BALAMT>
+          <DTASOF>20260930235959[-5:EST]</DTASOF>
+        </LEDGERBAL>
+      </STMTRS>
+    </STMTTRNRS>
+  </BANKMSGSRSV1>
+</OFX>

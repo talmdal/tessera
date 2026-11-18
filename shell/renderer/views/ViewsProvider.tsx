@@ -17,6 +17,7 @@ import { Typography } from '@tessera/ui'
 import type { ViewDescriptor } from '../../../shared/views/types'
 import { Loading } from '../Loading'
 import { ViewLoader, ViewSource } from './ports'
+import { reportCaught } from '../problems/reportWindowErrors'
 
 interface ViewsContextValue {
   /** Undefined until the view list has been fetched. */
@@ -128,6 +129,7 @@ class ViewBoundary extends Component<{ view: ViewDescriptor, children: ReactNode
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
     console.error(`[views] View "${this.props.view.id}" failed`, error, info.componentStack)
+    reportCaught(`View "${this.props.view.title}" (${this.props.view.id}) could not be displayed`, error, info.componentStack)
   }
 
   render() {

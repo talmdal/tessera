@@ -5,6 +5,8 @@ import path from 'node:path'
 import type { AppState } from '@tessera/types'
 import { DialogService } from '../../core/dialogs/DialogService'
 import { createPluginContext, createPluginRuntime } from '../../core/plugins/PluginContext'
+import { ProblemLog, recordingLogger } from '../../core/problems/ProblemLog'
+import { registerProblems } from './problems/registerProblems'
 import { PluginManager } from '../../core/plugins/PluginManager'
 import { LayoutService } from '../../core/layout/LayoutService'
 import { OptionsService } from '../../core/options/OptionsService'
@@ -43,7 +45,10 @@ import { windowBackground } from '../../shared/theme/tokens'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-const log = console
+// Every warning and error the shell and its plugins log is also kept for the user: the status bar counts them
+// and Help ▸ Show Problems… lists them. Otherwise a plugin that failed to load just looks like a missing feature.
+const problems = new ProblemLog()
+const log = recordingLogger(console, problems)
 
 // Tier-0 options, beside the bootstrap file and read the same way: before anything activates, so the shell can
 // read its own choices early and every plugin can have options, including the storage backends and app-state
@@ -88,6 +93,11 @@ function iconUrlFor(pluginId: string, relativePath: string) {
 
 registerPluginSchemePrivileges()
 
+// On Linux under Wayland (Ubuntu's default, and WSLg), Electron otherwise runs through XWayland, and the frame
+// the compositor gives that window cannot be resized by dragging its edges. Asking for the native platform
+// gives a frame that can; on an X11 session the hint changes nothing.
+if (process.platform === 'linux') app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
+
 // Layouts are kept by the app-state plugin. Its service is looked up on each use, since it only exists once
 // that plugin has activated; the shell is not a manifest plugin, so it reads the registry directly.
 const appState = () => runtime.services.has('app.state') ? runtime.services.get<AppState>('app.state') : undefined
@@ -123,6 +133,7 @@ async function bootstrap() {
   registerShellEvents(shell, runtime)
   handlePluginProtocol(rendererRootFor)
   registerCoreMenus(shell)
+  registerProblems(shell, runtime, problems)
   registerViewsIpc(shell, remoteEntryFor, iconUrlFor, log)
   registerCommandsIpc(shell, log)
   layoutHost = registerLayout(shell, runtime, layout, iconUrlFor)
@@ -151,7 +162,7 @@ async function bootstrap() {
   layout.refresh()   // a plugin's renderer is only known once it has activated
   // Builds that kept the theme in app-state: brought over once, now that app-state is awake.
   await importLegacyThemeSelection(appState, options, shellOptions, log)
-  applyApplicationMenu(runtime.extensions, runtime.commands)
+  applyApplicationMenu(runtime.extensions, runtime.commands, log)
 }
 
 let windowsCreated = 0
@@ -170,7 +181,6 @@ async function createWindow() {
     DEFAULT_WINDOW_SIZE,
     screen.getAllDisplays().map(display => display.workArea))
 
-  console.log('Window state:', state)
   const win = new BrowserWindow({
     ...DEFAULT_WINDOW_SIZE,
     ...state,
@@ -182,7 +192,11 @@ async function createWindow() {
     }
   })
 
-  trackedWindows.track(win, current => windowStates.save(key, current), { log })
+  trackedWindows.track(win, current => windowStates.save(key, current), {
+    log,
+    workAreaOf: bounds => screen.getDisplayMatching(bounds).workArea,
+    initial: state
+  })
 
   // Attached, with its saved layout loaded, before the page loads so its first layout request is right.
   const id = win.id

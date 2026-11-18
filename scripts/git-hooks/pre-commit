@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Blocks a commit that adds a bank statement outside tests/fixtures/exchange/, and verifies every statement it
+# adds or changes inside it. Install with:  ln -s ../../scripts/git-hooks/pre-commit .git/hooks/pre-commit
+# See docs/import-export-design.md, "Keeping personal data out of the repository".
+#
+# Three things this is careful about, each of which once let a real statement through:
+#  - Names are read NUL-separated with quotePath off. With git's default quoting, a name with a non-ASCII
+#    character comes out as "rel\303\251ve.csv" — closing quote included — so an extension test anchored on
+#    `$` never matched it and the file was not looked at at all.
+#  - What is checked is the *staged* content, from the index, not the working copy. Otherwise staging a real
+#    statement and then cleaning the file on disk passes the check while the real one is committed.
+#  - Every format the anonymiser reads is checked, not only the OFX family.
+set -euo pipefail
+
+# Statement-shaped files. `.tsv` is blocked outside the fixtures but has no checker, so it cannot be committed
+# inside them either — there is no anonymiser for it to have come from.
+blocked='\.(ofx|aso|qfx|qbo|qif|csv|tsv)$'
+checkable='\.(ofx|aso|qfx|qbo|qif|csv)$'
+
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+
+status=0
+# Added, copied, modified and renamed: a rename is how a real file gets moved into the fixtures folder.
+while IFS= read -r -d '' file; do
+  shopt -s nocasematch
+  [[ "$file" =~ $blocked ]] || { shopt -u nocasematch; continue; }
+
+  case "$file" in
+    tests/fixtures/exchange/*) ;;
+    *)
+      echo "pre-commit: $file looks like a bank statement and is outside tests/fixtures/exchange/. Anonymise it first: npm run anonymize" >&2
+      status=1; shopt -u nocasematch; continue ;;
+  esac
+
+  if [[ ! "$file" =~ $checkable ]]; then
+    echo "pre-commit: $file is a statement format the anonymiser cannot check, so it cannot be a fixture." >&2
+    status=1; shopt -u nocasematch; continue
+  fi
+  shopt -u nocasematch
+
+  # The staged blob, under its own name so --check picks the format from the extension.
+  copy="$scratch/$(basename "$file")"
+  git show ":$file" > "$copy"
+  if ! npm run --silent anonymize -- --check "$copy"; then
+    echo "pre-commit: $file failed the fixture check above." >&2
+    status=1
+  fi
+  rm -f "$copy"
+done < <(git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMR)
+
+exit $status

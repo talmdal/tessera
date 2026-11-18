@@ -2,7 +2,8 @@
 // fields offer (categories, and the accounts a transfer can go to).
 import { useCallback, useEffect, useState } from 'react'
 import {
-  ACCOUNTS_CHANNELS, ACCOUNTS_EVENTS, type Category, type Chart, type RegisterSnapshot
+  ACCOUNTS_CHANNELS, ACCOUNTS_EVENTS, type Category, type Chart, type OverlayRow, type RegisterSnapshot,
+  type ResolvedRegisterOverlay
 } from '@tessera/accounts-api'
 import { useFollowed } from '../bridge'
 
@@ -40,4 +41,42 @@ export function useRegisterData(): RegisterData {
   }, [accountId, version, chart])
 
   return { snapshot: accountId === undefined ? undefined : snapshot, chart, categories, reload }
+}
+
+/**
+ * The provisional rows other plugins lay over an account's register (`accounts.register.overlays`): each
+ * contribution names a channel the rows come from, and an event after which they are asked for again.
+ */
+export function useOverlayRows(accountId: string): OverlayRow[] {
+  const [providers, setProviders] = useState<ResolvedRegisterOverlay[]>([])
+  const [rows, setRows] = useState<Record<string, OverlayRow[]>>({})
+  const [version, setVersion] = useState(0)
+
+  useEffect(() => {
+    let live = true
+    void window.api.invoke<ResolvedRegisterOverlay[]>(ACCOUNTS_CHANNELS.registerOverlays, { accountId })
+      .then(found => { if (live) setProviders(found ?? []) }, () => { if (live) setProviders([]) })
+    return () => { live = false }
+  }, [accountId])
+
+  // Each provider's refresh event: a payload naming accounts scopes the refresh to this one
+  useEffect(() => {
+    const stops = [...new Set(providers.map(p => p.refreshOn).filter((e): e is string => e !== undefined))]
+      .map(event => window.api.on<{ accounts?: string[] }>(event, payload => {
+        if (!Array.isArray(payload?.accounts) || payload.accounts.includes(accountId)) setVersion(v => v + 1)
+      }))
+    return () => { for (const stop of stops) stop() }
+  }, [providers, accountId])
+
+  useEffect(() => {
+    let live = true
+    for (const provider of providers) {
+      void window.api.invoke<OverlayRow[]>(provider.channel, { accountId })
+        .then(found => { if (live) setRows(was => ({ ...was, [provider.id]: found ?? [] })) },
+          () => { if (live) setRows(was => ({ ...was, [provider.id]: [] })) })
+    }
+    return () => { live = false }
+  }, [providers, accountId, version])
+
+  return providers.flatMap(provider => rows[provider.id] ?? [])
 }

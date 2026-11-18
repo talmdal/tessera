@@ -130,6 +130,19 @@ describe('building bundled plugins', { timeout: 60_000 }, () => {
     expect(fs.existsSync(path.join(out, 'sample-builtin/stale.js'))).toBe(false)
   })
 
+  it('clears plugins with no source on a full build, keeping dotfiles', async () => {
+    const out = createTempModulesDir()
+    fs.mkdirSync(path.join(out, 'orphan'))
+    fs.writeFileSync(path.join(out, 'orphan/manifest.json'), '{}')
+    fs.writeFileSync(path.join(out, '.gitignore'), '*\n')
+
+    await buildPlugins({ pluginsDir: fixtures, outDir: out, only: ['sample-builtin'] })
+    expect(fs.existsSync(path.join(out, 'orphan'))).toBe(true)
+
+    await buildPlugins({ pluginsDir: fixtures, outDir: out })
+    expect(fs.readdirSync(out).sort()).toEqual(['.gitignore', 'sample-builtin'])
+  })
+
   it('reports a plugin that fails to build and still builds the others', async () => {
     const src = createTempModulesDir()
     fs.cpSync(path.join(fixtures, 'sample-builtin'), path.join(src, 'good'), { recursive: true })

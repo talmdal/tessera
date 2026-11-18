@@ -6,11 +6,12 @@ import {
   ACCOUNTS_CHANNELS, ACCOUNTS_EVENTS, AccountsError, CLEARING_STATUSES, isAccountsError, toAccountsResult,
   type AccountPatch, type Category, type Chart, type ClearingStatus, type MoveRequest, type RegisterSnapshot,
   type AccountsChange, type PatchTransactionRequest, type ReconcileRequest, type ReconcileState, type ResolvedReconcileAction,
-  type ResolvedNavigatorItem, type ResolvedRegisterFigure, type ResolvedTransactionAction,
+  type ResolvedNavigatorItem, type ResolvedRegisterFigure, type ResolvedRegisterOverlay, type ResolvedTransactionAction,
   type SaveAccountRequest, type SaveTransactionRequest, type Selection, type TransactionPatch, type TransactionsRequest
 } from '@tessera/accounts-api'
 import type { NavigatorItems } from './navigatorItems'
 import type { RegisterFigures } from './registerFigures'
+import type { RegisterOverlays } from './registerOverlays'
 import type { ReconcileActions } from './reconcileActions'
 import type { TransactionActions } from './rowActions'
 import type { AccountsServiceImpl } from './AccountsServiceImpl'
@@ -80,7 +81,8 @@ export function registerIpc(
   actions: ReconcileActions,
   rowActions: TransactionActions,
   navigatorItems: NavigatorItems,
-  figures: RegisterFigures
+  figures: RegisterFigures,
+  overlays: RegisterOverlays
 ): Disposable[] {
   return [
     context.ipc.register(ACCOUNTS_CHANNELS.chart, () => chartOrNull(service, session)),
@@ -206,6 +208,13 @@ export function registerIpc(
       if (typeof accountId !== 'string') return []
       const account = await unlessClosed(session, () => service.get(accountId), undefined)
       return account ? figures.for(account.type) : []
+    }),
+
+    context.ipc.register(ACCOUNTS_CHANNELS.registerOverlays, async (msg: IpcMessage<{ accountId?: string }>): Promise<ResolvedRegisterOverlay[]> => {
+      const accountId = msg.data?.accountId
+      if (typeof accountId !== 'string') return []
+      const account = await unlessClosed(session, () => service.get(accountId), undefined)
+      return account ? overlays.resolved() : []
     }),
 
     context.ipc.register(ACCOUNTS_CHANNELS.reconcileState, async (msg: IpcMessage<{ accountId?: string }>) => {
