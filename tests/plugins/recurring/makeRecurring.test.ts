@@ -19,6 +19,12 @@ import { activate as activateRecurring } from '../../../plugins/recurring/src/pr
 import { fakeFiles, fakePrompts, file, logger, memoryAppState, memoryBackupDisk, memoryDisk } from '../book/harness'
 import { chequing } from './harness'
 
+/**
+ * The day these tests were written for: their dates (due soon, overdue, the 30-day forecast) are about it. Pinned,
+ * so they mean the same thing whatever day they run.
+ */
+const TODAY = '2026-11-13'
+
 async function setup() {
   const log = logger()
   const runtime = createPluginRuntime(undefined, log)
@@ -36,7 +42,7 @@ async function setup() {
 
   await activateBook(createPluginContext('book', runtime).context, { disk: disk.disk, backupDisk: memoryBackupDisk().disk })
   await activateAccounts(createPluginContext('accounts', runtime).context)
-  await activateRecurring(createPluginContext('recurring', runtime).context)
+  await activateRecurring(createPluginContext('recurring', runtime).context, { today: () => TODAY })
 
   files.showSaveDialog.mockResolvedValueOnce(file('Home.tessera'))
   await runtime.commands.execute(BOOK_COMMANDS.new)

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { KitStorageEngine, memoryDriver } from '@tessera/storage-kit'
 import { SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
 import { BOOK_CHANNELS, BOOK_COMMANDS } from '@tessera/book-api'
-import { ACCOUNTS_CHANNELS, ACCOUNTS_MENU, ACCOUNTS_SERVICE, todayIso, type AccountsService } from '@tessera/accounts-api'
+import { ACCOUNTS_CHANNELS, ACCOUNTS_MENU, ACCOUNTS_SERVICE, type AccountsService } from '@tessera/accounts-api'
 import {
   RECURRING_CHANNELS, RECURRING_COMMANDS as C, RECURRING_CONTEXT_KEYS as K, RECURRING_DIALOGS, RECURRING_EVENTS,
   RECURRING_SERVICE, RECURRING_VIEWS, type RecurringService, type RecurringSnapshot, type SeriesInput
@@ -21,6 +21,12 @@ import { activate as activateBook } from '../../../plugins/book/src/privileged/i
 import { activate as activateRecurring, watchDateRollover } from '../../../plugins/recurring/src/privileged/index'
 import { fakeFiles, fakePrompts, file, logger, memoryAppState, memoryBackupDisk, memoryDisk } from '../book/harness'
 import { chequing, monthly, template } from './harness'
+
+/**
+ * The day these tests were written for: their dates (due soon, overdue, the 30-day forecast) are about it. Pinned,
+ * so they mean the same thing whatever day they run.
+ */
+const TODAY = '2026-11-13'
 
 async function setup() {
   const log = logger()
@@ -41,7 +47,7 @@ async function setup() {
 
   await activateBook(createPluginContext('book', runtime).context, { disk: disk.disk, backupDisk: memoryBackupDisk().disk })
   await activateAccounts(createPluginContext('accounts', runtime).context)
-  await activateRecurring(createPluginContext('recurring', runtime).context)
+  await activateRecurring(createPluginContext('recurring', runtime).context, { today: () => TODAY })
 
   files.showSaveDialog.mockResolvedValueOnce(file('Home.tessera'))
   await runtime.commands.execute(BOOK_COMMANDS.new)
@@ -330,7 +336,7 @@ describe('the forecast, the holidays and the projected balance', () => {
     expect(prompts.show).toHaveBeenLastCalledWith(RECURRING_DIALOGS.holidays, expect.objectContaining({
       // The real clock drives this plugin, so the date is taken from the same source rather than written out:
       // a literal here passes only on the day it was written.
-      holidays: [expect.objectContaining({ name: 'Christmas Day' })], today: todayIso()
+      holidays: [expect.objectContaining({ name: 'Christmas Day' })], today: TODAY
     }))
 
     expect((await ask(RECURRING_CHANNELS.removeHoliday, { id: added.value.id })).ok).toBe(true)
