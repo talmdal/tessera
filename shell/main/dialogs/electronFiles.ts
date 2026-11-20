@@ -1,4 +1,4 @@
-// shell/main/dialogs/electronFiles.ts — `shell.files` over Electron's file dialogs and the OS trash.
+// shell/main/dialogs/electronFiles.ts — `shell.files` over Electron's file and folder dialogs and the OS trash.
 import fs from 'node:fs'
 import type { FileDialogOptions, ShellFiles } from '@tessera/types'
 import { parentWindow, PromptsPlatform } from './electronPrompts'
@@ -32,6 +32,15 @@ export function createElectronFiles(platform: FilesPlatform): ShellFiles {
     async showOpenDialog(options = {}) {
       const { canceled, filePaths } = await withParent(options, platform.dialog.showOpenDialog.bind(platform.dialog),
         { ...dialogOptions(options), properties: ['openFile'] })
+      return canceled || filePaths.length === 0 ? undefined : filePaths[0]
+    },
+
+    async showFolderDialog(options = {}) {
+      // Filters mean nothing for a folder; dropped even if a caller passed some past the type
+      const { filters: _ignored, ...folder } = options as FileDialogOptions
+      // createDirectory: the user can make the folder they want from the dialog itself (macOS; the others always can)
+      const { canceled, filePaths } = await withParent(folder, platform.dialog.showOpenDialog.bind(platform.dialog),
+        { ...dialogOptions(folder), properties: ['openDirectory', 'createDirectory'] })
       return canceled || filePaths.length === 0 ? undefined : filePaths[0]
     },
 

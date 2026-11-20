@@ -159,6 +159,24 @@ export interface DatabaseMeta {
   delete(key: string): Promise<void>
 }
 
+/** One collection in a `DatabaseSnapshot`. */
+export interface CollectionSnapshot {
+  name: string
+  indexes: Required<IndexDefinition>[]
+  /** Every document, with its `id` and `rev`, in id order. */
+  docs: Doc[]
+}
+
+/**
+ * Everything a database holds, as plain JSON data: what `Database.snapshot()` returns and `Database.load()`
+ * accepts. Engine-neutral, so a snapshot taken from one backend loads into any other.
+ */
+export interface DatabaseSnapshot {
+  /** In name order. */
+  collections: CollectionSnapshot[]
+  meta: Record<string, Json>
+}
+
 export interface Database {
   readonly name: string
   readonly readOnly: boolean
@@ -176,6 +194,20 @@ export interface Database {
   /** Called once per committed transaction (or single write), after commit. */
   onDidChange(listener: (event: ChangeEvent) => void): Disposable
   readonly meta: DatabaseMeta
+  /**
+   * A copy of everything committed so far: every collection with its indexes and documents, and every meta value.
+   * Taken between commits, so it is one consistent state even while writers run; a transaction still running is
+   * not in it. Works on a read-only database. The result is the caller's: changing it changes nothing stored.
+   */
+  snapshot(): Promise<DatabaseSnapshot>
+  /**
+   * Fills an empty database from a snapshot, as one atomic write: all of it is stored, or none of it. The snapshot
+   * is checked in full first (names, indexes, documents, unique keys), and a bad one is INVALID_ARGUMENT,
+   * INVALID_DOCUMENT, DUPLICATE_ID or UNIQUE_VIOLATION with nothing written. A database that already holds a
+   * collection or a meta value is INVALID_ARGUMENT; open the target without a `schema`, which would create its
+   * collections. Documents keep the `rev` they have in the snapshot.
+   */
+  load(snapshot: DatabaseSnapshot): Promise<void>
   /** Makes everything written so far durable. A failure is an IO error and the data stays dirty. */
   flush(): Promise<void>
   close(): Promise<void>

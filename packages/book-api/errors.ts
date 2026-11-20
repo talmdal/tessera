@@ -16,8 +16,10 @@ export type BookErrorCode =
   | 'INVALID'
   /** `expectedRev` didn't match: someone else changed it first. */
   | 'CONFLICT'
-  /** The file is not a book, is from a newer version, or needs a different storage engine. */
+  /** The file is not a book (or not a backup), is from a newer version, or needs a different storage engine. */
   | 'UNSUPPORTED_FILE'
+  /** A backup file is incomplete or has been changed since it was written: it can't be trusted, so it isn't used. */
+  | 'DAMAGED'
   /** A file the user named doesn't exist. */
   | 'FILE_NOT_FOUND'
   /** A `book.schema` contributor's data could not be brought up to date; nothing was changed, or a backup was taken. */

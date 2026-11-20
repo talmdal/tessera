@@ -3,7 +3,12 @@
 // See docs/account-manager-design.md, "The book".
 import type { AppState, PluginContext, ShellFiles, ShellPrompts, StorageEngine } from '@tessera/types'
 import { SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
-import { BOOK_PLUGIN_ID, BOOK_SESSION_SERVICE, BOOK_VIEWS, type BookSession } from '@tessera/book-api'
+import {
+  BOOK_OPTIONS_DEFAULTS, BOOK_PLUGIN_ID, BOOK_SESSION_SERVICE, BOOK_VIEWS, validateBookOptions, type BookOptions, type BookSession
+} from '@tessera/book-api'
+import { nodeBackupDisk, type BackupDisk } from './backups/BackupDisk'
+import { BackupLedger } from './backups/BackupLedger'
+import { Backups } from './backups/Backups'
 import { registerCommands, revealer } from './commands'
 import { contributions } from './contributions'
 import { nodeDisk, type BookDisk } from './disk'
@@ -12,7 +17,7 @@ import { BookSessionImpl, describeError, bookName } from './BookSessionImpl'
 import { RecentBooks } from './RecentBooks'
 import { SchemaRegistry } from './SchemaRegistry'
 
-let active: BookSessionImpl | undefined
+let active: { session: BookSessionImpl, backups: Backups } | undefined
 
 /** Exactly the `BookSession` contract, so other plugins can't reach the implementation's internals. */
 export function publicSession(session: BookSessionImpl): BookSession {
@@ -36,18 +41,25 @@ export function publicSession(session: BookSessionImpl): BookSession {
   }
 }
 
-export async function activate(context: PluginContext, options: { disk?: BookDisk } = {}) {
+export async function activate(context: PluginContext, options: { disk?: BookDisk, backupDisk?: BackupDisk } = {}) {
   const engine = context.services.get<StorageEngine>('storage.engine')
   const appState = context.services.get<AppState>('app.state')
   const files = context.services.get<ShellFiles>(SHELL_FILES_SERVICE)
   const prompts = context.services.get<ShellPrompts>(SHELL_PROMPTS_SERVICE)
   const disk = options.disk ?? nodeDisk()
 
+  // The user's backup settings, or the defaults where there is no options service (some tests)
+  const settings = context.options?.register<BookOptions>({ defaults: BOOK_OPTIONS_DEFAULTS, validate: validateBookOptions })
+  const backups = new Backups({
+    disk: options.backupDisk ?? nodeBackupDisk(), ledger: new BackupLedger(appState), files, engineId: engine.id, log: context.logger,
+    options: () => (settings?.get() ?? BOOK_OPTIONS_DEFAULTS).backups
+  })
+
   const recent = new RecentBooks(appState)
   const schema = new SchemaRegistry(context.extensions, context.services, context.logger)
-  const session = new BookSessionImpl({ engine, files, prompts, recent, schema, disk, log: context.logger })
+  const session = new BookSessionImpl({ engine, files, prompts, recent, schema, disk, log: context.logger, hooks: backups.hooks })
   const publisher = new BookPublisher(context, session, recent, disk)
-  active = session
+  active = { session, backups }
 
   context.subscriptions.push(
     session.onDidChange(change => {
@@ -65,7 +77,9 @@ export async function activate(context: PluginContext, options: { disk?: BookDis
     ...registerIpc(context, session, publisher, recent),
     context.services.provide(BOOK_PLUGIN_ID, BOOK_SESSION_SERVICE, publicSession(session)),
     // On quit the book closes but is remembered, so it reopens at the next start
-    context.lifecycle.onShuttingDown(() => session.shutdown())
+    context.lifecycle.onShuttingDown(() => session.shutdown()),
+    // After the book has closed: give the backup it queued time to finish, inside the shutdown limit
+    context.lifecycle.onShuttingDown(() => backups.drain())
   )
 
   // Reopen the last book once every plugin has activated: the schema contributors and their migrators are there
@@ -87,7 +101,8 @@ export async function activate(context: PluginContext, options: { disk?: BookDis
 
 /** Runs after every plugin that requires `book.session` has deactivated. */
 export async function deactivate() {
-  const session = active
+  const current = active
   active = undefined
-  await session?.shutdown()
+  await current?.session.shutdown()
+  await current?.backups.drain()
 }

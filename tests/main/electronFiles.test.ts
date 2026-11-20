@@ -29,12 +29,46 @@ describe('shell.files', () => {
     })
   })
 
-  it('resolves undefined when either dialog is cancelled', async () => {
+  it('resolves undefined when any dialog is cancelled', async () => {
     const { files, platform } = setup()
     platform.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
     platform.dialog.showSaveDialog.mockResolvedValueOnce({ canceled: true })
     await expect(files.showOpenDialog()).resolves.toBeUndefined()
     await expect(files.showSaveDialog()).resolves.toBeUndefined()
+    platform.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
+    await expect(files.showFolderDialog()).resolves.toBeUndefined()
+  })
+
+  it('picks one folder, which the user may create from the dialog, modal to the focused window', async () => {
+    const { files, platform } = setup()
+    platform.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: ['/home/me/Documents/Tessera Backups'] })
+    await expect(files.showFolderDialog({ title: 'Backup Folder', defaultPath: '/home/me/Documents', buttonLabel: 'Choose' }))
+      .resolves.toBe('/home/me/Documents/Tessera Backups')
+    expect(platform.dialog.showOpenDialog).toHaveBeenCalledWith({ id: 1 }, {
+      title: 'Backup Folder', defaultPath: '/home/me/Documents', buttonLabel: 'Choose', properties: ['openDirectory', 'createDirectory']
+    })
+  })
+
+  it('picks a folder unparented when there is no window, and in the window asked for when there is', async () => {
+    const unparented = setup(null)
+    await unparented.files.showFolderDialog()
+    expect(unparented.platform.dialog.showOpenDialog).toHaveBeenCalledWith({ properties: ['openDirectory', 'createDirectory'] })
+
+    const { files, platform } = setup()
+    await files.showFolderDialog({ windowId: 9 })
+    expect(platform.dialog.showOpenDialog).toHaveBeenCalledWith({ id: 9 }, expect.any(Object))
+  })
+
+  it('never passes file filters to a folder dialog, even ones slipped past the type', async () => {
+    const { files, platform } = setup()
+    await files.showFolderDialog({ filters } as never)
+    expect(platform.dialog.showOpenDialog.mock.calls[0][1]).not.toHaveProperty('filters')
+  })
+
+  it('treats a folder dialog that returns no path as cancelled', async () => {
+    const { files, platform } = setup()
+    platform.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [] })
+    await expect(files.showFolderDialog()).resolves.toBeUndefined()
   })
 
   it('saves with the platform asking before replacing a file, unparented when there is no window', async () => {

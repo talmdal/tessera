@@ -3,6 +3,11 @@
 
 /** The open book file. */
 export interface BookInfo {
+  /**
+   * Stable across renames and moves: `BOOK_META.id`. A read-only book that has none yet is known by an id derived
+   * from its path (`path-…`) until it is opened writable and given one.
+   */
+  id: string
   path: string
   /** The file name without `.tessera`; shown in the title, the status bar and the start view. */
   name: string
@@ -50,3 +55,9 @@ export interface BookState {
   /** The last failure to open (at start-up, or from the start view), shown instead of a modal. */
   error?: string
 }
+
+/**
+ * Why a backup was taken: automatically at close, by the user (Back Up Now, Back Up To…), or as the safety copy of
+ * a book about to be replaced by a restore. Only automatic backups are ever pruned.
+ */
+export type BackupTrigger = 'auto' | 'manual' | 'pre-restore'

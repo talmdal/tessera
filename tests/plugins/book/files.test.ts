@@ -24,7 +24,7 @@ function setup() {
   const services = new ServiceRegistryImpl()
   const log = logger()
   const files = {
-    showOpenDialog: vi.fn(async () => undefined), showSaveDialog: vi.fn(async () => undefined),
+    showOpenDialog: vi.fn(async () => undefined), showFolderDialog: vi.fn(async () => undefined), showSaveDialog: vi.fn(async () => undefined),
     exists: async (f: string) => fs.existsSync(f),
     // The OS trash, as a folder: the file is moved, never deleted
     trash: vi.fn(async (f: string) => { fs.mkdirSync(trash, { recursive: true }); fs.renameSync(f, path.join(trash, path.basename(f))) }),

@@ -20,7 +20,8 @@ export function scopedTransaction(tx: Transaction, contributor: string): Transac
 
 /**
  * The open book's database as one contributor may use it. Collections and meta keys outside `<contributor>.` are
- * rejected, change events are filtered to its own collections, and closing is the book's job, not a contributor's.
+ * rejected, change events are filtered to its own collections, and closing, copying (`snapshot`) and replacing
+ * (`load`) the whole database are the book's job, not a contributor's.
  */
 export function scopedDatabase(db: Database, contributor: string): Database {
   const check = guard(contributor)
@@ -50,6 +51,9 @@ export function scopedDatabase(db: Database, contributor: string): Database {
       if (own.changes.length + own.structure.length > 0) listener(own)
     }),
     meta,
+    // The whole book is the book's to copy and replace (its backups), never one contributor's
+    snapshot: () => Promise.reject(new BookError('INVALID', 'Only the book can copy the whole book; a contributor sees its own collections')),
+    load: () => Promise.reject(new BookError('INVALID', 'Only the book can replace the whole book; a contributor sees its own collections')),
     flush: () => db.flush(),
     close: () => Promise.reject(new BookError('INVALID', 'The book closes its database; use book.session.close()'))
   }

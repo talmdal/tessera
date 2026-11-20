@@ -1,4 +1,5 @@
 // The `book.session` service: the open book file and its sub-book tree.
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import type { Database, Disposable, Event, Logger, ShellFiles, ShellPrompts, StorageEngine } from '@tessera/types'
 import {
@@ -12,7 +13,19 @@ import type { SchemaRegistry } from './SchemaRegistry'
 import { scopedDatabase } from './scopedDatabase'
 import { SubBooks } from './SubBooks'
 
+/**
+ * The book's own internal hooks, for its backups: they see the unscoped database, which contributors never do.
+ * Each is called with failures caught and logged, so neither can stop a book opening or closing.
+ */
+export interface BookSessionHooks {
+  /** A book was attached. `migrated` is true when opening it ran migrations, which changed its data. */
+  opened?(db: Database, book: BookInfo, migrated: boolean): void
+  /** The book is about to flush and close, after every `onWillClose` listener has run. Must be quick. */
+  closing?(db: Database, book: BookInfo): Promise<void>
+}
+
 export interface BookSessionDeps {
+  hooks?: BookSessionHooks
   engine: StorageEngine
   files: ShellFiles
   prompts: ShellPrompts
@@ -55,6 +68,18 @@ export const bookName = (file: string) => path.basename(file, path.extname(file)
 /** A path with the book extension, added when the user typed a name without it. */
 export const withBookExtension = (file: string) =>
   path.extname(file).toLowerCase() === BOOK_FILE_EXTENSION ? file : file + BOOK_FILE_EXTENSION
+
+/** Whether a stored `BOOK_META.id` is usable: any non-empty string, so ids from a restored backup are kept as they are. */
+const isBookId = (value: unknown): value is string => typeof value === 'string' && value.trim() !== ''
+
+/**
+ * The id a read-only book without one is known by: derived from its path, the same each time it is opened. Case is
+ * folded where the file system usually ignores it (Windows, macOS), as the recent-books list compares paths.
+ */
+export function pathBookId(file: string): string {
+  const key = process.platform === 'win32' || process.platform === 'darwin' ? file.toLowerCase() : file
+  return `path-${createHash('sha256').update(key).digest('hex').slice(0, 32)}`
+}
 
 export class BookSessionImpl implements BookSession {
   private db: Database | undefined
@@ -140,8 +165,10 @@ export class BookSessionImpl implements BookSession {
       if (await this.deps.disk.exists(target)) await this.trashWithSideFiles(target)
 
       const db = await this.deps.engine.open({ path: target }, { schema: this.deps.schema.collections() })
+      const id = this.deps.engine.newId()
       try {
         await db.meta.set(BOOK_META.format, BOOK_FORMAT_VERSION)
+        await db.meta.set(BOOK_META.id, id)
         await db.meta.set(BOOK_META.createdAt, this.now().toISOString())
         await db.meta.set(BOOK_META.createdWith, `book ${BOOK_API_VERSION}`)
         const contributions = this.deps.schema.contributions()
@@ -150,7 +177,7 @@ export class BookSessionImpl implements BookSession {
         await db.close().catch(() => {})
         throw err
       }
-      return this.attach(db, target, true)
+      return this.attach(db, target, id, true, false)
     })
   }
 
@@ -178,14 +205,16 @@ export class BookSessionImpl implements BookSession {
 
       await this.closeOpen({ forget: false })
       const db = await this.deps.engine.open({ path: target }, { schema: this.deps.schema.collections() })
+      let id: string
       try {
         await runMigrations(db, plan, this.deps.schema)
+        id = await this.identify(db, target)
       } catch (err) {
         await db.close().catch(() => {})
         if (backup && isBookError(err)) throw new BookError(err.code, `${err.message} A copy of the book from before was saved as “${path.basename(backup)}”.`)
         throw err
       }
-      return this.attach(db, target, false)
+      return this.attach(db, target, id, false, plan.steps.length > 0)
     })
   }
 
@@ -264,15 +293,32 @@ export class BookSessionImpl implements BookSession {
     return copy
   }
 
+  /**
+   * The book's stable id. A book from before ids existed is given one here: a single meta write, not a migration —
+   * no data changes, so nothing needs backing up first. A read-only book can't be written, so it is known by an id
+   * derived from its path until it is opened writable.
+   */
+  private async identify(db: Database, file: string): Promise<string> {
+    const stored = await db.meta.get(BOOK_META.id)
+    if (isBookId(stored)) return stored
+    if (db.readOnly) return pathBookId(file)
+    const id = this.deps.engine.newId()
+    await db.meta.set(BOOK_META.id, id)
+    if (stored === undefined) this.deps.log.info(`[book] Gave ${file} a book id, ${id}`)
+    else this.deps.log.warn(`[book] ${file} had an unusable book id (${JSON.stringify(stored)}); gave it a new one, ${id}`)
+    return id
+  }
+
   private async trashWithSideFiles(file: string) {
     for (const side of await this.deps.disk.sideFiles(file)) await this.deps.files.trash(side)
     await this.deps.files.trash(file)
   }
 
-  private async attach(db: Database, file: string, created: boolean): Promise<BookInfo> {
+  private async attach(db: Database, file: string, id: string, created: boolean, migrated: boolean): Promise<BookInfo> {
     this.db = db
-    this.info = { path: file, name: bookName(file), readOnly: db.readOnly }
+    this.info = { id, path: file, name: bookName(file), readOnly: db.readOnly }
     const book = this.current!
+    try { this.deps.hooks?.opened?.(db, { ...book }, migrated) } catch (err) { this.deps.log.error('[book] The opened hook failed', err) }
     try {
       await this.deps.recent.add(file, book.name)
     } catch (err) {
@@ -291,6 +337,8 @@ export class BookSessionImpl implements BookSession {
     for (const listener of [...this.willClose]) {
       try { await listener({ ...book }) } catch (err) { this.deps.log.error('[book] A close listener failed', err) }
     }
+    // Last, so it sees whatever the listeners wrote; before the flush, which it never delays by more than a snapshot
+    try { await this.deps.hooks?.closing?.(db, { ...book }) } catch (err) { this.deps.log.error('[book] The closing hook failed', err) }
     this.db = undefined
     this.info = undefined
     try { await db.flush() } catch (err) { this.deps.log.error(`[book] Could not flush ${book.path}`, err) }

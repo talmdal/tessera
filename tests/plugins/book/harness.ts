@@ -1,5 +1,6 @@
 // Test doubles for the book plugin: a memory storage engine with a fake disk over it, and fake shell services.
 import path from 'node:path'
+import { Readable, Writable } from 'node:stream'
 import { vi } from 'vitest'
 import type { AppState, ShellFiles, ShellPrompts } from '@tessera/types'
 import { KitStorageEngine, memoryDriver } from '@tessera/storage-kit'
@@ -8,9 +9,11 @@ import { BOOK_SCHEMA_POINT } from '@tessera/book-api'
 import { ExtensionRegistryImpl } from '../../../core/extensions/ExtensionRegistry'
 import { ServiceRegistryImpl } from '../../../core/services/ServiceRegistry'
 import type { FileKind, BookDisk } from '../../../plugins/book/src/privileged/disk'
-import { BookSessionImpl } from '../../../plugins/book/src/privileged/BookSessionImpl'
+import { BookSessionImpl, type BookSessionHooks } from '../../../plugins/book/src/privileged/BookSessionImpl'
 import { RecentBooks } from '../../../plugins/book/src/privileged/RecentBooks'
 import { SchemaRegistry } from '../../../plugins/book/src/privileged/SchemaRegistry'
+import type { BackupDisk } from '../../../plugins/book/src/privileged/backups/BackupDisk'
+import { isBackupFileName } from '../../../plugins/book/src/privileged/backups/naming'
 
 /** A folder that is absolute on every platform. */
 export const DIR = path.resolve('/books')
@@ -52,6 +55,7 @@ export function fakeFiles(driver: ReturnType<typeof memoryDriver>, disk: ReturnT
   const trashed: string[] = []
   const files = {
     showOpenDialog: vi.fn(async (): Promise<string | undefined> => undefined),
+    showFolderDialog: vi.fn(async (): Promise<string | undefined> => undefined),
     showSaveDialog: vi.fn(async (): Promise<string | undefined> => undefined),
     exists: vi.fn(async (f: string) => disk.disk.exists(f)),
     trash: vi.fn(async (f: string) => {
@@ -89,7 +93,7 @@ export function contributor(id: string, version: number, migrate: Migrator['migr
 }
 
 /** A session over a memory engine, with every dependency faked and exposed. */
-export function setupSession(options: { now?: () => Date } = {}) {
+export function setupSession(options: { now?: () => Date, hooks?: BookSessionHooks } = {}) {
   const driver = memoryDriver()
   const engine = new KitStorageEngine(driver)
   const disk = memoryDisk(driver)
@@ -101,7 +105,10 @@ export function setupSession(options: { now?: () => Date } = {}) {
   const log = logger()
   const recent = new RecentBooks(state, options.now)
   const schema = new SchemaRegistry(extensions, services, log)
-  const session = new BookSessionImpl({ engine, files, prompts, recent, schema, disk: disk.disk, log, trashName: 'Trash', ...(options.now && { now: options.now }) })
+  const session = new BookSessionImpl({
+    engine, files, prompts, recent, schema, disk: disk.disk, log, trashName: 'Trash',
+    ...(options.now && { now: options.now }), ...(options.hooks && { hooks: options.hooks })
+  })
 
   const contribute = ({ contribution, migrator }: ReturnType<typeof contributor>) => {
     extensions.contribute(contribution.id, BOOK_SCHEMA_POINT, contribution.id, contribution)
@@ -116,4 +123,71 @@ export function setupSession(options: { now?: () => Date } = {}) {
   }
 
   return { driver, engine, disk, files, trashed, prompts, answers, state, extensions, services, log, recent, schema, session, contribute, created }
+}
+
+/**
+ * A `BackupDisk` in memory: `folders` exist, `files` hold their bytes. `hold()` makes the next writes wait until
+ * released, and `failWrites` makes them fail, for testing what closing and quitting do while a backup is written.
+ */
+export function memoryBackupDisk() {
+  const folders = new Set<string>()
+  const files = new Map<string, { bytes: Buffer, modifiedAt: Date }>()
+  const writes: string[] = []
+  let gate: Promise<void> | undefined
+  let release: (() => void) | undefined
+  const control = {
+    folders, files, writes,
+    disk: undefined as unknown as BackupDisk,
+    /** Set to make every write from now on fail with it. */
+    failWrites: undefined as Error | undefined,
+    /** Writes started from now on wait (part-way, as a slow drive would) until `release()`. */
+    hold() { gate = new Promise<void>(resolve => { release = resolve }) },
+    release() { release?.(); gate = undefined }
+  }
+  const inFolder = (folder: string, wanted: (name: string) => boolean) =>
+    [...files].filter(([file]) => path.dirname(file) === folder && wanted(path.basename(file)))
+      .map(([file, { bytes, modifiedAt }]) => ({ file, size: bytes.length, modifiedAt }))
+      .sort((a, b) => a.file < b.file ? -1 : 1)
+
+  const disk: BackupDisk = {
+    folderExists: async folder => folders.has(folder),
+    makeFolder: async folder => { for (let f = folder; !folders.has(f) && f !== path.dirname(f); f = path.dirname(f)) folders.add(f) },
+    async create(folder, name, write) {
+      if (!folders.has(folder)) throw Object.assign(new Error(`ENOENT: no such folder ${folder}`), { code: 'ENOENT' })
+      const partial = path.join(folder, `${name(1)}.0123abcd.partial`)
+      const chunks: Buffer[] = []
+      const waiting = gate
+      const out = new Writable({
+        write(chunk, _encoding, done) {
+          chunks.push(Buffer.from(chunk))
+          files.set(partial, { bytes: Buffer.concat(chunks), modifiedAt: new Date() })
+          if (waiting) waiting.then(() => done(control.failWrites)); else done(control.failWrites)
+        }
+      })
+      try {
+        await write(out)
+      } catch (err) {
+        files.delete(partial)
+        throw err
+      }
+      files.delete(partial)
+      for (let attempt = 1; ; attempt++) {
+        const target = path.join(folder, name(attempt))
+        if (files.has(target)) continue
+        files.set(target, { bytes: Buffer.concat(chunks), modifiedAt: new Date() })
+        writes.push(target)
+        return target
+      }
+    },
+    open: file => {
+      const stored = files.get(file)
+      if (!stored) return new Readable({ read() { this.destroy(Object.assign(new Error(`ENOENT: ${file}`), { code: 'ENOENT' })) } })
+      return Readable.from([stored.bytes])
+    },
+    list: async folder => inFolder(folder, isBackupFileName),
+    partials: async folder => inFolder(folder, n => n.endsWith('.partial')),
+    remove: async file => { files.delete(file) }
+  }
+  control.disk = disk
+  return control
 }
