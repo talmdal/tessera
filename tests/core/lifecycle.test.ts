@@ -51,25 +51,25 @@ describe('AppLifecycle', () => {
     expect(log.error).toHaveBeenCalledTimes(2)
   })
 
-  it('runs ShuttingDown listeners one at a time, in registration order, then allows shutdown', async () => {
+  it('runs ShuttingDown listeners one at a time, last registered first, then allows shutdown', async () => {
     const lifecycle = new AppLifecycleImpl()
     const order: string[] = []
-    lifecycle.onShuttingDown(async () => { order.push('a:start'); await Promise.resolve(); order.push('a:end') })
-    lifecycle.onShuttingDown(() => { order.push('b') })
+    lifecycle.onShuttingDown(() => { order.push('first registered') })
+    lifecycle.onShuttingDown(async () => { order.push('last:start'); await Promise.resolve(); order.push('last:end') })
 
     expect(await lifecycle.requestShutdown()).toBe(true)
-    expect(order).toEqual(['a:start', 'a:end', 'b'])
+    expect(order).toEqual(['last:start', 'last:end', 'first registered'])
   })
 
-  it('lets a listener veto a user shutdown, skips later listeners, and returns to the previous phase', async () => {
+  it('lets a listener veto a user shutdown, skips the listeners not yet run, and returns to the previous phase', async () => {
     const lifecycle = new AppLifecycleImpl({ log: createLogger() })
-    const later = vi.fn()
+    const notYetRun = vi.fn()
     await lifecycle.markStarted()
+    lifecycle.onShuttingDown(notYetRun)                                  // registered first, so runs last
     lifecycle.onShuttingDown(event => event.veto('unsaved changes'))
-    lifecycle.onShuttingDown(later)
 
     expect(await lifecycle.requestShutdown('user')).toBe(false)
-    expect(later).not.toHaveBeenCalled()
+    expect(notYetRun).not.toHaveBeenCalled()
     expect(lifecycle.phase).toBe('started')
   })
 
@@ -145,9 +145,11 @@ describe('plugins and the application lifecycle', () => {
     expect(events).toEqual(['alpha activated', 'beta activated', 'alpha started'])
   })
 
-  it('shuts down in order: ShuttingDown listeners, deactivation (dependents first), ShutDown', async () => {
+  it('shuts down in reverse of start-up: ShuttingDown listeners (dependents first, the shell last), deactivation (dependents first), ShutDown', async () => {
     const events: string[] = []
     const runtime = createRuntime()
+    // The shell registers its own listeners before any plugin activates
+    runtime.lifecycle.onShuttingDown(() => { events.push('shell: shutting down') })
     const source = new MemoryPluginSource([
       entry('vault', {
         activate: (c: PluginContext) => {
@@ -156,7 +158,10 @@ describe('plugins and the application lifecycle', () => {
         },
         deactivate: () => { events.push('vault: deactivate') }
       }, { provides: ['vault.store'] }),
-      entry('reports', { activate: () => {}, deactivate: () => { events.push('reports: deactivate') } }, { requires: ['vault.store'] })
+      entry('reports', {
+        activate: (c: PluginContext) => { c.lifecycle.onShuttingDown(() => { events.push('reports: shutting down') }) },
+        deactivate: () => { events.push('reports: deactivate') }
+      }, { requires: ['vault.store'] })
     ])
     const manager = new PluginManager(source, runtime, createLogger())
     await manager.activateAll()
@@ -164,7 +169,10 @@ describe('plugins and the application lifecycle', () => {
 
     expect(await shutdownApp(runtime.lifecycle, manager)).toBe(true)
 
-    expect(events).toEqual(['vault: shutting down', 'reports: deactivate', 'vault: deactivate', 'shut down'])
+    expect(events).toEqual([
+      'reports: shutting down', 'vault: shutting down', 'shell: shutting down',
+      'reports: deactivate', 'vault: deactivate', 'shut down'
+    ])
     expect(manager.activePlugins).toEqual([])
   })
 

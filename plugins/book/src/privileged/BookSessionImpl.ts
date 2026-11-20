@@ -13,19 +13,7 @@ import type { SchemaRegistry } from './SchemaRegistry'
 import { scopedDatabase } from './scopedDatabase'
 import { SubBooks } from './SubBooks'
 
-/**
- * The book's own internal hooks, for its backups: they see the unscoped database, which contributors never do.
- * Each is called with failures caught and logged, so neither can stop a book opening or closing.
- */
-export interface BookSessionHooks {
-  /** A book was attached. `migrated` is true when opening it ran migrations, which changed its data. */
-  opened?(db: Database, book: BookInfo, migrated: boolean): void
-  /** The book is about to flush and close, after every `onWillClose` listener has run. Must be quick. */
-  closing?(db: Database, book: BookInfo): Promise<void>
-}
-
 export interface BookSessionDeps {
-  hooks?: BookSessionHooks
   engine: StorageEngine
   files: ShellFiles
   prompts: ShellPrompts
@@ -115,6 +103,14 @@ export class BookSessionImpl implements BookSession {
   private openDatabase(): Database {
     if (!this.db) throw new BookError('NO_BOOK', 'No book is open.')
     return this.db
+  }
+
+  /**
+   * The open book's whole database, unscoped. For the book plugin's own use (its backups) and never published:
+   * `publicSession` leaves it out, so a contributor only ever sees its own collections.
+   */
+  unscopedDatabase(): Database {
+    return this.openDatabase()
   }
 
   database(contributor: string): Database {
@@ -318,13 +314,12 @@ export class BookSessionImpl implements BookSession {
     this.db = db
     this.info = { id, path: file, name: bookName(file), readOnly: db.readOnly }
     const book = this.current!
-    try { this.deps.hooks?.opened?.(db, { ...book }, migrated) } catch (err) { this.deps.log.error('[book] The opened hook failed', err) }
     try {
       await this.deps.recent.add(file, book.name)
     } catch (err) {
       this.deps.log.warn(`[book] Could not update the recent books: ${describeError(err)}`)
     }
-    this.changes.fire({ type: 'opened', book, created })
+    this.changes.fire({ type: 'opened', book, created, migrated })
     await this.publishTree()
     return book
   }
@@ -334,11 +329,11 @@ export class BookSessionImpl implements BookSession {
     const book = this.info
     if (!db || !book) return
 
-    for (const listener of [...this.willClose]) {
+    // Last registered first, as plugins shut down: a plugin's listener runs before those of the plugins it depends
+    // on, and the book's own (its backups, registered as it activates) runs last, seeing whatever the others wrote
+    for (const listener of [...this.willClose].reverse()) {
       try { await listener({ ...book }) } catch (err) { this.deps.log.error('[book] A close listener failed', err) }
     }
-    // Last, so it sees whatever the listeners wrote; before the flush, which it never delays by more than a snapshot
-    try { await this.deps.hooks?.closing?.(db, { ...book }) } catch (err) { this.deps.log.error('[book] The closing hook failed', err) }
     this.db = undefined
     this.info = undefined
     try { await db.flush() } catch (err) { this.deps.log.error(`[book] Could not flush ${book.path}`, err) }

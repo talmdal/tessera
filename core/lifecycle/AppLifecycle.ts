@@ -65,7 +65,11 @@ export class AppLifecycleImpl implements AppLifecycle {
     return { dispose: () => { this.started.delete(listener) } }
   }
 
-  /** Runs, in registration order, when the app is asked to quit. */
+  /**
+   * Runs when the app is asked to quit, in **reverse** registration order: the reverse of start-up, as deactivation
+   * is. A plugin registers during its own activation, after the plugins it depends on, so its listener runs before
+   * theirs and can still use them; the shell's own listeners, registered before any plugin activates, run last.
+   */
   onShuttingDown(listener: ShuttingDownListener): Disposable {
     this.shuttingDown.add(listener)
     return { dispose: () => { this.shuttingDown.delete(listener) } }
@@ -88,7 +92,7 @@ export class AppLifecycleImpl implements AppLifecycle {
   }
 
   /**
-   * Runs the ShuttingDown listeners, one at a time. Resolves `false` if one
+   * Runs the ShuttingDown listeners, one at a time, last registered first. Resolves `false` if one
    * vetoed a user-initiated shutdown (the app stays running), otherwise `true`.
    * Concurrent calls share one run.
    */
@@ -124,7 +128,8 @@ export class AppLifecycleImpl implements AppLifecycle {
     }
 
     const work = (async () => {
-      for (const listener of [...this.shuttingDown]) {
+      // Last registered first: dependents before the plugins they depend on, plugins before the shell
+      for (const listener of [...this.shuttingDown].reverse()) {
         await this.run('onShuttingDown listener', () => listener(event))
         if (vetoed !== undefined) return
       }

@@ -561,9 +561,10 @@ never sit between the user and a closed book.
 
 ### On quit
 
-The book already closes on `lifecycle.onShuttingDown`. A second listener,
-registered after it, **waits for the backup queue to drain, up to a budget**
-(`BACKUP_SHUTDOWN_BUDGET_MS = 6000`, inside the shell's 10 s limit):
+The book already closes on `lifecycle.onShuttingDown`. The same listener then
+**waits for the backup queue to drain, up to a budget**
+(`BACKUP_SHUTDOWN_BUDGET_MS = 6000`, inside the shell's 10 s limit). It is one
+listener so the two steps can't run out of order:
 
 - Within budget: the backup finishes, without the read-back verification;
   the digest computed while writing is kept.
@@ -603,15 +604,22 @@ share it.
 
 Where the build is more specific than the sections above:
 
-- **The close hook is not an `onWillClose` listener.** The book registers its
-  listeners before every other plugin, so a listener would run *first*, not
-  last. `BookSessionImpl` takes internal `hooks` instead:
-  - `opened(db, book, migrated)` runs as a book is attached.
-  - `closing(db, book)` runs after every `onWillClose` listener and before the
-    flush.
+- **Backups use ordinary session events, and close listeners run last
+  registered first.** `onWillClose` listeners run in reverse registration
+  order, as plugins shut down: a plugin's listener runs before those of the
+  plugins it depends on. `Backups.attach(session)` is called as the book
+  plugin activates, before any other plugin can reach `book.session`, so the
+  backup's listener is guaranteed to run last and sees whatever the others
+  wrote.
+  - It follows changes from the public `opened` event, which now carries
+    `migrated`.
+  - It reads the whole book through `BookSessionImpl.unscopedDatabase()`,
+    which `publicSession` leaves out, so contributors never see it.
+  - A failing listener is logged and never stops a book closing.
 
-  Both see the unscoped database, and a failure in either is logged and never
-  stops a book opening or closing.
+  (An earlier cut used special internal session hooks, because close
+  listeners then ran in registration order and the book's would have run
+  first.)
 - **All three frequencies count local calendar days.** `daily` is a later
   date; `weekly` is 7 dates on; `monthly` is the same date next month,
   clamped. So a daylight-saving change never makes a day 23 or 25 hours.
@@ -629,9 +637,14 @@ Where the build is more specific than the sections above:
 - **The missing-folder message** names the folder and what to do: "The backup
   folder “…” can’t be found. If it is on a drive that isn’t connected,
   connect it, or choose another folder in Tools › Options › Book › Backups."
-- **Shutdown:** the book registers `onShuttingDown(() => backups.drain())`
-  right after its existing close-on-quit listener. `deactivate` drains too,
-  for a plugin deactivated without a shutdown.
+- **Shutdown:** `onShuttingDown` listeners also run last registered first, the
+  reverse of start-up, so dependents run before the plugins they depend on and
+  the shell's own listeners run last. (Before, `app.state` flushed *before*
+  the book closed and wrote to it; nothing was lost, because storage closes
+  every database last, but the order was a trap.) The book has one
+  `onShuttingDown` listener, which closes the book and then drains the backup
+  queue. `deactivate` drains too, for a plugin deactivated without a
+  shutdown. See [plugin-creation.md](plugin-creation.md).
 - **Tests** (`tests/plugins/book/backups/`):
   - `schedule.test.ts`: every frequency, the month-end, leap-year, year-end
     and daylight-saving boundaries, and "a week away is one backup".
