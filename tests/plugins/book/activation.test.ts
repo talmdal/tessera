@@ -14,7 +14,7 @@ import { resolveBarItems } from '../../../shared/layout/resolveBarItems'
 import { resolveMenus } from '../../../shared/menus/resolveMenus'
 import { resolveViews } from '../../../shared/views/resolveViews'
 import { activate } from '../../../plugins/book/src/privileged/index'
-import { DIR, fakeFiles, fakePrompts, file, logger, memoryAppState, memoryDisk } from './harness'
+import { DIR, fakeFiles, fakePrompts, file, logger, memoryAppState, memoryBackupDisk, memoryDisk } from './harness'
 
 async function setup(options: { last?: string } = {}) {
   const log = logger()
@@ -38,7 +38,8 @@ async function setup(options: { last?: string } = {}) {
   runtime.events.subscribe(event => events.push(event))
 
   const context = createPluginContext('book', runtime).context
-  await activate(context, { disk: disk.disk })
+  const backupDisk = memoryBackupDisk()
+  await activate(context, { disk: disk.disk, backupDisk: backupDisk.disk })
 
   const run = (id: string, ...args: unknown[]) => runtime.commands.execute(id, ...args)
   const ask = async (channel: string, data?: unknown) => {
@@ -54,7 +55,7 @@ async function setup(options: { last?: string } = {}) {
     files.showSaveDialog.mockResolvedValueOnce(file(name))
     return run(BOOK_COMMANDS.new)
   }
-  return { runtime, log, driver, disk, files, trashed, prompts, answers, state, reveals, events, run, ask, session, key, last, newBook }
+  return { runtime, log, driver, disk, backupDisk, files, trashed, prompts, answers, state, reveals, events, run, ask, session, key, last, newBook }
 }
 
 describe('the book plugin: contributions', () => {
@@ -286,6 +287,17 @@ describe('the book plugin: lifecycle', () => {
     await first.runtime.lifecycle.requestShutdown()
     expect(first.session.current).toBeUndefined()
     expect(first.state.values.get('ledger.last')).toBe(file('Home.tessera'))
+  })
+
+  it('backs the book up when the app quits, before quitting finishes', async () => {
+    const env = await setup()
+    const book = await env.newBook()
+    await env.runtime.lifecycle.markStarted()
+    await env.runtime.lifecycle.requestShutdown()
+
+    expect(env.backupDisk.writes).toHaveLength(1)
+    expect(env.backupDisk.writes[0]).toMatch(/Tessera Backups[\\/]Home \d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.\d{2}\.tessera-backup$/)
+    expect((env.state.values.get('book.backups') as any)?.[(book as any).id]).toMatchObject({ lastResult: 'ok', changed: false })
   })
 
   it('reopens the last book once the app has started', async () => {

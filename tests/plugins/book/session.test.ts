@@ -3,6 +3,9 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { BOOK_META, isBookError, type BookChange } from '@tessera/book-api'
 import { DIR, contributor, file, setupSession } from './harness'
+import { pathBookId } from '../../../plugins/book/src/privileged/BookSessionImpl'
+
+const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/
 
 const failure = async (work: Promise<unknown>) => {
   const err = await work.then(() => undefined, e => e)
@@ -21,7 +24,7 @@ describe('creating a book', () => {
       defaultPath: path.join(DIR, 'Documents', 'Home Finances.tessera'),
       filters: [{ name: 'Tessera book', extensions: ['tessera'] }]
     }))
-    expect(book).toEqual({ path: file('Home Finances.tessera'), name: 'Home Finances', readOnly: false })
+    expect(book).toEqual({ id: expect.stringMatching(ULID), path: file('Home Finances.tessera'), name: 'Home Finances', readOnly: false })
     expect(session.current).toEqual(book)
     expect(driver.databases.has(file('Home Finances.tessera'))).toBe(true)
   })
@@ -277,6 +280,121 @@ describe('the recent list', () => {
   })
 })
 
+describe("the book's id", () => {
+  /** The id stored in a book's file, as the memory driver holds it. */
+  const storedId = (driver: ReturnType<typeof setupSession>['driver'], name = 'Home.tessera') =>
+    driver.databases.get(file(name))!.meta.get(BOOK_META.id)
+
+  /** Makes a book look like one from before ids existed. */
+  const forgetId = (driver: ReturnType<typeof setupSession>['driver'], name = 'Home.tessera') =>
+    driver.databases.get(file(name))!.meta.delete(BOOK_META.id)
+
+  it('is a new ULID written into the file when the book is created, different for every book', async () => {
+    const { session, driver, created } = setupSession()
+    const home = await created('Home.tessera')
+    const rental = await created('Rental.tessera')
+
+    expect(home.id).toMatch(ULID)
+    expect(storedId(driver, 'Home.tessera')).toBe(home.id)
+    expect(storedId(driver, 'Rental.tessera')).toBe(rental.id)
+    expect(rental.id).not.toBe(home.id)
+    expect(session.current?.id).toBe(rental.id)
+  })
+
+  it('stays the same when the book is closed and reopened', async () => {
+    const { session, created } = setupSession()
+    const book = await created()
+    await session.close()
+    expect((await session.open(file('Home.tessera')))?.id).toBe(book.id)
+  })
+
+  it('stays the same when the file is renamed or moved', async () => {
+    const { session, driver, created } = setupSession()
+    const book = await created()
+    await session.close()
+    driver.databases.set(file('Elsewhere/Our Money.tessera'), structuredClone(driver.databases.get(file('Home.tessera'))!))
+    driver.databases.delete(file('Home.tessera'))
+
+    const moved = await session.open(file('Elsewhere/Our Money.tessera'))
+    expect(moved).toMatchObject({ id: book.id, name: 'Our Money' })
+  })
+
+  it('is given to a book from before ids existed, once, without a pre-migration copy', async () => {
+    const { session, driver, disk, log, created } = setupSession()
+    await created()
+    await session.close()
+    forgetId(driver)
+
+    const opened = await session.open(file('Home.tessera'))
+    expect(opened?.id).toMatch(ULID)
+    expect(storedId(driver)).toBe(opened?.id)
+    expect(disk.copies).toEqual([])
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('a book id'))
+
+    await session.close()
+    expect((await session.open(file('Home.tessera')))?.id).toBe(opened?.id)
+  })
+
+  it.each([['an empty string', ''], ['blanks', '   '], ['a number', 42], ['an object', { id: 'x' }]])(
+    'replaces an unusable stored id (%s), with a warning', async (_what, unusable) => {
+      const { session, driver, log, created } = setupSession()
+      await created()
+      await session.close()
+      driver.databases.get(file('Home.tessera'))!.meta.set(BOOK_META.id, unusable as never)
+
+      const opened = await session.open(file('Home.tessera'))
+      expect(opened?.id).toMatch(ULID)
+      expect(storedId(driver)).toBe(opened?.id)
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('unusable book id'))
+    })
+
+  it('keeps a stored id that is not a ULID, as a restored book may carry', async () => {
+    const { session, driver, created } = setupSession()
+    await created()
+    await session.close()
+    driver.databases.get(file('Home.tessera'))!.meta.set(BOOK_META.id, 'from-a-backup')
+    expect((await session.open(file('Home.tessera')))?.id).toBe('from-a-backup')
+  })
+
+  describe('of a read-only book', () => {
+    /** Every database the session opens comes back read-only, as a locked or read-only file would. */
+    const readOnly = (setup: ReturnType<typeof setupSession>) => {
+      const open = setup.engine.open.bind(setup.engine)
+      setup.engine.open = (target, options = {}) => open(target, { ...options, readOnly: true })
+    }
+
+    it('is the one stored, when there is one', async () => {
+      const setup = setupSession()
+      const book = await setup.created()
+      await setup.session.close()
+      readOnly(setup)
+
+      expect(await setup.session.open(file('Home.tessera'))).toMatchObject({ id: book.id, readOnly: true })
+    })
+
+    it('is derived from the path when there is none, and nothing is written', async () => {
+      const setup = setupSession()
+      await setup.created()
+      await setup.session.close()
+      forgetId(setup.driver)
+      readOnly(setup)
+
+      const opened = await setup.session.open(file('Home.tessera'))
+      expect(opened).toMatchObject({ id: pathBookId(file('Home.tessera')), readOnly: true })
+      expect(storedId(setup.driver)).toBeUndefined()
+    })
+  })
+
+  it('derives the same path id for the same path, and a different one for another', () => {
+    expect(pathBookId(file('Home.tessera'))).toBe(pathBookId(file('Home.tessera')))
+    expect(pathBookId(file('Home.tessera'))).toMatch(/^path-[0-9a-f]{32}$/)
+    expect(pathBookId(file('Home.tessera'))).not.toBe(pathBookId(file('Rental.tessera')))
+    // Case matters only where the file system usually cares about it
+    const folded = process.platform === 'win32' || process.platform === 'darwin'
+    expect(pathBookId(file('HOME.tessera')) === pathBookId(file('Home.tessera'))).toBe(folded)
+  })
+})
+
 describe('what a contributor can reach', () => {
   it('is its own collections and meta keys only, and never closing the book', async () => {
     const { session, contribute, created } = setupSession()
@@ -291,6 +409,20 @@ describe('what a contributor can reach', () => {
     expect(await db.listCollections()).toEqual(['accounts.things'])
     await expect(db.close()).rejects.toThrow('The book closes its database')
     await db.transaction(async tx => { expect(() => tx.collection('ledger.subledgers')).toThrow() })
+  })
+
+  it('can never copy or replace the whole book', async () => {
+    const { session, contribute, created } = setupSession()
+    contribute(contributor('accounts', 1))
+    await created()
+    const db = session.database('accounts')
+    await db.collection('accounts.things').insert({ name: 'kept' })
+
+    expect(await failure(db.snapshot())).toMatchObject({ code: 'INVALID', message: expect.stringContaining('Only the book can copy') })
+    expect(await failure(db.load({ collections: [], meta: {} })))
+      .toMatchObject({ code: 'INVALID', message: expect.stringContaining('Only the book can replace') })
+    // Refused even when it would have done nothing: the empty snapshot above left the book as it was
+    expect(await db.listCollections()).toEqual(['accounts.things'])
   })
 
   it('hears only about changes to its own collections', async () => {

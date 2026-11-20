@@ -46,6 +46,7 @@ const log = (options: Options, message: string) => { if (!options.quiet) console
 function stubShell() {
   const files: ShellFiles = {
     showOpenDialog: async () => undefined,
+    showFolderDialog: async () => undefined,
     showSaveDialog: async () => undefined,
     exists: async file => fs.existsSync(file),
     trash: async file => { await fs.promises.rm(file, { force: true }) },

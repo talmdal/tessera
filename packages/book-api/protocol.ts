@@ -17,6 +17,12 @@ export const BOOK_FILE_EXTENSION = '.tessera'
 /** The filter for open and save dialogs. */
 export const BOOK_FILE_FILTER = { name: 'Tessera book', extensions: [BOOK_FILE_EXTENSION.slice(1)] }
 
+/** A book backup: one file holding a whole book. See docs/backup-restore-design.md, "The backup file". */
+export const BACKUP_FILE_EXTENSION = '.tessera-backup'
+
+/** The filter for dialogs that pick a backup. */
+export const BACKUP_FILE_FILTER = { name: 'Tessera backup', extensions: [BACKUP_FILE_EXTENSION.slice(1)] }
+
 /** Version of the book's own format (its meta keys and sub-book collection). */
 export const BOOK_FORMAT_VERSION = 1
 
@@ -27,6 +33,11 @@ export const BOOK_META = {
   createdAt: 'ledger.createdAt',
   /** The application version that created the file. */
   createdWith: 'ledger.createdWith',
+  /**
+   * The book's stable id (a ULID): the same however the file is renamed or moved. Written at create; a book from
+   * before ids existed is given one the first time it is opened writable. Backups are grouped by it.
+   */
+  id: 'ledger.bookId',
   /** The schema version of a `book.schema` contributor. */
   schemaVersion: (contributor: string) => `ledger.schema.${contributor}`
 } as const

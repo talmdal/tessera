@@ -665,6 +665,210 @@ export function describeStorageEngine(name: string, create: () => Promise<Harnes
       })
     })
 
+    describe('snapshot and load', () => {
+      /** A database with a bit of everything: indexes, a unique one, edited documents, two collections and meta. */
+      const fill = async (target: Database) => {
+        const accounts = target.collection<any>('accounts')
+        await accounts.ensureIndex({ fields: ['code'], unique: true })
+        await accounts.ensureIndex({ name: 'byType', fields: ['type', 'name'] })
+        await accounts.insertMany([
+          { id: 'b', code: 'CHQ', type: 'bank', name: 'Chequing', nested: { limits: [1, 2] } },
+          { id: 'a', code: 'SAV', type: 'bank', name: 'Savings', note: null }
+        ])
+        await accounts.updateOne({ id: 'b' }, { $set: { name: 'Everyday' } })
+        await target.collection('transactions').insertMany(BOOK.map(t => ({ ...t })))
+        await target.meta.set('ledger.format', 1)
+        await target.meta.set('settings', { $odd: ['keys', 'are', 'fine', 'in', 'meta'], 'a.b': true })
+      }
+
+      const empty = { collections: [], meta: {} }
+
+      it('takes every collection, index, document and meta value, in order', async () => {
+        await fill(db)
+        const snapshot = await db.snapshot()
+        expect(snapshot.collections.map(c => c.name)).toEqual(['accounts', 'transactions'])
+        const accounts = snapshot.collections[0]
+        expect(accounts.indexes).toEqual([
+          { name: 'code', fields: ['code'], unique: true },
+          { name: 'byType', fields: ['type', 'name'], unique: false }
+        ])
+        expect(accounts.docs).toEqual([
+          { id: 'a', rev: 1, code: 'SAV', type: 'bank', name: 'Savings', note: null },
+          { id: 'b', rev: 2, code: 'CHQ', type: 'bank', name: 'Everyday', nested: { limits: [1, 2] } }
+        ])
+        expect(snapshot.collections[1].docs.map(d => d.id)).toEqual(['t1', 't2', 't3', 't4', 't5'])
+        expect(snapshot.meta).toEqual({ 'ledger.format': 1, settings: { $odd: ['keys', 'are', 'fine', 'in', 'meta'], 'a.b': true } })
+        // Plain JSON data, so it survives being written out and read back
+        expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot)
+      })
+
+      it('snapshots an empty database as empty', async () => {
+        expect(await db.snapshot()).toEqual(empty)
+      })
+
+      it('returns a copy: changing it changes nothing stored', async () => {
+        await fill(db)
+        const snapshot = await db.snapshot()
+        snapshot.collections[0].docs[0].name = 'changed'
+        snapshot.collections[0].indexes[0].fields.push('more')
+        ;(snapshot.meta.settings as any)['a.b'] = false
+        expect((await db.collection<any>('accounts').get('a'))?.name).toBe('Savings')
+        expect((await db.collection('accounts').indexes())[0].fields).toEqual(['code'])
+        expect(await db.meta.get('settings')).toEqual({ $odd: ['keys', 'are', 'fine', 'in', 'meta'], 'a.b': true })
+        expect(await db.snapshot()).not.toEqual(snapshot)
+      })
+
+      it('sits between commits: a transaction still running is not in it, and is once it commits', async () => {
+        await db.collection('c').insert({ id: 'before' })
+        let release!: () => void
+        const gate = new Promise<void>(resolve => { release = resolve })
+        const running = db.transaction(async tx => {
+          await tx.collection('c').insert({ id: 'inside' })
+          await gate
+        })
+        const during = await db.snapshot()
+        release()
+        await running
+        const after = await db.snapshot()
+        expect(during.collections[0].docs.map(d => d.id)).toEqual(['before'])
+        expect(after.collections[0].docs.map(d => d.id)).toEqual(['before', 'inside'])
+      })
+
+      it('works on a read-only database', async () => {
+        await fill(db)
+        const expected = await db.snapshot()
+        await db.close()
+        const ro = await engine.open({ name: 'test' }, { readOnly: true })
+        expect(await ro.snapshot()).toEqual(expected)
+      })
+
+      it('refuses a closed database', async () => {
+        await db.close()
+        await rejects(db.snapshot(), 'NOT_OPEN')
+      })
+
+      it('loads into an empty database exactly, keeping revs, indexes and meta', async () => {
+        await fill(db)
+        const snapshot = await db.snapshot()
+        const copy = await engine.open({ name: 'copy' })
+        await copy.load(snapshot)
+
+        expect(await copy.snapshot()).toEqual(snapshot)
+        expect(await copy.collection('accounts').get('b')).toMatchObject({ rev: 2, name: 'Everyday' })
+        expect(await copy.collection('transactions').count({ accountId: 'a1' })).toBe(3)
+        // The loaded indexes are live: the unique one is enforced, and edits carry on from the stored rev
+        await rejects(copy.collection('accounts').insert({ code: 'CHQ' }), 'UNIQUE_VIOLATION')
+        expect((await copy.collection('accounts').replace({ id: 'a', code: 'SAV', name: 'Savings' })).rev).toBe(2)
+      })
+
+      it('makes what it loaded durable, across a restart', async () => {
+        await fill(db)
+        const snapshot = await db.snapshot()
+        await (await engine.open({ name: 'copy' })).load(snapshot)
+
+        const next = await harness.restart()
+        expect(await (await next.open({ name: 'copy' })).snapshot()).toEqual(snapshot)
+      })
+
+      it('loads a snapshot that has been through JSON', async () => {
+        await fill(db)
+        const snapshot = await db.snapshot()
+        const copy = await engine.open({ name: 'copy' })
+        await copy.load(JSON.parse(JSON.stringify(snapshot)))
+        expect(await copy.snapshot()).toEqual(snapshot)
+      })
+
+      it('tells listeners once, with every collection created and every document inserted', async () => {
+        await fill(db)
+        const snapshot = await db.snapshot()
+        const copy = await engine.open({ name: 'copy' })
+        const events: ChangeEvent[] = []
+        copy.onDidChange(event => events.push(event))
+        await copy.load(snapshot)
+
+        expect(events).toHaveLength(1)
+        expect(events[0].structure).toEqual([
+          { collection: 'accounts', type: 'create' }, { collection: 'transactions', type: 'create' }
+        ])
+        expect(events[0].changes).toHaveLength(7)
+        expect(events[0].changes.every(c => c.type === 'insert')).toBe(true)
+      })
+
+      it('loads an empty snapshot as nothing at all', async () => {
+        const events: ChangeEvent[] = []
+        db.onDidChange(event => events.push(event))
+        await db.load(empty)
+        expect(await db.snapshot()).toEqual(empty)
+        expect(events).toEqual([])
+      })
+
+      it('refuses a database that already holds a collection, or a meta value, and leaves it as it was', async () => {
+        const snapshot = { collections: [{ name: 'x', indexes: [], docs: [{ id: 'x1', rev: 1 }] }], meta: { k: 1 } }
+
+        await db.createCollection({ name: 'existing' })
+        await rejects(db.load(snapshot), 'INVALID_ARGUMENT')
+        expect(await db.snapshot()).toEqual({ collections: [{ name: 'existing', indexes: [], docs: [] }], meta: {} })
+
+        const withMeta = await engine.open({ name: 'meta-only' })
+        await withMeta.meta.set('k', 0)
+        await rejects(withMeta.load(snapshot), 'INVALID_ARGUMENT')
+        expect(await withMeta.snapshot()).toEqual({ collections: [], meta: { k: 0 } })
+      })
+
+      it('refuses a read-only database', async () => {
+        await db.collection('c').insert({ id: 'a' })      // so there is a file to open read-only
+        await db.close()
+        const ro = await engine.open({ name: 'test' }, { readOnly: true })
+        await rejects(ro.load(empty), 'READ_ONLY')
+      })
+
+      it('refuses a collection a schema does not declare', async () => {
+        const strict = await engine.open({ name: 'strict' }, { schema: [] })
+        await rejects(strict.load({ collections: [{ name: 'stray', indexes: [], docs: [] }], meta: {} }), 'UNKNOWN_COLLECTION')
+      })
+
+      describe('refuses a bad snapshot, writing nothing', () => {
+        const doc = (id: unknown, more: object = {}) => ({ id, rev: 1, ...more })
+        const one = (collection: object, meta: object = {}) => ({ collections: [{ name: 'c', indexes: [], docs: [], ...collection }], meta })
+
+        const cases: [string, unknown, StorageErrorCode][] = [
+          ['not a snapshot at all', null, 'INVALID_ARGUMENT'],
+          ['collections that are not a list', { collections: {}, meta: {} }, 'INVALID_ARGUMENT'],
+          ['meta that is not an object', { collections: [], meta: [] }, 'INVALID_ARGUMENT'],
+          ['a collection that is not an object', { collections: ['c'], meta: {} }, 'INVALID_ARGUMENT'],
+          ['a collection with no docs list', { collections: [{ name: 'c', indexes: [] }], meta: {} }, 'INVALID_ARGUMENT'],
+          ['an invalid collection name', one({ name: '' }), 'INVALID_ARGUMENT'],
+          ['a reserved collection name', one({ name: '__tessera.meta' }), 'INVALID_ARGUMENT'],
+          ['the same collection twice', { collections: [{ name: 'c', indexes: [], docs: [] }, { name: 'c', indexes: [], docs: [] }], meta: {} }, 'INVALID_ARGUMENT'],
+          ['an index with no fields', one({ indexes: [{ name: 'i', fields: [] }] }), 'INVALID_ARGUMENT'],
+          ['one index name defined two ways', one({ indexes: [{ name: 'i', fields: ['a'] }, { name: 'i', fields: ['b'] }] }), 'INVALID_ARGUMENT'],
+          ['a document that is not an object', one({ docs: [[1, 2]] }), 'INVALID_DOCUMENT'],
+          ['a document without an id', one({ docs: [{ rev: 1 }] }), 'INVALID_DOCUMENT'],
+          ['a document with an empty id', one({ docs: [doc('')] }), 'INVALID_DOCUMENT'],
+          ['a document without a rev', one({ docs: [{ id: 'a' }] }), 'INVALID_DOCUMENT'],
+          ['a document with rev 0', one({ docs: [{ id: 'a', rev: 0 }] }), 'INVALID_DOCUMENT'],
+          ['a document with a fractional rev', one({ docs: [{ id: 'a', rev: 1.5 }] }), 'INVALID_DOCUMENT'],
+          ['a document that is not JSON', one({ docs: [doc('a', { when: new Date() })] }), 'INVALID_DOCUMENT'],
+          ['a document with an operator-like field name', one({ docs: [doc('a', { $set: 1 })] }), 'INVALID_DOCUMENT'],
+          ['two documents with one id', one({ docs: [doc('a'), doc('a')] }), 'DUPLICATE_ID'],
+          ['two documents sharing a unique key', one({ indexes: [{ fields: ['k'], unique: true }], docs: [doc('a', { k: 1 }), doc('b', { k: 1 })] }), 'UNIQUE_VIOLATION'],
+          ['a meta value that is not JSON', one({}, { k: () => 1 }), 'INVALID_ARGUMENT']
+        ]
+
+        for (const [what, snapshot, code] of cases) {
+          it(what, async () => {
+            // A good collection first, so a partial write would show
+            const good = { name: 'a-good-one', indexes: [], docs: [{ id: 'g', rev: 1 }] }
+            const withGood = snapshot !== null && typeof snapshot === 'object' && Array.isArray((snapshot as any).collections)
+              ? { ...(snapshot as object), collections: [good, ...(snapshot as any).collections] }
+              : snapshot
+            await rejects(db.load(withGood as never), code)
+            expect(await db.snapshot()).toEqual(empty)
+          })
+        }
+      })
+    })
+
     describe('lifecycle and persistence', () => {
       it('keeps committed data across a restart', async () => {
         const c = db.collection<any>('c')

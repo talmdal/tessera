@@ -19,7 +19,7 @@ import { parseWhen, evaluateWhen } from '../../../shared/context/when'
 import { activate as activateAccounts } from '../../../plugins/accounts/src/privileged/index'
 import { activate as activateBook } from '../../../plugins/book/src/privileged/index'
 import { activate as activateRecurring, watchDateRollover } from '../../../plugins/recurring/src/privileged/index'
-import { fakeFiles, fakePrompts, file, logger, memoryAppState, memoryDisk } from '../book/harness'
+import { fakeFiles, fakePrompts, file, logger, memoryAppState, memoryBackupDisk, memoryDisk } from '../book/harness'
 import { chequing, monthly, template } from './harness'
 
 async function setup() {
@@ -39,7 +39,7 @@ async function setup() {
   const events: { name: string, data?: any }[] = []
   runtime.events.subscribe(event => events.push(event))
 
-  await activateBook(createPluginContext('book', runtime).context, { disk: disk.disk })
+  await activateBook(createPluginContext('book', runtime).context, { disk: disk.disk, backupDisk: memoryBackupDisk().disk })
   await activateAccounts(createPluginContext('accounts', runtime).context)
   await activateRecurring(createPluginContext('recurring', runtime).context)
 

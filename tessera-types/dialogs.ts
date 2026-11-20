@@ -136,10 +136,18 @@ export interface FileDialogOptions extends DialogTarget {
   buttonLabel?: string
 }
 
+/** A folder picker's options: a file dialog's, less the file-type filters, which mean nothing for a folder. */
+export type FolderDialogOptions = Omit<FileDialogOptions, 'filters'>
+
 /** The `shell.files` service. */
 export interface ShellFiles {
   /** Resolves the chosen file's path, or undefined if cancelled. */
   showOpenDialog(options?: FileDialogOptions): Promise<string | undefined>
+  /**
+   * Resolves the chosen folder's path, or undefined if cancelled. The dialog lets the user make a new folder;
+   * `defaultPath` is the folder it starts in.
+   */
+  showFolderDialog(options?: FolderDialogOptions): Promise<string | undefined>
   /** Resolves the chosen path, or undefined if cancelled. The platform's dialog asks before replacing a file. */
   showSaveDialog(options?: FileDialogOptions): Promise<string | undefined>
   exists(path: string): Promise<boolean>

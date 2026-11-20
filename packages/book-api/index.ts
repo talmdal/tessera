@@ -5,6 +5,7 @@
 export * from './errors'
 export * from './model'
 export * from './names'
+export * from './options'
 export * from './protocol'
 export * from './service'
 

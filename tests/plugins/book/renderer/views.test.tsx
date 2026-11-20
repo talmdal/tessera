@@ -13,7 +13,7 @@ import { createFakeRemote } from '../../../helpers/fakeBridge'
 const EXECUTE = 'shell:commands.execute'
 const sub = (id: string, parentId: string | null, name: string, order = 0): SubBook => ({ id, parentId, name, order, rev: 1 })
 const TREE: Tree = {
-  book: { path: '/l/Home.tessera', name: 'Home', readOnly: false },
+  book: { id: '01JD3K5V8Q2W4E6R8T0Y2U4A6B', path: '/l/Home.tessera', name: 'Home', readOnly: false },
   subBooks: [sub('p', null, 'Personal', 0), sub('b', null, 'Business', 1), sub('r', 'p', 'Rentals')]
 }
 

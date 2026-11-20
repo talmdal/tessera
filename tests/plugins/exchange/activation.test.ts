@@ -24,7 +24,7 @@ import { activate as activateBook } from '../../../plugins/book/src/privileged/i
 import { activate as activateExchange } from '../../../plugins/exchange/src/privileged/index'
 import { CSV_FORMAT, activate as activateCsv } from '../../../plugins/exchange.csv/src/privileged/index'
 import { OFX_FORMATS, activate as activateOfx } from '../../../plugins/exchange.ofx/src/privileged/index'
-import { fakeFiles, fakePrompts, file, logger, memoryAppState, memoryDisk } from '../book/harness'
+import { fakeFiles, fakePrompts, file, logger, memoryAppState, memoryBackupDisk, memoryDisk } from '../book/harness'
 import { BOOK_CONTEXT_KEYS, BOOK_DIALOGS, type NewBookDialogResult } from '@tessera/book-api'
 import { chequing, document, fakeDisk, fakeFormat, row, statement } from './harness'
 
@@ -58,7 +58,7 @@ async function setup(options: { withFormat?: boolean, revealFails?: boolean, wit
     runtime.extensions.contribute('fake', FORMATS_POINT, format.contribution.id, format.contribution)
   }
 
-  await activateBook(createPluginContext('book', runtime).context, { disk: disk.disk })
+  await activateBook(createPluginContext('book', runtime).context, { disk: disk.disk, backupDisk: memoryBackupDisk().disk })
   await activateAccounts(createPluginContext('accounts', runtime).context)
   const exchangeFiles = fakeDisk({ '/in/statement.fake': 'FAKE file' })
   const exchangeDisk = exchangeFiles.disk

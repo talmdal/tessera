@@ -1,10 +1,12 @@
 import type {
-  ChangeEvent, Collection, CollectionSchema, Database, DatabaseMeta, Disposable, Json, JsonObject, OpenOptions, Transaction
+  ChangeEvent, Collection, CollectionSchema, Database, DatabaseMeta, DatabaseSnapshot, Disposable, Doc, IndexDefinition, Json,
+  JsonObject, OpenOptions, Transaction
 } from '@tessera/types'
 import type { LoadedDatabase, StorageBackend, StorageChange } from './backend'
-import { Change, CollectionState, toIndexSpec } from './state'
+import { Change, CollectionState, IndexSpec, toIndexSpec } from './state'
 import { CollectionContext, KitCollection } from './collection'
 import { ioError, StorageError } from './errors'
+import { clone, normalize } from './json'
 
 /** Runs one async function at a time, in call order. */
 class Mutex {
@@ -25,6 +27,53 @@ function checkName(name: unknown): string {
   }
   if (name.startsWith(RESERVED)) throw new StorageError('INVALID_ARGUMENT', `collection names starting with "${RESERVED}" are reserved`)
   return name
+}
+
+/** Plain code-unit order, the order `find()` returns documents in. */
+const inOrder = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const badSnapshot = (message: string) => new StorageError('INVALID_ARGUMENT', `snapshot: ${message}`)
+
+/** A snapshot's documents for one collection, checked as strictly as a write would check them. */
+function snapshotDocs(name: string, docs: unknown[]): Doc[] {
+  const seen = new Set<string>()
+  return docs.map((raw, i) => {
+    const doc = normalize(raw, `snapshot "${name}" document ${i}`)
+    if (!isRecord(doc)) throw new StorageError('INVALID_DOCUMENT', `snapshot "${name}" document ${i}: a document must be an object`)
+    const { id, rev } = doc
+    if (typeof id !== 'string' || id === '') throw new StorageError('INVALID_DOCUMENT', `snapshot "${name}" document ${i}: a document id must be a non-empty string`)
+    if (typeof rev !== 'number' || !Number.isInteger(rev) || rev < 1) {
+      throw new StorageError('INVALID_DOCUMENT', `snapshot "${name}" document "${id}": rev must be a whole number of at least 1`)
+    }
+    if (seen.has(id)) throw new StorageError('DUPLICATE_ID', `snapshot "${name}" has two documents with id "${id}"`)
+    seen.add(id)
+    return doc as Doc
+  })
+}
+
+/** A snapshot's index definitions, normalised; the same name twice must be the same index. */
+function snapshotIndexes(name: string, indexes: unknown[]): IndexSpec[] {
+  const specs = new Map<string, IndexSpec>()
+  for (const index of indexes) {
+    const spec = toIndexSpec(index as IndexDefinition)
+    const existing = specs.get(spec.name)
+    if (existing && (existing.unique !== spec.unique || existing.fields.join() !== spec.fields.join())) {
+      throw badSnapshot(`collection "${name}" defines index "${spec.name}" twice, differently`)
+    }
+    specs.set(spec.name, spec)
+  }
+  return [...specs.values()]
+}
+
+/** A meta value, copied the way `meta.set` stores one, so whatever `meta.set` accepted loads back. */
+function snapshotMetaValue(key: string, value: unknown): Json {
+  let text: string | undefined
+  try { text = JSON.stringify(value) } catch { text = undefined }
+  if (text === undefined) throw badSnapshot(`meta "${key}" is not JSON`)
+  return JSON.parse(text) as Json
 }
 
 /** The changes of one commit, as the backend wants them and as listeners are told. */
@@ -318,6 +367,81 @@ export class KitDatabase implements Database {
       await this.persistMeta(key, undefined)
       this.metaValues.delete(key)
     })
+  }
+
+  // ---- snapshot and load
+
+  async snapshot(): Promise<DatabaseSnapshot> {
+    // The lock is held only while references are taken, so the snapshot sits between two commits. Stored documents
+    // are never mutated (see CollectionState), so copying them after the lock is released still copies that state.
+    const taken = await this.commitLock.run(async () => {
+      this.assertOpen()
+      return {
+        collections: [...this.states].map(([name, state]) => ({ name, indexes: [...state.indexes.values()], docs: [...state.docs.values()] })),
+        meta: [...this.metaValues]
+      }
+    })
+    return {
+      collections: taken.collections
+        .sort((a, b) => inOrder(a.name, b.name))
+        .map(({ name, indexes, docs }) => ({
+          name,
+          indexes: indexes.map(index => ({ name: index.name, fields: [...index.fields], unique: index.unique })),
+          docs: docs.sort((a, b) => inOrder(a.id, b.id)).map(doc => clone(doc as unknown as Json) as unknown as Doc)
+        })),
+      meta: Object.fromEntries(taken.meta.sort(([a], [b]) => inOrder(a, b)).map(([key, value]) => [key, clone(value)]))
+    }
+  }
+
+  load(snapshot: DatabaseSnapshot): Promise<void> {
+    return this.commitLock.run(async () => {
+      this.writable()
+      if (this.states.size > 0 || this.metaValues.size > 0) {
+        throw new StorageError('INVALID_ARGUMENT', `database "${this.name}" is not empty: a snapshot loads only into an empty database`)
+      }
+      const { states, meta } = this.readSnapshot(snapshot)
+
+      const batch = new Batch()
+      for (const [name, state] of states) {
+        batch.storage.push({ type: 'collection', name, indexes: [...state.indexes.values()] })
+        batch.event.structure.push({ collection: name, type: 'create' })
+        batch.documents(name, [...state.docs.values()].map(after => ({ after })))
+      }
+      for (const [key, value] of meta) batch.storage.push({ type: 'meta', key, value })
+      if (batch.empty) return
+
+      await this.persist(batch)
+      for (const [name, state] of states) {
+        state.version = 1
+        this.states.set(name, state)
+      }
+      for (const [key, value] of meta) this.metaValues.set(key, value)
+      this.emit(batch.event)
+    })
+  }
+
+  /** Checks a whole snapshot and builds its collections, before anything is written. */
+  private readSnapshot(snapshot: unknown): { states: Map<string, CollectionState>, meta: Map<string, Json> } {
+    if (!isRecord(snapshot) || !Array.isArray(snapshot.collections) || !isRecord(snapshot.meta)) {
+      throw badSnapshot('expected { collections: [...], meta: {...} }')
+    }
+    const states = new Map<string, CollectionState>()
+    snapshot.collections.forEach((entry: unknown, i: number) => {
+      if (!isRecord(entry)) throw badSnapshot(`collection ${i} is not an object`)
+      const name = checkName(entry.name)
+      if (!this.known(name)) throw new StorageError('UNKNOWN_COLLECTION', `database "${this.name}" has no collection "${name}"`)
+      if (states.has(name)) throw badSnapshot(`collection "${name}" appears twice`)
+      if (!Array.isArray(entry.indexes) || !Array.isArray(entry.docs)) throw badSnapshot(`collection "${name}" needs indexes and docs lists`)
+      // Rebuilding the unique keys is what finds two documents sharing one: UNIQUE_VIOLATION
+      states.set(name, CollectionState.from(snapshotIndexes(name, entry.indexes), snapshotDocs(name, entry.docs)))
+    })
+
+    const meta = new Map<string, Json>()
+    for (const [key, value] of Object.entries(snapshot.meta)) {
+      if (key === '') throw badSnapshot('a meta key must be a non-empty string')
+      meta.set(key, snapshotMetaValue(key, value))
+    }
+    return { states, meta }
   }
 
   // ---- lifecycle

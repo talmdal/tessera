@@ -16,7 +16,7 @@ import { createPluginContext, createPluginRuntime } from '../../../core/plugins/
 import { activate as activateAccounts } from '../../../plugins/accounts/src/privileged/index'
 import { activate as activateBook } from '../../../plugins/book/src/privileged/index'
 import { activate as activateRecurring } from '../../../plugins/recurring/src/privileged/index'
-import { fakeFiles, fakePrompts, file, logger, memoryAppState, memoryDisk } from '../book/harness'
+import { fakeFiles, fakePrompts, file, logger, memoryAppState, memoryBackupDisk, memoryDisk } from '../book/harness'
 import { chequing } from './harness'
 
 async function setup() {
@@ -34,7 +34,7 @@ async function setup() {
   const reveals: string[] = []
   shell.commands.register('shell.layout.reveal', (id: unknown) => { reveals.push(String(id)) })
 
-  await activateBook(createPluginContext('book', runtime).context, { disk: disk.disk })
+  await activateBook(createPluginContext('book', runtime).context, { disk: disk.disk, backupDisk: memoryBackupDisk().disk })
   await activateAccounts(createPluginContext('accounts', runtime).context)
   await activateRecurring(createPluginContext('recurring', runtime).context)
 

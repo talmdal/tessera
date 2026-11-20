@@ -24,7 +24,7 @@ function setup() {
     BrowserWindow: { getFocusedWindow: () => null, fromId: () => null }
   }
   const files: ShellFiles = {
-    showOpenDialog: vi.fn(async () => undefined), showSaveDialog: vi.fn(async () => '/tmp/x.tessera'),
+    showOpenDialog: vi.fn(async () => undefined), showFolderDialog: vi.fn(async () => undefined), showSaveDialog: vi.fn(async () => '/tmp/x.tessera'),
     exists: vi.fn(async () => true), trash: vi.fn(async () => {}), documentsPath: () => '/docs'
   }
   const reveal = { rendererReady: vi.fn() }
