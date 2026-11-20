@@ -11,7 +11,10 @@ export { OPTIONS_EXTENSION_POINT } from '@tessera/types'
 
 /** Commands the shell registers for options. */
 export const OPTIONS_COMMANDS = {
-  /** Opens the options dialog in the focused window. */
+  /**
+   * Opens the options dialog in the focused window. Optional argument `{ page }`: a page id to open at, so a warning
+   * can lead straight to the setting it is about. An unknown page opens the first page instead.
+   */
   open: 'shell.options.open'
 } as const
 
@@ -26,7 +29,7 @@ export const OPTIONS_PAGES = shell('options.pages')          // → OptionsPageN
  * closes, or when a newer one opens in the same window.
  */
 export const OPTIONS_OPEN = shell('options.open')            // OptionsOpen
-export interface OptionsOpen { windowId: number, session: string }
+export interface OptionsOpen { windowId: number, session: string, /** The page to start on. */ page?: string }
 
 /** Request (renderer → main): a namespace's current value and defaults, to seed the dialog's draft. */
 export const OPTIONS_GET = shell('options.get')              // OptionsGet → OptionsValues | null

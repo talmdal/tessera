@@ -13,6 +13,18 @@ import type { SchemaRegistry } from './SchemaRegistry'
 import { scopedDatabase } from './scopedDatabase'
 import { SubBooks } from './SubBooks'
 
+/** What `exclusive` hands its work: the session's file operations, run inside its queue rather than queued again. */
+export interface SessionInside {
+  /** Closes the open book (flushing, running close listeners), remembered for the next start. */
+  close(): Promise<void>
+  /** Opens a book file exactly as File › Open does: probe, migrate, attach, the 'opened' event. */
+  open(file: string): Promise<BookInfo | undefined>
+  /** Checks a file is a book this app can open, without changing it. */
+  probe(file: string): Promise<void>
+  /** Moves a file and its side files to the OS trash. */
+  trash(file: string): Promise<void>
+}
+
 export interface BookSessionDeps {
   engine: StorageEngine
   files: ShellFiles
@@ -79,12 +91,18 @@ export class BookSessionImpl implements BookSession {
   private readonly changes: Emitter<BookChange>
   private readonly trees: Emitter<BookTree>
   private readonly navigatorChanges: Emitter<boolean>
+  private readonly deletions: Emitter<string>
   private readonly subBooks: SubBooks
 
   readonly onDidChange: Event<BookChange>
   readonly onDidChangeTree: Event<BookTree>
   /** Whether any navigator is registered, each time that changes. */
   readonly onDidChangeNavigator: Event<boolean>
+  /**
+   * The path of a book file each time one is deleted, once it is in the trash and off the recent list. For the book
+   * plugin's own bookkeeping (its backups), never published: other plugins see a deleted open book close.
+   */
+  readonly onDidDelete: Event<string>
 
   constructor(private readonly deps: BookSessionDeps) {
     this.changes = new Emitter(deps.log, 'change')
@@ -92,6 +110,8 @@ export class BookSessionImpl implements BookSession {
     this.onDidChange = this.changes.event
     this.onDidChangeTree = this.trees.event
     this.navigatorChanges = new Emitter(deps.log, 'navigator')
+    this.deletions = new Emitter(deps.log, 'delete')
+    this.onDidDelete = this.deletions.event
     this.onDidChangeNavigator = this.navigatorChanges.event
     this.subBooks = new SubBooks(() => this.openDatabase(), () => [...this.participants])
   }
@@ -178,40 +198,55 @@ export class BookSessionImpl implements BookSession {
   }
 
   open(file?: string): Promise<BookInfo | undefined> {
-    return this.serial(async () => {
-      let target = file
-      if (target === undefined) {
-        target = await this.deps.files.showOpenDialog({
-          title: 'Open Book',
-          defaultPath: await this.defaultFolder(),
-          filters: [BOOK_FILE_FILTER, { name: 'All files', extensions: ['*'] }],
-          buttonLabel: 'Open'
-        })
-        if (target === undefined) return undefined
-      }
-      target = path.resolve(target)
-      if (this.info?.path === target) return this.current
+    return this.serial(() => this.openNow(file))
+  }
 
-      // Everything is checked before the open book closes, so a bad pick leaves the user where they were
-      const versions = await this.probe(target)
-      const contributions = this.deps.schema.contributions()
-      const plan = planMigrations(contributions, versions, bookName(target))
-      let backup: string | undefined
-      if (plan.needsBackup) backup = await this.backup(target)
+  /**
+   * For the book plugin's own restore, never published: runs `work` inside the file-operation queue, so no Open,
+   * Close or Delete can run between its steps, and hands it the session's file operations to use from there.
+   */
+  exclusive<T>(work: (inside: SessionInside) => Promise<T>): Promise<T> {
+    return this.serial(() => work({
+      close: () => this.closeOpen({ forget: false }),
+      open: file => this.openNow(file),
+      probe: async file => { await this.probe(file) },
+      trash: file => this.trashWithSideFiles(file)
+    }))
+  }
 
-      await this.closeOpen({ forget: false })
-      const db = await this.deps.engine.open({ path: target }, { schema: this.deps.schema.collections() })
-      let id: string
-      try {
-        await runMigrations(db, plan, this.deps.schema)
-        id = await this.identify(db, target)
-      } catch (err) {
-        await db.close().catch(() => {})
-        if (backup && isBookError(err)) throw new BookError(err.code, `${err.message} A copy of the book from before was saved as “${path.basename(backup)}”.`)
-        throw err
-      }
-      return this.attach(db, target, id, false, plan.steps.length > 0)
-    })
+  private async openNow(file?: string): Promise<BookInfo | undefined> {
+    let target = file
+    if (target === undefined) {
+      target = await this.deps.files.showOpenDialog({
+        title: 'Open Book',
+        defaultPath: await this.defaultFolder(),
+        filters: [BOOK_FILE_FILTER, { name: 'All files', extensions: ['*'] }],
+        buttonLabel: 'Open'
+      })
+      if (target === undefined) return undefined
+    }
+    target = path.resolve(target)
+    if (this.info?.path === target) return this.current
+
+    // Everything is checked before the open book closes, so a bad pick leaves the user where they were
+    const versions = await this.probe(target)
+    const contributions = this.deps.schema.contributions()
+    const plan = planMigrations(contributions, versions, bookName(target))
+    let backup: string | undefined
+    if (plan.needsBackup) backup = await this.backup(target)
+
+    await this.closeOpen({ forget: false })
+    const db = await this.deps.engine.open({ path: target }, { schema: this.deps.schema.collections() })
+    let id: string
+    try {
+      await runMigrations(db, plan, this.deps.schema)
+      id = await this.identify(db, target)
+    } catch (err) {
+      await db.close().catch(() => {})
+      if (backup && isBookError(err)) throw new BookError(err.code, `${err.message} A copy of the book from before was saved as “${path.basename(backup)}”.`)
+      throw err
+    }
+    return this.attach(db, target, id, false, plan.steps.length > 0)
   }
 
   close(): Promise<void> {
@@ -241,6 +276,7 @@ export class BookSessionImpl implements BookSession {
       if (await this.deps.disk.exists(target)) await this.trashWithSideFiles(target)
       await this.deps.recent.remove(target)
       this.deps.log.info(`[book] Moved ${target} to the ${trash}`)
+      this.deletions.fire(target)
       return true
     })
   }

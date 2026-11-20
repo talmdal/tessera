@@ -79,7 +79,8 @@ describe('an automatic backup when a book closes', () => {
     const things = snapshot.collections.find(c => c.name === 'accounts.things')!
     expect(things.docs.map(d => String(d.name))).toEqual([expect.stringContaining('the first entry')])
     expect(await env.ledger.entry(header.book.id)).toEqual({
-      lastBackupAt: env.clock.now().toISOString(), lastFile: backup, lastResult: 'ok', changed: false
+      lastBackupAt: env.clock.now().toISOString(), lastFile: backup, lastResult: 'ok', changed: false,
+      name: 'Home', path: file('Home.tessera')       // as last seen, so the book can be found by path when closed
     })
     expect(env.log.info).toHaveBeenCalledWith(expect.stringContaining('Backed up “Home”'))
   })
@@ -408,5 +409,107 @@ describe('how backups hook into the session', () => {
     const env = setupSession()
     expect('unscopedDatabase' in publicSession(env.session)).toBe(false)
     expect(() => env.session.unscopedDatabase()).toThrow('No book is open.')
+  })
+})
+
+describe('backing up on demand', () => {
+  /** Opens Home (creating it the first time) and leaves it open. */
+  const openHome = async (env: ReturnType<typeof setup>) => {
+    if (!env.driver.databases.has(file('Home.tessera'))) await env.session.create(file('Home.tessera'))
+    else await env.session.open(file('Home.tessera'))
+  }
+  const edit = (env: ReturnType<typeof setup>, name = 'an edit') =>
+    env.session.database('accounts').collection('accounts.things').insert({ name: `${name} ${Math.random()}` })
+
+  it('writes a manual backup into the backup folder while the book stays open, and counts it as the last backup', async () => {
+    const env = setup()
+    await openHome(env)
+    await edit(env)
+    const written = await env.backups.backUpNow(env.session.unscopedDatabase(), env.session.current!)
+
+    expect(env.session.current?.name).toBe('Home')
+    expect(path.basename(written)).toBe('Home 2026-11-19 18.00.00 (manual).tessera-backup')
+    expect(path.dirname(written)).toBe(DEFAULT_FOLDER)
+    expect((await env.read(written)).header).toMatchObject({ trigger: 'manual' })
+    expect(await env.entry()).toMatchObject({ lastBackupAt: env.clock.now().toISOString(), lastFile: written, lastResult: 'ok', changed: false })
+  })
+
+  it('ignores the frequency and whether anything changed', async () => {
+    const env = setup({ automatic: false })
+    await openHome(env)
+    await env.backups.backUpNow(env.session.unscopedDatabase(), env.session.current!)
+    env.clock.advance(0, 1)
+    await env.backups.backUpNow(env.session.unscopedDatabase(), env.session.current!)
+    expect(env.autoBackups()).toHaveLength(2)
+  })
+
+  it('makes the close after it take no backup if nothing changed since, and one if something did', async () => {
+    const env = setup({ frequency: 'everyClose' })
+    await openHome(env)
+    await edit(env, 'before the manual backup')
+    await env.backups.backUpNow(env.session.unscopedDatabase(), env.session.current!)
+    await env.session.close()
+    await env.backups.idle()
+    expect(env.autoBackups()).toHaveLength(1)        // only the manual one
+
+    await openHome(env)
+    await env.backups.backUpNow(env.session.unscopedDatabase(), env.session.current!)
+    await edit(env, 'after the manual backup')
+    env.clock.advance(0, 1)
+    await env.session.close()
+    await env.backups.idle()
+    expect(env.autoBackups()).toHaveLength(3)        // a second manual one, and the automatic one for the edit after it
+  })
+
+  it('does not forget a change made while it is being written', async () => {
+    const env = setup()
+    await openHome(env)
+    await edit(env, 'before')
+    env.backupDisk.hold()
+    const writing = env.backups.backUpNow(env.session.unscopedDatabase(), env.session.current!)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await edit(env, 'during')
+    env.backupDisk.release()
+    await writing
+    expect(await env.entry()).toMatchObject({ lastResult: 'ok', changed: true })
+  })
+
+  it('writes exactly the file asked for, and only counts it when that is in the backup folder', async () => {
+    const env = setup()
+    const usb = path.resolve('/media/kim/USB')
+    env.backupDisk.folders.add(usb)
+    await openHome(env)
+    const elsewhere = await env.backups.backUpNow(env.session.unscopedDatabase(), env.session.current!, { to: path.join(usb, 'Copy.tessera-backup') })
+    expect(elsewhere).toBe(path.join(usb, 'Copy.tessera-backup'))
+    expect((await env.read(elsewhere)).header.trigger).toBe('manual')
+    expect((await env.entry())?.lastBackupAt).toBeUndefined()     // Tessera manages only the backup folder
+
+    env.backupDisk.folders.add(DEFAULT_FOLDER)
+    const inFolder = await env.backups.backUpNow(env.session.unscopedDatabase(), env.session.current!, { to: path.join(DEFAULT_FOLDER, 'Mine.tessera-backup') })
+    expect((await env.entry())?.lastFile).toBe(inFolder)
+  })
+
+  it('rejects with the reason it failed, leaving the ledger and the folder as they were', async () => {
+    const env = setup()
+    await openHome(env)
+    env.backupDisk.failWrites = new Error('ENOSPC: no space left on device')
+    await expect(env.backups.backUpNow(env.session.unscopedDatabase(), env.session.current!)).rejects.toThrow('ENOSPC')
+    expect([...env.backupDisk.files.keys()]).toEqual([])
+    expect((await env.entry())?.lastResult).toBeUndefined()
+  })
+
+  it('is never pruned', async () => {
+    const env = setup({ frequency: 'everyClose', keep: 1 })
+    await openHome(env)
+    const manual = await env.backups.backUpNow(env.session.unscopedDatabase(), env.session.current!)
+    for (let i = 0; i < 3; i++) {
+      env.clock.advance(0, 1)
+      await edit(env)
+      await env.session.close()
+      await env.backups.idle()
+      await openHome(env)
+    }
+    expect(env.autoBackups()).toContain(manual)
+    expect(env.autoBackups()).toHaveLength(2)        // the manual one, and the newest automatic one
   })
 })

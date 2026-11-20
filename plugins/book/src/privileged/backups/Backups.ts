@@ -5,9 +5,11 @@
 // book plugin activates, before any other plugin can reach `book.session`, so this one always runs last. Writes, verification, pruning and bookkeeping run after, one at
 // a time. On quit, `drain` gives the queue a budget inside the shell's shutdown limit and abandons what is left.
 import path from 'node:path'
+import type { Writable } from 'node:stream'
 import type { Database, DatabaseSnapshot, Disposable, Event, Logger, ShellFiles } from '@tessera/types'
 import {
-  BOOK_API_VERSION, BookError, DEFAULT_BACKUP_FOLDER_NAME, type BookBackupOptions, type BookChange, type BookInfo
+  BOOK_API_VERSION, BookError, DEFAULT_BACKUP_FOLDER_NAME, type BackupTrigger, type BookBackupOptions, type BookChange,
+  type BookInfo
 } from '@tessera/book-api'
 import type { BackupDisk } from './BackupDisk'
 import { backupHeader, readBackupHeader, verifyBackup, writeBackup } from './backupFile'
@@ -27,6 +29,15 @@ export interface BackupsSession {
   onWillClose(listener: (book: BookInfo) => void | Promise<void>): Disposable
   readonly onDidChange: Event<BookChange>
   unscopedDatabase(): Database
+}
+
+export interface BackUpNowOptions {
+  /** An exact file to write (Back Up To…); otherwise a new file in the backup folder. */
+  to?: string
+  /** `pre-restore` for the safety copy a restore takes; `manual` otherwise. */
+  trigger?: 'manual' | 'pre-restore'
+  /** Whether it may count as the book's last backup (only ever in the backup folder). Default true. */
+  record?: boolean
 }
 
 export interface BackupsDeps {
@@ -49,6 +60,9 @@ interface Job {
   /** The book's change count when the snapshot was taken: a change after it means the book still needs a backup. */
   epoch: number
   abort: AbortController
+  trigger: BackupTrigger
+  /** A manual backup to an exact file (Back Up To…); otherwise a new file in the backup folder. */
+  to?: string
 }
 
 const describe = (err: unknown) => err instanceof Error ? err.message : String(err)
@@ -73,6 +87,7 @@ export class Backups {
   private readonly changedNow = new Set<string>()
   private watching: Disposable | undefined
   private shuttingDown = false
+  private readonly recordListeners = new Set<(book: BookInfo) => void>()
 
   constructor(private readonly deps: BackupsDeps) {}
 
@@ -99,12 +114,18 @@ export class Backups {
   // ---- Tracking changes while a book is open
 
   private opened(db: Database, book: BookInfo, migrated: boolean) {
-    this.watching?.dispose()
     this.changedNow.delete(book.id)
     // A migration changed the data before anyone could see it change: it still needs backing up
     if (migrated) this.changed(book)
+    this.watch(db, book)
+  }
+
+  /** Waits for the book's next change. Only the first counts: one ledger write per session, not one per edit. */
+  private watch(db: Database, book: BookInfo) {
+    this.watching?.dispose()
     const watch = db.onDidChange(() => {
-      watch.dispose()      // the first change is enough: one ledger write per session, not one per edit
+      watch.dispose()
+      if (this.watching === watch) this.watching = undefined
       this.changed(book)
     })
     this.watching = watch
@@ -114,7 +135,7 @@ export class Backups {
     this.epochs.set(book.id, (this.epochs.get(book.id) ?? 0) + 1)
     if (this.changedNow.has(book.id)) return
     this.changedNow.add(book.id)
-    this.deps.ledger.markChanged(book.id)
+    this.deps.ledger.markChanged(book)
       .catch(err => this.deps.log.warn(`[book] Could not record that “${book.name}” changed: ${describe(err)}`))
   }
 
@@ -136,16 +157,86 @@ export class Backups {
       snapshot = await db.snapshot()
     } catch (err) {
       // The book still closes; the next close tries again
-      await this.deps.ledger.failed(book.id, describe(err)).catch(() => {})
+      await this.deps.ledger.failed(book, describe(err)).catch(() => {})
+      this.recorded(book)
       this.deps.log.warn(`[book] Automatic backup of “${book.name}” failed: could not copy the book: ${describe(err)}`)
       return
     }
-    const job: Job = { book, snapshot, takenAt, epoch: this.epochs.get(book.id) ?? 0, abort: new AbortController() }
+    this.enqueue({ book, snapshot, takenAt, epoch: this.epochs.get(book.id) ?? 0, abort: new AbortController(), trigger: 'auto' }, job => this.run(job))
+  }
+
+  /** Queues a job behind every backup already queued; resolves with what `work` makes of it. */
+  private enqueue<T>(job: Job, work: (job: Job) => Promise<T>): Promise<T> {
     this.jobs.add(job)
-    this.queue = this.queue.then(() => this.run(job)).finally(() => { this.jobs.delete(job) })
+    const done = this.queue.then(() => work(job)).finally(() => { this.jobs.delete(job) })
+    this.queue = done.then(() => undefined, () => undefined)
+    return done
+  }
+
+  // ---- Backing up on demand
+
+  /**
+   * A manual backup of the open book, taken now while it stays open: into the backup folder, or to the exact file `to`
+   * (Back Up To…). Waits behind any backup already being written, verifies what it wrote, and resolves its path;
+   * rejects with why it failed. Never pruned. It counts as the book's last backup only when it lands in the backup
+   * folder, the one place Tessera manages; a failure is the caller's to report, and leaves the ledger as it was.
+   */
+  async backUpNow(db: Database, book: BookInfo, options: BackUpNowOptions = {}): Promise<string> {
+    const { to, trigger = 'manual', record = true } = options
+    // Watch afresh, so a change made while this is written still counts as a change after it
+    this.watch(db, book)
+    const epoch = this.epochs.get(book.id) ?? 0
+    const takenAt = this.now()
+    const snapshot = await db.snapshot()
+    const job: Job = { book, snapshot, takenAt, epoch, abort: new AbortController(), trigger, ...(to !== undefined && { to }) }
+    const file = await this.enqueue(job, j => this.write(j))
+
+    this.deps.log.info(`[book] Backed up “${book.name}” to ${file}, as asked`)
+    if (record && (to === undefined || this.inBackupFolder(to))) {
+      const changed = (this.epochs.get(book.id) ?? 0) !== epoch
+      if (!changed) this.changedNow.delete(book.id)
+      await this.deps.ledger.succeeded(book, { at: takenAt, file, changed })
+      this.recorded(book)
+    }
+    return file
+  }
+
+  /**
+   * The book now holds something no backup has: a restore replaced it, say. Its next close backs it up, whatever
+   * the frequency's last backup says.
+   */
+  markChanged(book: BookInfo) {
+    this.changed(book)
+  }
+
+  /** The folder backups go to now: the chosen one, or the default. Not checked to exist. */
+  backupFolder(): string {
+    return this.deps.options().folder ?? this.defaultFolder()
+  }
+
+  private inBackupFolder(file: string): boolean {
+    const fold = (p: string) => process.platform === 'win32' || process.platform === 'darwin' ? p.toLowerCase() : p
+    return fold(path.resolve(path.dirname(file))) === fold(path.resolve(this.backupFolder()))
   }
 
   // ---- Writing, after the book has closed
+
+  /** `<Documents>/Tessera Backups`: where backups go when no folder is chosen. */
+  defaultFolder(): string {
+    return path.join(this.deps.files.documentsPath(), DEFAULT_BACKUP_FOLDER_NAME)
+  }
+
+  /** Calls `listener` with the book each time an attempt to back it up has been recorded, whatever its outcome. */
+  onDidRecord(listener: (book: BookInfo) => void): Disposable {
+    this.recordListeners.add(listener)
+    return { dispose: () => { this.recordListeners.delete(listener) } }
+  }
+
+  private recorded(book: BookInfo) {
+    for (const listener of [...this.recordListeners]) {
+      try { listener(book) } catch (err) { this.deps.log.error('[book] A backup listener failed', err) }
+    }
+  }
 
   /** Where backups go: the chosen folder, which must exist, or the default, which is made if it doesn't. */
   private async folder(options: BookBackupOptions): Promise<string> {
@@ -155,39 +246,60 @@ export class Backups {
       }
       return options.folder
     }
-    const folder = path.join(this.deps.files.documentsPath(), DEFAULT_BACKUP_FOLDER_NAME)
+    const folder = this.defaultFolder()
     if (!(await this.deps.disk.folderExists(folder))) await this.deps.disk.makeFolder(folder)
     return folder
   }
 
-  /** Never throws: every outcome is logged and recorded in the ledger. */
+  /** Never throws: every outcome is logged, recorded in the ledger, and announced. */
   private async run(job: Job): Promise<void> {
-    const { book, snapshot, takenAt, abort } = job
-    const { ledger, disk, log } = this.deps
     try {
-      if (abort.signal.aborted) throw abort.signal.reason
-      const options = this.deps.options()
-      const folder = await this.folder(options)
-      const header = backupHeader({
-        book: { id: book.id, name: book.name, path: book.path }, takenAt, trigger: 'auto',
-        app: `book ${BOOK_API_VERSION}`, engine: this.deps.engineId
-      }, snapshot)
-      const file = await disk.create(folder, attempt => backupFileName(book.name, takenAt, 'auto', attempt),
-        async out => { await writeBackup(out, header, snapshot, { signal: abort.signal }) })
+      await this.attempt(job)
+    } finally {
+      this.recorded(job.book)
+    }
+  }
 
-      // At quit there is no time to read it back: the digest computed while writing stands. Pruning waits too.
-      if (!this.shuttingDown) {
-        await this.verify(file)
-        await this.prune(folder, book, options.keep)
-      }
-      await ledger.succeeded(book.id, { at: takenAt, file, changed: (this.epochs.get(book.id) ?? 0) !== job.epoch })
+  /**
+   * Writes a job's backup and reads it back, resolving its path; throws if either fails. At quit there is no time to
+   * read it back: the digest computed while writing stands.
+   */
+  private async write(job: Job): Promise<string> {
+    const { book, snapshot, takenAt, abort, trigger, to } = job
+    if (abort.signal.aborted) throw abort.signal.reason
+    const header = backupHeader({
+      book: { id: book.id, name: book.name, path: book.path }, takenAt, trigger,
+      app: `book ${BOOK_API_VERSION}`, engine: this.deps.engineId
+    }, snapshot)
+    const fill = async (out: Writable) => { await writeBackup(out, header, snapshot, { signal: abort.signal }) }
+
+    let file: string
+    if (to !== undefined) {
+      await this.deps.disk.write(to, fill)
+      file = to
+    } else {
+      const folder = await this.folder(this.deps.options())
+      file = await this.deps.disk.create(folder, attempt => backupFileName(book.name, takenAt, trigger, attempt), fill)
+    }
+    if (!this.shuttingDown) await this.verify(file)
+    return file
+  }
+
+  private async attempt(job: Job): Promise<void> {
+    const { book, takenAt, abort } = job
+    const { ledger, log } = this.deps
+    try {
+      const file = await this.write(job)
+      // Pruning waits at quit too; the next successful backup prunes
+      if (!this.shuttingDown) await this.prune(path.dirname(file), book, this.deps.options().keep)
+      await ledger.succeeded(book, { at: takenAt, file, changed: (this.epochs.get(book.id) ?? 0) !== job.epoch })
       log.info(`[book] Backed up “${book.name}” to ${file}`)
     } catch (err) {
       if (abort.signal.aborted) {
-        await ledger.interrupted(book.id).catch(() => {})
+        await ledger.interrupted(book).catch(() => {})
         log.warn(`[book] The automatic backup of “${book.name}” was cut short when Tessera quit; it will be taken the next time the book closes`)
       } else {
-        await ledger.failed(book.id, describe(err)).catch(() => {})
+        await ledger.failed(book, describe(err)).catch(() => {})
         log.warn(`[book] Automatic backup of “${book.name}” failed: ${describe(err)}`)
       }
     }

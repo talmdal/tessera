@@ -883,7 +883,7 @@ plugin activates**, so you can list them in `services.requires`. Their types are
 | Service | Methods | Shown as |
 |---|---|---|
 | `shell.prompts` (`ShellPrompts`) | `confirm`, `message`, `prompt`, `show` | native message boxes; the shell's dialog frame for `prompt` and `show` |
-| `shell.files` (`ShellFiles`) | `showOpenDialog`, `showSaveDialog`, `exists`, `trash`, `documentsPath` | native file dialogs; the OS trash |
+| `shell.files` (`ShellFiles`) | `showOpenDialog`, `showSaveDialog`, `showFolderDialog`, `exists`, `trash`, `documentsPath` | native file and folder dialogs; the OS trash |
 
 ```json
 "services": { "requires": ["shell.prompts", "shell.files"] }
@@ -914,6 +914,9 @@ const file = await files.showSaveDialog({
   defaultPath: path.join(files.documentsPath(), 'My Finances.tessera'),
   filters: [{ name: 'Tessera book', extensions: ['tessera'] }]
 })                                              // undefined when cancelled; the platform asks before replacing
+
+const folder = await files.showFolderDialog({ title: 'Choose Backup Folder', defaultPath: files.documentsPath() })
+                                                // a folder, which the user may create from the dialog; no filters
 ```
 
 Every method takes an optional `windowId`; by default the question belongs to the focused window.
@@ -1036,6 +1039,8 @@ context.extensions.contribute('book', 'shell.options.pages', 'book.options.backu
 ```
 
 The shell contributes the categories `shell.options.general` and `shell.options.appearance` to nest under.
+To send the user straight to your page (from a warning, say), run `shell.options.open` with `{ page: '<page id>' }`;
+an unknown page opens the dialog where it always opens.
 Pages are validated like views: a bad id, a missing title, an unknown parent, a cycle or a duplicate is skipped
 with an `[options]` warning, and the rest of the tree still builds.
 
@@ -1126,8 +1131,19 @@ db.collection('ledger.subledgers')                 // throws: not yours
 ```
 
 Follow the book with `session.onDidChange` (`opened`, `closed`) and flush anything you buffer in
-`session.onWillClose`, which runs while the book can still be written. Menus follow the context keys
+`session.onWillClose`, which runs while the book can still be written. Close listeners run **last registered
+first**, as plugins shut down: yours runs before those of the plugins you depend on, and the book's own (its
+automatic backup) runs last, so it includes whatever you write there. Menus follow the context keys
 `book.isOpen`, `book.isReadOnly` and `book.name`.
+
+- `BookInfo.id` is the book's stable id: the same however the file is renamed or moved. Key anything you keep
+  *about* a book outside it (in `app.state`, say) by the id, not the path.
+- The `opened` event says `created` (a new book) and `migrated` (opening it ran migrations, so its data changed).
+- **Backup and restore need nothing from you.** A backup holds every collection in the book, yours included, and
+  a restore puts all of them back, then opens the book as File › Open does, so your migrator brings an older
+  backup up to date. A book restored from a backup taken by a newer version of your plugin is refused, as opening
+  one is. Your scoped database refuses `snapshot()` and `load()`: copying or replacing the whole book is the
+  book's job. See [backup-restore-design.md](backup-restore-design.md).
 
 **3. If you place items in sub-books**, take part in deleting them. Deleting a sub-book moves everything in it to
 its parent, in one transaction with yours:

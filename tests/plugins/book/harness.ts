@@ -42,6 +42,19 @@ export function memoryDisk(driver: ReturnType<typeof memoryDriver>) {
     exists: async f => driver.databases.has(f) || foreign.has(f) || sides.has(f),
     sniff: async f => foreign.get(f) ?? 'unknown',
     sideFiles: async f => [...sides].filter(side => side.startsWith(f) && side !== f),
+    renameWithSideFiles: async (from, to) => {
+      if (driver.databases.has(to) || foreign.has(to)) throw Object.assign(new Error(`EEXIST: ${to}`), { code: 'EEXIST' })
+      const files = driver.databases.get(from)
+      if (!files) throw Object.assign(new Error(`ENOENT: ${from}`), { code: 'ENOENT' })
+      for (const side of [...sides]) if (side.startsWith(from) && side !== from) { sides.delete(side); sides.add(to + side.slice(from.length)) }
+      driver.databases.delete(from)
+      driver.databases.set(to, files)
+    },
+    removeWithSideFiles: async f => {
+      driver.databases.delete(f)
+      foreign.delete(f)
+      for (const side of [...sides]) if (side.startsWith(f)) sides.delete(side)
+    },
     copyWithSideFiles: async (from, to) => {
       copies.push([from, to])
       const files = driver.databases.get(from)
@@ -179,10 +192,24 @@ export function memoryBackupDisk() {
         return target
       }
     },
+    async write(file, write) {
+      const folder = path.dirname(file)
+      if (!folders.has(folder)) throw Object.assign(new Error(`ENOENT: no such folder ${folder}`), { code: 'ENOENT' })
+      const chunks: Buffer[] = []
+      const out = new Writable({ write(chunk, _encoding, done) { chunks.push(Buffer.from(chunk)); done(control.failWrites) } })
+      await write(out)
+      files.set(file, { bytes: Buffer.concat(chunks), modifiedAt: new Date() })
+      writes.push(file)
+    },
     open: file => {
       const stored = files.get(file)
       if (!stored) return new Readable({ read() { this.destroy(Object.assign(new Error(`ENOENT: ${file}`), { code: 'ENOENT' })) } })
       return Readable.from([stored.bytes])
+    },
+    stat: async file => {
+      const stored = files.get(file)
+      if (!stored) throw Object.assign(new Error(`ENOENT: ${file}`), { code: 'ENOENT' })
+      return { file, size: stored.bytes.length, modifiedAt: stored.modifiedAt }
     },
     list: async folder => inFolder(folder, isBackupFileName),
     partials: async folder => inFolder(folder, n => n.endsWith('.partial')),

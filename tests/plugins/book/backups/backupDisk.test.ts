@@ -120,3 +120,41 @@ describe('the backup folder', () => {
     expect(Buffer.concat(chunks).toString('utf8')).toBe('bytes on disk')
   })
 })
+
+describe('writing a backup to a file the user chose', () => {
+  it('writes exactly that file, leaving nothing else behind', async () => {
+    const folder = tempDir()
+    const file = path.join(folder, 'Copy for the bank.tessera-backup')
+    await disk.write(file, writing('the whole backup'))
+    expect(fs.readFileSync(file, 'utf8')).toBe('the whole backup')
+    expect(fs.readdirSync(folder)).toEqual(['Copy for the bank.tessera-backup'])
+  })
+
+  it('replaces a file already there, which the save dialog asked about', async () => {
+    const folder = tempDir()
+    const file = path.join(folder, 'Copy.tessera-backup')
+    fs.writeFileSync(file, 'the old one')
+    await disk.write(file, writing('the new one'))
+    expect(fs.readFileSync(file, 'utf8')).toBe('the new one')
+    expect(fs.readdirSync(folder)).toEqual(['Copy.tessera-backup'])
+  })
+
+  it('leaves the file it would have replaced untouched when writing fails', async () => {
+    const folder = tempDir()
+    const file = path.join(folder, 'Copy.tessera-backup')
+    fs.writeFileSync(file, 'the old one')
+    const failing = async (out: NodeJS.WritableStream) => {
+      await new Promise<void>(resolve => out.write('some of it', () => resolve()))
+      throw new Error('disk full')
+    }
+    await expect(disk.write(file, failing)).rejects.toThrow('disk full')
+    expect(fs.readFileSync(file, 'utf8')).toBe('the old one')
+    expect(fs.readdirSync(folder)).toEqual(['Copy.tessera-backup'])
+  })
+
+  it('fails for a folder that does not exist, rather than creating it', async () => {
+    const missing = path.join(tempDir(), 'unplugged drive')
+    await expect(disk.write(path.join(missing, 'Copy.tessera-backup'), writing('x'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(fs.existsSync(missing)).toBe(false)
+  })
+})

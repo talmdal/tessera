@@ -24,3 +24,18 @@ export function useFollowed<T>(channel: string, event: string): T | undefined {
 
   return state?.value
 }
+
+/** Ends a reason with a full stop when it has no closing punctuation, so the sentence after it reads as one. */
+export const asSentence = (text: string) => /[.!?…]["”’)]?$/.test(text.trim()) ? text.trim() : `${text.trim()}.`
+
+const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+
+/** "today at 18:42", "yesterday at 09:15", or "12 Nov 2026 at 20:03", in the user's locale. */
+export function whenText(iso: string, now = new Date()): string {
+  const when = new Date(iso)
+  const time = when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  if (sameDay(when, now)) return `today at ${time}`
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
+  if (sameDay(when, yesterday)) return `yesterday at ${time}`
+  return `${when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })} at ${time}`
+}

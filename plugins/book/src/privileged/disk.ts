@@ -13,6 +13,14 @@ export interface BookDisk {
   sideFiles(file: string): Promise<string[]>
   /** Copies a file and its side files, each to the same name with `to` in place of `file`. */
   copyWithSideFiles(file: string, to: string): Promise<void>
+  /**
+   * Renames a closed database file and its side files, each to the same name with `to` in place of `file`. The side
+   * files go with it rather than being deleted: SQLite pairs a write-ahead log with its database by name, and even a
+   * read-only connection leaves one behind. `to` must not exist: on Windows a rename can't replace a file.
+   */
+  renameWithSideFiles(file: string, to: string): Promise<void>
+  /** Deletes a file and its side files. No error for any that are already gone. For staging files only. */
+  removeWithSideFiles(file: string): Promise<void>
 }
 
 /** Suffixes of the files SQLite (write-ahead log, shared memory, rollback journal) and LokiJS (temporary save) keep. */
@@ -51,6 +59,19 @@ export function nodeDisk(): BookDisk {
       const found: string[] = []
       for (const suffix of SIDE_FILE_SUFFIXES) if (await exists(file + suffix)) found.push(file + suffix)
       return found
+    },
+
+    async renameWithSideFiles(file, to) {
+      // The side files first: if the main file's rename then fails, the book is still whole under its old name,
+      // its side files beside the new one, and both are found by the same rename again
+      for (const suffix of SIDE_FILE_SUFFIXES) {
+        if (await exists(file + suffix)) await fs.promises.rename(file + suffix, to + suffix)
+      }
+      await fs.promises.rename(file, to)
+    },
+
+    async removeWithSideFiles(file) {
+      for (const suffix of ['', ...SIDE_FILE_SUFFIXES]) await fs.promises.rm(file + suffix, { force: true })
     },
 
     async copyWithSideFiles(file, to) {
