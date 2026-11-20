@@ -24,8 +24,15 @@ export interface BackupDisk {
    * fails the partial file is removed, so a file under a final name is always complete. Resolves the final path.
    */
   create(folder: string, name: (attempt: number) => string, write: (out: Writable) => Promise<void>): Promise<string>
+  /**
+   * Writes exactly `file`, as `create` writes: through a `.partial` file beside it, synced, then renamed over `file`,
+   * replacing one already there (the user chose it, and the save dialog asked first). Fails if its folder is missing.
+   */
+  write(file: string, write: (out: Writable) => Promise<void>): Promise<void>
   /** The file's bytes, as a stream. */
   open(file: string): Readable
+  /** A file's size and time; rejects if it isn't there. */
+  stat(file: string): Promise<BackupFileInfo>
   /** The backups directly in `folder`, by extension; never a `.partial` file. */
   list(folder: string): Promise<BackupFileInfo[]>
   /** The `.partial` files directly in `folder`, left by a write that never finished. */
@@ -65,6 +72,29 @@ export function nodeBackupDisk(): BackupDisk {
     } catch { /* best effort */ }
   }
 
+  /**
+   * Fills `<file>.<random>.partial`, synced to disk and closed, and resolves its path; on failure removes it. The random
+   * part means a partial file left by a crash never collides with a new one.
+   */
+  const writePartial = async (file: string, write: (out: Writable) => Promise<void>): Promise<string> => {
+    const partial = `${file}.${randomBytes(4).toString('hex')}${PARTIAL_SUFFIX}`
+    // flush: the stream syncs the file to disk before closing it, and 'close' comes after both
+    const out = fs.createWriteStream(partial, { flags: 'wx', flush: true })
+    try {
+      await write(out)
+      if (!out.closed) await once(out, 'close')
+    } catch (err) {
+      if (!out.closed) {
+        const closed = once(out, 'close').catch(() => {})
+        out.destroy()
+        await closed
+      }
+      await fs.promises.rm(partial, { force: true })
+      throw err
+    }
+    return partial
+  }
+
   return {
     async folderExists(folder) {
       try { return (await fs.promises.stat(folder)).isDirectory() } catch { return false }
@@ -75,22 +105,7 @@ export function nodeBackupDisk(): BackupDisk {
     },
 
     async create(folder, name, write) {
-      // A random part, so a partial file left by a crash never collides with a new one
-      const partial = path.join(folder, `${name(1)}.${randomBytes(4).toString('hex')}${PARTIAL_SUFFIX}`)
-      // flush: the stream syncs the file to disk before closing it, and 'close' comes after both
-      const out = fs.createWriteStream(partial, { flags: 'wx', flush: true })
-      try {
-        await write(out)
-        if (!out.closed) await once(out, 'close')
-      } catch (err) {
-        if (!out.closed) {
-          const closed = once(out, 'close').catch(() => {})
-          out.destroy()
-          await closed
-        }
-        await fs.promises.rm(partial, { force: true })
-        throw err
-      }
+      const partial = await writePartial(path.join(folder, name(1)), write)
 
       try {
         for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt++) {
@@ -108,7 +123,23 @@ export function nodeBackupDisk(): BackupDisk {
       }
     },
 
+    async write(file, write) {
+      const partial = await writePartial(file, write)
+      try {
+        await fs.promises.rename(partial, file)
+        await syncFolder(path.dirname(file))
+      } catch (err) {
+        await fs.promises.rm(partial, { force: true })
+        throw err
+      }
+    },
+
     open: file => fs.createReadStream(file),
+
+    async stat(file) {
+      const stat = await fs.promises.stat(file)
+      return { file, size: stat.size, modifiedAt: stat.mtime }
+    },
 
     list: folder => filesIn(folder, isBackupFileName),
 

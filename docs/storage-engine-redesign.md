@@ -125,13 +125,20 @@ semantics as tests). In outline:
 ```
 StorageEngine   id, capabilities(), open(target, options), list(), drop(target), newId(), closeAll()
 Database        collection(name), listCollections(), createCollection(schema), dropCollection(name),
-                renameCollection(from, to), transaction(work), onDidChange(listener), meta, flush(), close()
+                renameCollection(from, to), transaction(work), onDidChange(listener), meta, flush(), close(),
+                snapshot(), load(snapshot)
 Transaction     collection(name)
 Collection      get, getMany, findOne, find, findPage, count, scan
                 insert, insertMany, replace, updateOne, updateMany, deleteOne, deleteMany
                 aggregate
                 ensureIndex, dropIndex, indexes, explain
 ```
+
+`snapshot()` is a consistent copy of everything committed (every collection with its indexes and documents, and
+the meta), taken between commits; `load(snapshot)` fills an empty database from one as a single atomic write.
+They are engine-neutral, so a snapshot from one backend loads into another, and they are implemented once, in the
+kit, so a backend gets them for nothing. Book backups are built on them: see
+[backup-restore-design.md](backup-restore-design.md#taking-a-snapshot).
 
 Documents returned are **copies**: editing one has no effect until it is
 written back. `id` and `rev` are the only fields the engine adds; no `$loki`,

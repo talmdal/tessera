@@ -477,6 +477,28 @@ describe('the options dialog: search', () => {
   })
 })
 
+describe('the options dialog: opening at a page', () => {
+  const item = (name: string) => within(within(dialog()).getByRole('list', { name: 'Option pages' })).getByRole('button', { name })
+
+  it('starts on the page asked for', async () => {
+    const { runtime, addPlugin } = setup()
+    addPlugin('ledger', 'Ledger', './LedgerPage', { tidy: false })
+    await act(async () => { await runtime.commands.execute(OPTIONS_COMMANDS.open, { page: 'ledger.options' }) })
+    await screen.findByRole('dialog', { name: 'Options' })
+    await waitFor(() => expect(item('Ledger')).toHaveAttribute('aria-current', 'page'))
+  })
+
+  it('starts where it always does when the page asked for is not there', async () => {
+    const { runtime, addPlugin } = setup()
+    addPlugin('ledger', 'Ledger', './LedgerPage', { tidy: false })
+    await act(async () => { await runtime.commands.execute(OPTIONS_COMMANDS.open, { page: 'nobody.options.missing' }) })
+    await screen.findByRole('dialog', { name: 'Options' })
+    // The first page that shows something, as with no page asked for: here, the Backups test page
+    await waitFor(() => expect(item('Backups')).toHaveAttribute('aria-current', 'page'))
+    expect(item('Ledger')).not.toHaveAttribute('aria-current')
+  })
+})
+
 describe('the options dialog: keyboard navigation', () => {
   const item = (name: string) => within(within(dialog()).getByRole('list', { name: 'Option pages' })).getByRole('button', { name })
   const search = () => within(dialog()).getByRole('textbox', { name: 'Search options' })

@@ -38,6 +38,8 @@ export const BOOK_META = {
    * before ids existed is given one the first time it is opened writable. Backups are grouped by it.
    */
   id: 'ledger.bookId',
+  /** On a book restored as a new book: `{ bookId, takenAt }` of the backup it came from. */
+  restoredFrom: 'ledger.restoredFrom',
   /** The schema version of a `book.schema` contributor. */
   schemaVersion: (contributor: string) => `ledger.schema.${contributor}`
 } as const
@@ -56,6 +58,14 @@ export const BOOK_COMMANDS = {
   close: 'book.close',
   /** File › Delete Book…: sends the open book's file to the trash. */
   delete: 'book.delete',
+  /** File › Back Up Now: a manual backup of the open book into the backup folder. Resolves the file written. */
+  backupNow: 'book.backupNow',
+  /** File › Back Up To…: a manual backup of the open book to a file chosen in a save dialog. */
+  backupTo: 'book.backupTo',
+  /** File › Restore from Backup…: the Restore dialog, then the restore it asks for. Resolves the restored book. */
+  restore: 'book.restore',
+  /** Opens Tools › Options at the Backups page: where the failed-backup warnings lead. */
+  backupSettings: 'book.backupSettings',
   /** Argument: `{ id }`. No menu item of its own; the accounts navigator and menu run it. */
   renameSubBook: 'book.subBook.rename',
   /** Argument: `{ id }`. Moves the sub-book's contents up to its parent, then deletes it. */
@@ -78,13 +88,29 @@ export const BOOK_CONTEXT_KEYS = {
   /** The open book's name, for status text such as `Book: {book.name}`. */
   name: 'book.name',
   /** Another plugin's view shows the book tree (`registerNavigator`), so the Book panel is hidden. */
-  hasNavigator: 'book.hasNavigator'
+  hasNavigator: 'book.hasNavigator',
+  /** The open (or last opened) book's last automatic backup failed or was cut short: shows the warning. */
+  backupFailed: 'book.backup.failed'
 } as const
+
+/** The Backups options page's id, for opening the options dialog at it. */
+export const BOOK_BACKUPS_OPTIONS_PAGE = 'book.options.backups'
 
 const channel = (event: string) => channelFor(BOOK_PLUGIN_ID, event)
 
 /** Requests, renderer → main. */
 export const BOOK_CHANNELS = {
+  /** → `BackupStatus`, for the Backups options page. */
+  backupsStatus: channel('backups.status'),
+  /**
+   * `{ current: string | null }` → the chosen folder's path, or undefined if cancelled. Opens the folder picker in
+   * `current`, or in the default backup folder when that is null.
+   */
+  backupsChooseFolder: channel('backups.chooseFolder'),
+  /** `{ folder?: string }` → `BackupInfo[]`: the backups in a folder (the backup folder by default), newest first. */
+  backupsList: channel('backups.list'),
+  /** → `BackupInfo`, or undefined if cancelled: picks a backup file anywhere, with an open dialog. */
+  backupsChoose: channel('backups.choose'),
   /** → `BookState`. */
   state: channel('state'),
   /** → `RecentBook[]`, with `exists` filled in. */
@@ -105,6 +131,8 @@ export const BOOK_CHANNELS = {
 
 /** Push events, main → renderer. Each carries the whole new value, so a repeat is harmless. */
 export const BOOK_EVENTS = {
+  /** `BackupStatus`, after each backup attempt and when the book it describes changes. */
+  backups: channel('backups.changed'),
   /** `BookState`. */
   state: channel('state.changed'),
   /** `BookTree`, or null when the book closed. */
@@ -126,7 +154,9 @@ export const BOOK_DIALOGS = {
   /** Input `NewBookDialogInput`, result `NewBookDialogResult`. */
   newBook: 'book.dialog.new',
   /** Input `RenameSubBookDialogInput`, result `{ id }`. */
-  renameSubBook: 'book.dialog.rename'
+  renameSubBook: 'book.dialog.rename',
+  /** Input `RestoreDialogInput`, result `RestoreDialogResult`. */
+  restore: 'book.dialog.restore'
 } as const
 
 export interface NewBookDialogInput {

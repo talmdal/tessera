@@ -67,6 +67,19 @@ describe('opening the options dialog', () => {
     expect(events).toContainEqual({ name: OPTIONS_OPEN, data: { windowId: 7, session: 'session-1' } })
   })
 
+  it('opens at a page when asked, so a warning can lead straight to its setting', async () => {
+    const { runtime, events } = setup({ windows: [7] })
+    await runtime.commands.execute(OPTIONS_COMMANDS.open, { page: 'book.options.backups' })
+    expect(events.filter(e => e.name === OPTIONS_OPEN).at(-1)?.data).toEqual({ windowId: 7, session: 'session-1', page: 'book.options.backups' })
+  })
+
+  it('ignores a page that is not a page id', async () => {
+    const { runtime, events } = setup({ windows: [7] })
+    await runtime.commands.execute(OPTIONS_COMMANDS.open, { page: 42 })
+    await runtime.commands.execute(OPTIONS_COMMANDS.open, { page: '' })
+    for (const event of events.filter(e => e.name === OPTIONS_OPEN)) expect(event.data).not.toHaveProperty('page')
+  })
+
   it('says so plainly when there is no window to open it in', async () => {
     const { runtime } = setup({ windows: [] })
 

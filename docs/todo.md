@@ -81,9 +81,12 @@ off, or delete them, as they land.
       `shell.dialogs` extension point with the renderer's dialog host, and
       `shell.files` (open and save dialogs, `exists`, the OS trash). See
       [Asking the user](plugin-creation.md#asking-the-user-dialogs-prompts-and-files).
-- [ ] **More shell services:** recent files, atomic writes, backups and file
-      locks for `shell.files`; later `shell.notifications`, `shell.settings`,
-      and a secure password prompt.
+- [x] **`shell.files.showFolderDialog`:** a folder picker, for the backup
+      folder. Book backups themselves are the book plugin's, not a shell
+      service: see [Finance: backup and restore](#finance-backup-and-restore).
+- [ ] **More shell services:** recent files, atomic writes and file locks for
+      `shell.files`; later `shell.notifications`, `shell.settings`, and a
+      secure password prompt.
 
 ## Finance: books and accounts
 
@@ -408,6 +411,48 @@ building on `accounts.service`.
       in the register itself, pattern detection, a shared holiday calendar
       once there are settings.
 
+## Finance: backup and restore
+
+Design: [backup-restore-design.md](backup-restore-design.md). Built into the
+`book` plugin: automatic backups when a book closes, backups on demand, and
+restore over the open book or as a new book, all in the engine-neutral
+`.tessera-backup` file.
+
+- [x] **Phases 0–5:** `Database.snapshot()`/`load()`, the stable book id and
+      the folder picker; the backup file and its disk port; automatic backups
+      on close with the shutdown budget and retention; the Backups options
+      page; *Back Up Now*, *Back Up To…* and the failed-backup warnings;
+      restore and the Restore dialog. Along the way, shutdown was made the
+      reverse of start-up: `onShuttingDown` and the book's `onWillClose`
+      listeners both run last registered first.
+- [x] **Phase 6, timing:** a seeded book scaled to 303,000 documents backs up
+      on quit in about 1.2 s on both engines, well inside the 6 s budget. See
+      the design note's [phase 6 results](backup-restore-design.md#phase-6-results).
+      `npm run bench:backup` repeats it on any machine.
+- [x] **Deleted books' bookkeeping:** deleting a book removes its entry from
+      the backup ledger and keeps its backup files; the backup status stops
+      describing it.
+- [ ] **Phase 6, on real hardware:** on Windows, renaming and trashing on a
+      network share and a removable drive; Electron's `trashItem` must fail
+      there rather than show a "permanently delete?" dialog. On every
+      platform, an unplugged drive's folder reported as missing, never
+      created. Not testable here, so not yet done.
+- [ ] **Timing on a slow machine.** The figures above are from a fast
+      processor. Run `npm run bench:backup` on an older laptop (and on
+      Windows) before deciding the budget is safe for very large books.
+- [ ] **Halve a backup's memory.** `snapshot()` deep-copies every document,
+      so a backup briefly holds the book twice. Documents are never mutated
+      once stored, so the book's own backups could use an uncopied snapshot.
+- [ ] **Damaged backups in the Restore dialog** are listed as restorable and
+      refused at restore time, since the list reads headers only. Verifying a
+      backup when it is selected would say so sooner.
+- [ ] **Later** (from the design note): periodic backups during a long
+      session; a `book.backups` service (for example, *exchange* backing up
+      before a large import); participants describing a backup ("312
+      accounts"); per-book settings; encrypted backups; opening the backup
+      folder in the file manager; the archive feature; backing up options and
+      application state.
+
 ## State and settings (proposed design)
 
 Design: [settings-design.md](settings-design.md). Nothing here is built yet.
@@ -533,6 +578,12 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
       or window a request came from.
 
 ## Build and packaging
+
+- [ ] **The federation build warns that `@tessera/ui` named imports "will not
+      work in production builds"** (shared with `import: false`, not
+      installed locally). Every plugin with a renderer remote gets it. Check
+      before packaging whether the built remotes really resolve their
+      `@tessera/ui` imports.
 
 - [ ] **`npm install` fails from a clean checkout.** There is no lockfile, and
       `package.json` asks for versions that aren't published:

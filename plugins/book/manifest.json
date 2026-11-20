@@ -9,7 +9,9 @@
       "./StartView": "src/renderer/StartView.tsx",
       "./BookTree": "src/renderer/BookTree.tsx",
       "./NewBookDialog": "src/renderer/NewBookDialog.tsx",
-      "./RenameDialog": "src/renderer/RenameDialog.tsx"
+      "./RenameDialog": "src/renderer/RenameDialog.tsx",
+      "./BackupsOptionsPage": "src/renderer/BackupsOptionsPage.tsx",
+      "./RestoreDialog": "src/renderer/RestoreDialog.tsx"
     }
   },
   "services": {

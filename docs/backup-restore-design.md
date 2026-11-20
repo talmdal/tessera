@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Phases 0–2 done**: `Database.snapshot()`/`load()` ([Taking a snapshot](#taking-a-snapshot)), the stable book id ([Book identity](#book-identity)), `shell.files.showFolderDialog` ([Contracts](#contracts)), the backup file with its disk port ([The backup file](#the-backup-file)), and automatic backups on close ([As built](#automatic-backups-as-built)). Phase 3 (the Backups options page) is next. Open questions all answered 2026-11-19 |
+| **Status** | **Built: phases 0–6**, except the checks that need real hardware (Windows, network shares, removable drives). `Database.snapshot()`/`load()` ([Taking a snapshot](#taking-a-snapshot)), the stable book id ([Book identity](#book-identity)), `shell.files.showFolderDialog` ([Contracts](#contracts)), the backup file with its disk port ([The backup file](#the-backup-file)), and automatic backups on close ([As built](#automatic-backups-as-built)). The Backups options page is in ([As built](#the-backups-options-page-as-built)). Manual backups and the failed-backup warnings are in ([As built](#backing-up-on-demand-as-built)). Restore is in ([As built](#restore-as-built)). Timings are in [Phase 6 results](#phase-6-results). Open questions all answered 2026-11-19 |
 | **Date** | 2026-11-19 |
 | **Scope** | Keeping a whole book safe: automatic backups taken when a book closes, on a schedule the user chooses; backups on demand; restoring a backup over the open book or as a new book; the Backups options page that controls it |
 | **Builds on** | [account-manager-design.md](account-manager-design.md) ("The book"), [account-manager-implementation.md](account-manager-implementation.md) (`BookSessionImpl`, `disk.ts`, migrations), [storage-engine-redesign.md](storage-engine-redesign.md) (the kit, backends, atomic batches), [options-framework-design.md](options-framework-design.md) (`context.options`, `shell.options.pages`) |
@@ -481,6 +481,53 @@ Last backup       “Home Finances”: today at 18:42  ·  Home Finances 2026-11
 - The controls under the checkbox are disabled (not hidden) when automatic
   backups are off.
 
+### The Backups options page as built
+
+*Built (phase 3).*
+
+| Part | Where |
+|---|---|
+| The page | [`renderer/BackupsOptionsPage.tsx`](../plugins/book/src/renderer/BackupsOptionsPage.tsx), exposed as `./BackupsOptionsPage` |
+| Its IPC | [`backups/ipc.ts`](../plugins/book/src/privileged/backups/ipc.ts) |
+| The contributions | A `book.options` category ("Book", order 30) and the `book.options.backups` page |
+
+Where the build differs from the sections above:
+
+- **`BackupStatus` carries `defaultFolder`, not the resolved folder.** The
+  page shows the *draft's* folder, which may not have been applied yet, and
+  falls back to the default's real path when the draft's folder is `null`.
+  A resolved committed folder would show the wrong thing mid-edit.
+- **A closed book is found by its path.** With no book open, the status is
+  about the most recently opened book. The recent-books list knows paths but
+  not ids, so ledger entries now also record each book's `name` and `path`,
+  and `BackupLedger.byPath` finds an entry by path (case-insensitive on
+  Windows and macOS). `book.id` is absent when that book has never been
+  backed up on this machine.
+- **When the status is pushed:** `book:backups.changed` goes out after every
+  recorded attempt (ok, failed or interrupted, via `Backups.onDidRecord`),
+  and whenever a book opens or closes. The page follows it with the same
+  "subscribe, then request" `useFollowed` the start view uses.
+- **The folder picker is modal to the window that asked.** It uses the
+  sender the main process attaches, never one from the request. It starts
+  in the draft's folder, or in the default folder when the draft has none.
+- **Only the schedule is disabled while automatic backups are off.** The
+  folder stays editable, since manual backups (phase 4) use it too.
+- **The "Keep" box shows exactly what was typed**, as the Import and export
+  page's does, for the same two bugs it avoids (an empty box showing "NaN",
+  and `1.5` becoming `15`). A value out of range says "Keep between 1 and
+  999." and makes the page invalid.
+- **Tests:**
+  - `tests/plugins/book/renderer/backupsOptionsPage.test.tsx` (19): what the
+    page shows and proposes, the folder picker and its failures, the
+    last-backup line and its warnings, and following the pushed status.
+  - `tests/plugins/book/activation.test.ts` (7 new): the contributions, the
+    registered defaults, the shared validation refusing what the page
+    refuses, an applied folder actually used at the next close, the status
+    channel and event before, during and after a book's life, and the
+    picker's arguments.
+
+  A federation build of the book plugin emits the page as its own chunk.
+
 ## Automatic backups
 
 ### When one is due
@@ -536,6 +583,13 @@ type BackupLedger = Record<string /* bookId */, {
 - Because `changed` persists, an edit on Monday that was not backed up
   (frequency `weekly`) is still backed up on Friday, even if the user only
   looked at the book that day.
+- **Deleting a book forgets its entry** (phase 6). An internal
+  `BookSessionImpl.onDidDelete`, never published, gives the deleted file's
+  path, and `BackupLedger.forget` removes the entry last seen there. Its
+  backup files stay: someone who deletes a book may want it back. The status
+  is published again afterwards. The `closed` of a deleted open book comes
+  while it is still the last book, so without this the options page and any
+  failed-backup warning went on describing it.
 
 ### The close sequence
 
@@ -676,6 +730,59 @@ Manual backups are taken while the book stays open. `snapshot()` is
 consistent even with writers running, which is exactly what a file copy of
 an open SQLite database in WAL mode cannot promise.
 
+### Backing up on demand as built
+
+*Built (phase 4)*, in [`backups/commands.ts`](../plugins/book/src/privileged/backups/commands.ts)
+and `Backups.backUpNow`:
+
+- **File › Back Up Now** and **File › Back Up To…** sit in a `book.backup`
+  File menu group (order 5, between the book's file items and *Delete
+  Book…*). Both are enabled while a book is open, read-only books included.
+  *Restore from Backup…* joins the group in phase 5, with the Start view's
+  *Restore Backup…* button.
+- **Manual backups use the same queue and write path as automatic ones.** A
+  manual backup waits behind any backup already being written, is read back,
+  and is never pruned. Success is reported in a message box: "Backed up
+  “Home”." with the file and folder.
+- **A manual backup in the backup folder counts as the book's last backup.**
+  So the frequency is measured from it: with `daily`, a manual backup at
+  10:00 means no automatic one when the book closes that day. If nothing
+  changed after it, the next close takes none.
+- **The change watcher is re-armed before the snapshot.** It stops listening
+  after the first change of a session, which is enough at close; a manual
+  backup taken mid-session re-arms it, so an edit made while the file is
+  written still counts.
+- **Back Up To… writes exactly the chosen file.** It goes through
+  `BackupDisk.write`: a `.partial` beside it, synced, then renamed over it,
+  replacing a file the save dialog already asked about. A failed write leaves
+  any file it would have replaced untouched. The extension is added if the
+  user typed a name without it. The file counts as the last backup only when
+  it lands in the backup folder (open question E).
+- **A failed manual backup** is shown in a message box ("Could not back up
+  the book.") and leaves the ledger as it was. It is not an automatic backup,
+  so it raises no warning and changes no retry.
+- **The warnings:**
+  - A `book.backup.failed` context key is set from the same status the
+    options page shows, at start-up and after every change to it. It drives
+    a *Last backup failed* item on the bottom bar.
+  - The Start view shows a warning with the reason and a **Backup
+    Settings…** button.
+  - Both run `book.backupSettings`, which opens the options dialog at the
+    Backups page. `shell.options.open` now takes an optional `{ page }`
+    (carried in `OptionsOpen`). An unknown page opens where it always does,
+    and a dialog already open is left as it is.
+- A reason without closing punctuation gets a full stop, in both warnings,
+  so "…on device. It will be tried again…" reads as two sentences.
+- **Tests:**
+  - `backups.test.ts` (7 new): `backUpNow`.
+  - `backupDisk.test.ts` (4 new): `write` on a real disk.
+  - `activation.test.ts` (7 new): the commands, enablement, the warning key
+    and the settings command.
+  - `views.test.tsx` (3 new): the Start view warning.
+  - `backupsOptionsPage.test.tsx` (1 new): the sentence fix.
+  - `registerOptions.test.ts` and `optionsDialog.test.tsx` (4 new): opening
+    at a page.
+
 ## Retention
 
 After each successful automatic backup:
@@ -806,6 +913,84 @@ restore(backupFile, target: 'replace' | { newPath })
   freshly created book is open. It needs no special case. The pre-restore
   backup of an empty book is skipped.
 
+### Restore as built
+
+*Built (phase 5).*
+
+| Part | Where |
+|---|---|
+| The sequence | [`backups/Restorer.ts`](../plugins/book/src/privileged/backups/Restorer.ts) |
+| The command | `book.restore` in [`backups/commands.ts`](../plugins/book/src/privileged/backups/commands.ts) |
+| The dialog | [`renderer/RestoreDialog.tsx`](../plugins/book/src/renderer/RestoreDialog.tsx) |
+
+There is a *Restore from Backup…* File menu item, always enabled, and a
+*Restore Backup…* button on the Start view.
+
+- **The queue.** `BookSessionImpl.exclusive(work)` runs `work` inside the
+  session's one-at-a-time queue, handing it `close`, `open`, `probe` and
+  `trash`. `open()` became a queued wrapper around `openNow()`, so restore
+  can open inside the queue without waiting on itself. Like
+  `unscopedDatabase()`, `exclusive` is never published on `book.session`.
+- **The command checks for itself.** It reads the chosen file's header again
+  rather than trusting the renderer.
+  - *Replace* asks a destructive confirmation that names the backup's date,
+    the safety copy and the Trash, and says so when the backup is of another
+    book.
+  - *New* asks for the file in a save dialog that suggests
+    `<original folder>/<name> (restored YYYY-MM-DD).tessera`. It adds a
+    confirmation only when a book is open, because opening the copy closes it:
+    "Close “Home” and open the restored copy? “Home” is not changed." Without
+    an open book, the save dialog is the confirmation.
+  - Success ends in a message naming the backup's date and, for a replace,
+    the safety copy.
+- **The safety copy** is an ordinary backup with `trigger: 'pre-restore'`,
+  written by `Backups.backUpNow(…, { trigger: 'pre-restore', record: false })`.
+  - It is not recorded as the book's last backup. Recording it would make
+    the restored book look unchanged since its last backup.
+  - If it can't be made (folder missing, disk full), the restore is refused
+    with nothing changed.
+  - After any restore, `Backups.markChanged` makes the next due close back
+    the book up.
+- **The side-file finding: side files move with the staged book.** The
+  read-only probe of the staged file leaves empty SQLite `-wal`/`-shm` files
+  beside it. Renaming only the main file left them behind as junk, and would
+  have lost data had a side file held any. `BookDisk.renameWithSideFiles`
+  moves them with it (side files first) and never deletes them. A real-file
+  test caught this; the memory tests could not.
+- **More guards:**
+  - *New* refuses the open book's own file ("To restore over it, choose
+    Replace the open book").
+  - If trashing the replaced book fails, the staging file is removed and the
+    original reopened.
+  - If renaming fails, the staged copy is kept, and the message says where
+    it is.
+- **The list is read from headers only.** A damaged backup is listed as
+  restorable and refused at restore time, in step 2, before anything
+  changes. Reading every file in full just to list a folder would be too
+  slow. A file that isn't a backup, or needs a newer Tessera or plugin, is
+  listed disabled with its reason.
+- **The contracts as built:**
+  - `BackupInfo` is `{ file, sizeBytes, header?, problem? }`. `header` is
+    absent for an unreadable file and carries `bookPath` for the suggested
+    location.
+  - `RestoreTarget` is `{ kind: 'replace' } | { kind: 'new', path }`, and the
+    dialog returns `{ file, target: 'replace' | 'new' }`.
+  - The channels are `book:backups.list` (with an optional folder) and
+    `book:backups.choose` (an open dialog, modal to the asking window). The
+    planned `book:backups.inspect` was not needed.
+  - *Restore as a new book* is the dialog's default; replacing is never
+    preselected.
+- **A `Restore` icon** was added to the standard set for the Start view
+  button.
+- **Tests:**
+  - `restorer.test.ts` (15): replace, new, an empty book, older and newer
+    backups, a damaged backup, failures before and after the point of no
+    return, and listing.
+  - `restoreFiles.test.ts` (4): real SQLite files.
+  - `restoreDialog.test.tsx` (15).
+  - `activation.test.ts` (10 new): the command end to end, and the IPC.
+  - `views.test.tsx` (1 new): the Start view button.
+
 ## Failures and how they are reported
 
 Automatic backups run when the user is leaving, so they **never show a modal
@@ -877,12 +1062,12 @@ export interface BackupInfo {
 }
 
 export interface BackupStatus {
-  book?: { id: string, name: string }
+  book?: { id?: string, name: string }   // id absent for a closed book never backed up on this machine
   lastBackupAt?: string
   lastFile?: string
   lastResult?: 'ok' | 'failed' | 'interrupted'
   lastError?: string
-  folder: string               // resolved, never null
+  defaultFolder: string        // <Documents>/Tessera Backups, resolved: the page shows the draft's folder, or this
 }
 
 export type RestoreTarget = { kind: 'replace' } | { kind: 'new', path?: string }
@@ -958,10 +1143,10 @@ Effort on the scale this repository's other notes use: **S** a day or two,
 | **0** | *(done)* **Prerequisites.** `Database.snapshot()`/`load()` and `DatabaseSnapshot` in `@tessera/types`, implemented in `KitDatabase`; `scopedDatabase` rejecting both; the in-place-mutation check that decides whether the snapshot clones; `ShellFiles.showFolderDialog` in the shell and its Electron adapter; `BOOK_META.id`, assigned at create and on first writable open | **M** | — |
 | **1** | *(done)* **The backup file, headless.** `backupFile.ts` (streaming write and read, header, trailer, digest, every refusal: unknown version, truncated, miscounted, bad digest, newer book format, newer contributor); `naming.ts`; the `BackupDisk` port with a Node adapter (write `.partial` → fsync → rename; header-only reads); round-trip tests on the memory engine and on real SQLite and LokiJS files, including SQLite → LokiJS and back | **M** | 0 |
 | **2** | *(done)* **Automatic backups.** The `book` options namespace (defaults, validate); `isBackupDue` (pure); `BackupLedger` and change tracking; the close-time listener and the post-close queue; verify; retention, trashing pruned backups with a delete fallback; the shutdown budget and abandonment; retry at the next close; logging to the Problems log. No UI beyond what logging shows | **M** | 1 |
-| **3** | **The Backups options page.** `BackupsOptionsPage.tsx` with the frequency, keep, automatic and folder controls; *Browse…* and *Use Default* through `book:backups.chooseFolder`; the status line from `book:backups.status`, refreshed on `book:backups.changed`; the `book.options` category and page contributions | **S** | 2 |
-| **4** | **Backing up on demand.** *Back Up Now* and *Back Up To…* commands and File menu group; the Start-view and status-bar warning for a failed last backup | **S** | 2 |
-| **5** | **Restore.** `Restorer` (inspect, verify, stage, probe, swap, reopen) inside the session's serial queue, with every failure path's message; pre-restore backups; new id and `restoredFrom` for restore-as-new; `book:backups.list/inspect/restore`; `RestoreDialog.tsx` (grouped list, disabled-with-reason rows, Browse…, the two targets, confirmations); *Restore from Backup…* in the File menu and on the Start view | **L** | 1, 2 |
-| **6** | **Hardening and documentation.** A seeded large book (`npm run seed:book`) timed through snapshot, write, verify and restore, to confirm the shutdown budget with margin; Windows rename and trash behaviour checked on a real machine, including `trashItem` on a network share and a removable drive, where it must reject without a dialog (see [Retention](#retention)); [plugin-creation.md](plugin-creation.md) updated for `snapshot`/`load` and `showFolderDialog`; `todo.md` updated; this note's *Status* | **S** | 5 |
+| **3** | *(done)* **The Backups options page.** `BackupsOptionsPage.tsx` with the frequency, keep, automatic and folder controls; *Browse…* and *Use Default* through `book:backups.chooseFolder`; the status line from `book:backups.status`, refreshed on `book:backups.changed`; the `book.options` category and page contributions | **S** | 2 |
+| **4** | *(done)* **Backing up on demand.** *Back Up Now* and *Back Up To…* commands and File menu group; the Start-view and status-bar warning for a failed last backup | **S** | 2 |
+| **5** | *(done)* **Restore.** `Restorer` (inspect, verify, stage, probe, swap, reopen) inside the session's serial queue, with every failure path's message; pre-restore backups; new id and `restoredFrom` for restore-as-new; `book:backups.list/inspect/restore`; `RestoreDialog.tsx` (grouped list, disabled-with-reason rows, Browse…, the two targets, confirmations); *Restore from Backup…* in the File menu and on the Start view | **L** | 1, 2 |
+| **6** | *(done, except the hardware checks)* **Hardening and documentation.** A seeded large book (`npm run seed:book`) timed through snapshot, write, verify and restore, to confirm the shutdown budget with margin; Windows rename and trash behaviour checked on a real machine, including `trashItem` on a network share and a removable drive, where it must reject without a dialog (see [Retention](#retention)); [plugin-creation.md](plugin-creation.md) updated for `snapshot`/`load` and `showFolderDialog`; `todo.md` updated; this note's *Status* | **S** | 5 |
 
 **Total: about six to seven weeks for one developer.** Phases 3 and 4 can
 run in parallel with phase 5 once phase 2 is in, which brings it to about
@@ -981,3 +1166,95 @@ having backups without a way to restore them is a concern.
 | 4 | *Back Up Now* writes a verified `manual` backup of an open book with writers running; *Back Up To…* writes where chosen and does not change the ledger outside the backup folder; the warning appears after a failed automatic backup and goes after a successful one |
 | 5 | Restore as new creates a book that opens with the backup's contents, a new id and `restoredFrom`; replace takes a pre-restore backup, trashes the old file and side files, and reopens with the backup's contents and the same id; an older backup is migrated on open and a newer one refused before anything changes; a failure at each step leaves the files exactly as the message says; a concurrent *Open* waits for the restore; other plugins' views show the restored data after the `opened` event |
 | 6 | Timing of a large seeded book recorded in the phase results, with the budget's margin |
+
+### Phase 6 results
+
+**Timing**, with `npm run bench:backup` (see [Repeating the timings](#repeating-the-timings)). The Household
+book (`npm run seed:book`: 1,836 documents, 1,515 of them transactions, 1.1 MB) is opened in each engine and
+backed up and restored with the real code. It is then scaled up by repeating its transactions with fresh ids.
+Each copy's amount and, for half of them, its memo are varied from a seeded source, so the backup compresses
+like a real book rather than like identical copies. Times are in milliseconds, each the median of three runs, on
+an AMD Ryzen AI 9 465 with 20 threads under WSL2 and Node 24:
+
+| Engine | Documents | Book | Backup | Open | Snapshot | Write | **Quit path** | Verify | Restore |
+|---|---|---|---|---|---|---|---|---|---|
+| sqlite | 1,836 | 1.1 MB | 0.1 MB | 4 | 1 | 13 | **13** | 8 | 16 |
+| loki | 1,836 | 0.9 MB | 0.1 MB | 5 | 1 | 12 | **14** | 7 | 22 |
+| sqlite | 15,471 | 6.9 MB | 0.3 MB | 23 | 5 | 60 | **64** | 42 | 107 |
+| loki | 15,471 | 6.9 MB | 0.3 MB | 26 | 6 | 53 | **58** | 44 | 125 |
+| sqlite | 76,071 | 32.3 MB | 1.2 MB | 141 | 28 | 267 | **295** | 186 | 515 |
+| loki | 76,071 | 33.8 MB | 1.2 MB | 194 | 26 | 228 | **253** | 184 | 709 |
+| sqlite | 151,821 | 64.0 MB | 2.2 MB | 320 | 85 | 506 | **606** | 373 | 1,121 |
+| loki | 151,821 | 67.4 MB | 2.2 MB | 438 | 78 | 557 | **635** | 374 | 1,445 |
+| sqlite | 303,321 | 127.9 MB | 4.1 MB | 709 | 174 | 974 | **1,163** | 774 | 2,303 |
+| loki | 303,321 | 135.1 MB | 4.1 MB | 734 | 123 | 847 | **971** | 702 | 2,642 |
+
+The script's verdict: "The slowest quit path, 1,163 ms (sqlite, 303,321 documents), fits the 6,000 ms shutdown
+budget 5.2× over."
+
+- **The quit path** is the snapshot plus the write: what must fit the
+  shutdown budget. Verification and pruning are skipped at quit. A personal
+  book of 10–20 years is roughly 20,000–100,000 transactions, about 0.1–0.4 s
+  here. At 300,000 documents it is about 1.2 s, so the 6 s budget
+  (`BACKUP_SHUTDOWN_BUDGET_MS`) has about 5× margin on this machine.
+- **Closing never waits on the write.** Only the snapshot happens before the
+  book flushes: under 200 ms at 300,000 documents.
+- **Restore** is slowest, about 2–3 s at 300,000 documents, since it reads,
+  verifies, loads and probes. It runs when the user asks, not under the
+  budget.
+- **A backup is about 3% of the book's size**, since JSON lines with
+  repeated keys compress well.
+- **Memory:** `snapshot()` deep-copies every document, so a backup briefly
+  holds the book twice. It is recorded in `todo.md` as a possible saving.
+- **Not measured:** a slow machine. A laptop several times slower would
+  still fit typical books easily, but should be measured before very large
+  books are relied on.
+
+**Not done here, for want of the hardware:** Windows, network shares and
+removable drives, as listed in phase 6.
+
+- Whether Electron's `trashItem` rejects, rather than showing a dialog, on a
+  volume without a Recycle Bin.
+- Rename and trash semantics on a share.
+- An unplugged drive's folder being reported as missing.
+
+The code paths are covered by tests with fakes: the trash fallback to
+deletion, the missing-folder refusal, the never-overwriting rename. The real
+behaviour still needs checking on those systems. These checks are open
+items in [todo.md](todo.md#finance-backup-and-restore).
+
+**Bookkeeping of deleted books:** a deleted book's entry in `book.backups` is
+now removed, and its backup files kept. See [Bookkeeping](#bookkeeping).
+
+**Documentation:**
+
+- [plugin-creation.md](plugin-creation.md): `showFolderDialog`; close
+  listeners running last registered first; `BookInfo.id` and `migrated`;
+  "backup and restore need nothing from you"; opening the options dialog at
+  a page. The shutdown order was documented with the lifecycle change.
+- [storage-engine-redesign.md](storage-engine-redesign.md): `snapshot()` and
+  `load()` in the contract outline.
+- [todo.md](todo.md): a backup and restore section, and the federation
+  build's `@tessera/ui` warning.
+
+#### Repeating the timings
+
+`npm run bench:backup` ([scripts/bench/](../scripts/bench/)) seeds a fresh
+Household book in a temporary folder, runs the table above, and prints it as
+Markdown with a verdict against `BACKUP_SHUTDOWN_BUDGET_MS`. It exits with 1
+when a quit path doesn't fit, and leaves nothing behind. The full run takes
+about 80 s here. Run it on the machine whose figures you need: a slow laptop,
+or a Windows machine.
+
+| Option | Does |
+|---|---|
+| `--book path.tessera` | Times a SQLite book of your own instead |
+| `--factors 1,100` | Other sizes: how many times the transactions are repeated (default `1,10,50,100,200`) |
+| `--engines sqlite` | One engine (`sqlite`, `loki`; default both) |
+| `--runs 5` | The median of more runs (default 3) |
+| `--seed 7` | Other varied data in the scaled copies (default 1) |
+
+Its logic is tested in [tests/scripts/benchBackup.test.ts](../tests/scripts/benchBackup.test.ts): the scaled book
+loads with its unique indexes, the same seed makes the same book, a measurement leaves its folder empty, and the
+verdict matches the numbers.
+

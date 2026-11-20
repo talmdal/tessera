@@ -28,6 +28,7 @@ import MoreVert from '@mui/icons-material/MoreVert'
 import Pause from '@mui/icons-material/Pause'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import Repeat from '@mui/icons-material/Repeat'
+import Restore from '@mui/icons-material/Restore'
 import Save from '@mui/icons-material/Save'
 import Savings from '@mui/icons-material/Savings'
 import Search from '@mui/icons-material/Search'
@@ -40,6 +41,6 @@ export const STANDARD_ICONS: Record<IconName, typeof SvgIcon> = {
   Download, Edit,
   // `Error` would shadow the global Error constructor in this module
   Error: ErrorIcon,
-  ExpandLess, ExpandMore, Folder, Home, Info, LibraryAdd, Link, List, MoreVert, Pause, PlayArrow, Repeat, Save, Savings,
+  ExpandLess, ExpandMore, Folder, Home, Info, LibraryAdd, Link, List, MoreVert, Pause, PlayArrow, Repeat, Restore, Save, Savings,
   Search, ShowChart, SkipNext, Warning
 }

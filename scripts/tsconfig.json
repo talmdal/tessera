@@ -37,8 +37,11 @@
     "dev.mts",
     "build-plugins.mts",
     "seed-book.mts",
+    "bench-backup.mts",
     "anonymize-statement.mts",
     "seed/**/*.ts",
-    "anonymize/**/*.ts"
+    "bench/**/*.ts",
+    "anonymize/**/*.ts",
+    "../plugins/storage.loki/src/lokijs.d.ts"
   ]
 }

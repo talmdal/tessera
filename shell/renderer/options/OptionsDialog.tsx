@@ -37,7 +37,7 @@ export function OptionsDialog({ bridge, loader, builtIns = BUILT_IN_OPTION_PAGES
   builtIns?: Readonly<Record<string, OptionsPageComponent>>
 }) {
   const { windowId } = useWindowTheme()
-  const [open, setOpen] = useState<{ session: string, pages: OptionsPageNode[] }>()
+  const [open, setOpen] = useState<{ session: string, pages: OptionsPageNode[], page?: string }>()
 
   useEffect(() => bridge.on<OptionsOpen>(OPTIONS_OPEN, request => {
     if (request.windowId !== windowId) return
@@ -45,7 +45,7 @@ export function OptionsDialog({ bridge, loader, builtIns = BUILT_IN_OPTION_PAGES
     setOpen(current => {
       if (current?.session === request.session) return current
       bridge.invoke<OptionsPageNode[]>(OPTIONS_PAGES).then(
-        pages => setOpen({ session: request.session, pages }),
+        pages => setOpen({ session: request.session, pages, ...(request.page !== undefined && { page: request.page }) }),
         err => console.error('[options] Could not open the options dialog', err))
       return current
     })
@@ -59,7 +59,7 @@ export function OptionsDialog({ bridge, loader, builtIns = BUILT_IN_OPTION_PAGES
       .catch(err => console.error('[options] Could not report that the dialog closed', err))
   }
 
-  return <OptionsFrame key={open.session} session={open.session} pages={open.pages} bridge={bridge} loader={loader} builtIns={builtIns} onClose={close} />
+  return <OptionsFrame key={open.session} session={open.session} pages={open.pages} initialPage={open.page} bridge={bridge} loader={loader} builtIns={builtIns} onClose={close} />
 }
 
 /** Every node of the tree, depth first, each with how deep it sits. */
@@ -80,16 +80,21 @@ function firstPage(node: OptionsPageNode): OptionsPageNode | undefined {
   return undefined
 }
 
-export function OptionsFrame({ session, pages, bridge, loader, builtIns = BUILT_IN_OPTION_PAGES, onClose }: {
+export function OptionsFrame({ session, pages, initialPage, bridge, loader, builtIns = BUILT_IN_OPTION_PAGES, onClose }: {
   session: string
   pages: readonly OptionsPageNode[]
+  /** The page to start on; when absent or unknown, the first page. A category starts on its first page. */
+  initialPage?: string | undefined
   bridge: Bridge
   loader: ViewLoader
   builtIns?: Readonly<Record<string, OptionsPageComponent>>
   onClose(): void
 }) {
   const rows = useMemo(() => flatten(pages), [pages])
-  const initial = useMemo(() => pages.map(firstPage).find(Boolean) ?? rows[0]?.node, [pages, rows])
+  const initial = useMemo(() => {
+    const asked = initialPage === undefined ? undefined : rows.find(row => row.node.id === initialPage)?.node
+    return (asked && firstPage(asked)) ?? pages.map(firstPage).find(Boolean) ?? rows[0]?.node
+  }, [pages, rows, initialPage])
   const [selectedId, setSelectedId] = useState(initial?.id)
   const [query, setQuery] = useState('')
 

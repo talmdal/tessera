@@ -8,6 +8,9 @@ import {
 } from '@tessera/book-api'
 import { nodeBackupDisk, type BackupDisk } from './backups/BackupDisk'
 import { BackupLedger } from './backups/BackupLedger'
+import { registerBackupCommands } from './backups/commands'
+import { registerBackupsIpc } from './backups/ipc'
+import { Restorer } from './backups/Restorer'
 import { Backups } from './backups/Backups'
 import { registerCommands, revealer } from './commands'
 import { contributions } from './contributions'
@@ -50,8 +53,10 @@ export async function activate(context: PluginContext, options: { disk?: BookDis
 
   // The user's backup settings, or the defaults where there is no options service (some tests)
   const settings = context.options?.register<BookOptions>({ defaults: BOOK_OPTIONS_DEFAULTS, validate: validateBookOptions })
+  const ledger = new BackupLedger(appState)
+  const backupDisk = options.backupDisk ?? nodeBackupDisk()
   const backups = new Backups({
-    disk: options.backupDisk ?? nodeBackupDisk(), ledger: new BackupLedger(appState), files, engineId: engine.id, log: context.logger,
+    disk: backupDisk, ledger, files, engineId: engine.id, log: context.logger,
     options: () => (settings?.get() ?? BOOK_OPTIONS_DEFAULTS).backups
   })
 
@@ -61,6 +66,9 @@ export async function activate(context: PluginContext, options: { disk?: BookDis
   // First, before anything can register a close listener: close listeners run last registered first, so the
   // backup's runs after every other plugin's, and sees whatever they write as the book closes
   context.subscriptions.push(...backups.attach(session))
+  const restorer = new Restorer({
+    session, engine, backupDisk, bookDisk: disk, backups, contributions: () => schema.contributions(), log: context.logger
+  })
   const publisher = new BookPublisher(context, session, recent, disk)
   active = { session, backups }
 
@@ -78,6 +86,8 @@ export async function activate(context: PluginContext, options: { disk?: BookDis
     ...contributions().map(([point, id, impl]) => context.extensions.contribute(BOOK_PLUGIN_ID, point, id, impl)),
     ...registerCommands(context, session, prompts),
     ...registerIpc(context, session, publisher, recent),
+    ...registerBackupsIpc(context, { session, recent, backups, ledger, files, restorer }),
+    ...registerBackupCommands(context, { session, backups, files, prompts, restorer }),
     context.services.provide(BOOK_PLUGIN_ID, BOOK_SESSION_SERVICE, publicSession(session)),
     // On quit the book closes but is remembered, so it reopens at the next start; then the backup that closing
     // queued gets its time to finish, inside the shutdown limit. One listener, so the two can't run out of order

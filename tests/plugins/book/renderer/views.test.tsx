@@ -39,23 +39,52 @@ describe('the start view', () => {
     { path: '/l/Home.tessera', name: 'Home', openedAt: '2026-11-01T10:00:00Z', exists: true },
     { path: '/l/Old.tessera', name: 'Old', openedAt: '2026-10-01T10:00:00Z', exists: false }
   ]
-  const setup = (state: object = { isOpen: false }, open: (data: any) => unknown = () => ({ ok: true, value: undefined })) => {
+  const setup = (state: object = { isOpen: false }, open: (data: any) => unknown = () => ({ ok: true, value: undefined }), backups: object = { defaultFolder: '/d' }) => {
     const b = bridge({
       [BOOK_CHANNELS.state]: () => state,
       [BOOK_CHANNELS.recent]: () => recent,
       [BOOK_CHANNELS.open]: open,
       [BOOK_CHANNELS.recentRemove]: () => undefined,
-      [BOOK_CHANNELS.delete]: () => true
+      [BOOK_CHANNELS.delete]: () => true,
+      [BOOK_CHANNELS.backupsStatus]: () => backups
     })
     render(<StartView />)
     return b
   }
+
+  it('warns when the last book’s last backup failed, saying why, and leads to the backup settings', async () => {
+    const b = setup(undefined, undefined, {
+      book: { id: 'b1', name: 'Home' }, lastResult: 'failed', lastError: 'The backup folder “/media/usb” can’t be found.', defaultFolder: '/d'
+    })
+    const warning = await screen.findByTestId('backup-warning')
+    expect(warning).toHaveTextContent('The last backup of “Home” didn’t complete: The backup folder “/media/usb” can’t be found. It will be tried again the next time the book closes.')
+    await userEvent.click(within(warning).getByRole('button', { name: 'Backup Settings…' }))
+    expect(b.executed().map(c => c.id)).toEqual([BOOK_COMMANDS.backupSettings])
+  })
+
+  it('warns when the last backup was cut short at quit', async () => {
+    setup(undefined, undefined, { book: { name: 'Home' }, lastResult: 'interrupted', defaultFolder: '/d' })
+    expect(await screen.findByTestId('backup-warning')).toHaveTextContent('didn’t complete: it was cut short when Tessera quit. It will be tried again')
+  })
+
+  it('shows no warning when the last backup worked, or there is no book yet', async () => {
+    setup(undefined, undefined, { book: { name: 'Home' }, lastResult: 'ok', lastBackupAt: '2026-11-19T10:00:00Z', defaultFolder: '/d' })
+    await screen.findByRole('button', { name: 'New Book…' })
+    await act(async () => { await Promise.resolve() })
+    expect(screen.queryByTestId('backup-warning')).toBeNull()
+  })
 
   it('offers New and Open, which run the File menu commands', async () => {
     const b = setup()
     await userEvent.click(screen.getByRole('button', { name: 'New Book…' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open Book…' }))
     expect(b.executed().map(c => c.id)).toEqual([BOOK_COMMANDS.new, BOOK_COMMANDS.open])
+  })
+
+  it('offers Restore Backup…, for someone whose book is lost and has no other to open', async () => {
+    const b = setup()
+    await userEvent.click(screen.getByRole('button', { name: 'Restore Backup…' }))
+    expect(b.executed().map(c => c.id)).toEqual([BOOK_COMMANDS.restore])
   })
 
   it('lists recent books; a missing one is marked and can only be removed from the list', async () => {

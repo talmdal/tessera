@@ -72,7 +72,9 @@ export function registerOptions(shell: PluginContext, runtime: PluginRuntime, de
     return session
   }
 
-  shell.commands.register(OPTIONS_COMMANDS.open, () => {
+  shell.commands.register(OPTIONS_COMMANDS.open, (args?: unknown) => {
+    const requested = (args as { page?: unknown } | undefined)?.page
+    const page = typeof requested === 'string' && requested !== '' ? requested : undefined
     const windowId = targetWindow()
     if (windowId === undefined) throw new Error('There is no window')
     // One session per window, and running the command again while the dialog is up keeps it: replacing it would
@@ -80,7 +82,7 @@ export function registerOptions(shell: PluginContext, runtime: PluginRuntime, de
     const existing = [...sessions].find(([, owner]) => owner === windowId)?.[0]
     const session = existing ?? newSessionId()
     sessions.set(session, windowId)
-    runtime.events.publish(OPTIONS_OPEN, { windowId, session } satisfies OptionsOpen)
+    runtime.events.publish(OPTIONS_OPEN, { windowId, session, ...(page !== undefined && { page }) } satisfies OptionsOpen)
   })
 
   for (const contribution of optionsMenus) {
