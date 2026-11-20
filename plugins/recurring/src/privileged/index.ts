@@ -61,11 +61,17 @@ export function watchDateRollover(today: () => string, onRollover: () => void, i
   return { dispose: () => clearInterval(timer) }
 }
 
-export async function activate(context: PluginContext) {
+export interface ActivateOptions {
+  /** Today, as YYYY-MM-DD. The real local date by default; tests pin it, since overdue is a question about today. */
+  today?: () => string
+}
+
+export async function activate(context: PluginContext, options: ActivateOptions = {}) {
+  const today = options.today ?? todayIso
   const session = context.services.get<BookSession>(BOOK_SESSION_SERVICE)
   const accounts = context.services.get<AccountsService>(ACCOUNTS_SERVICE)
   const prompts = context.services.get<ShellPrompts>(SHELL_PROMPTS_SERVICE)
-  const service = new RecurringServiceImpl({ session, accounts, log: context.logger })
+  const service = new RecurringServiceImpl({ session, accounts, log: context.logger, today })
 
   const publish = () => publishSnapshot(context, service, session)
 
@@ -90,7 +96,7 @@ export async function activate(context: PluginContext) {
       await service.handleAccountsChange(accountsChange)
       await publish()
     }),
-    watchDateRollover(todayIso, () => { void publish() }),
+    watchDateRollover(today, () => { void publish() }),
 
     ...contributions().map(([point, id, impl]) => context.extensions.contribute(RECURRING_PLUGIN_ID, point, id, impl)),
     ...registerIpc(context, service, session),
