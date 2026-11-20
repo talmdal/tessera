@@ -32,7 +32,8 @@ function setup(options: Partial<BookBackupOptions> = {}, extra: { budget?: numbe
   let settings: BookBackupOptions = { ...BOOK_OPTIONS_DEFAULTS.backups, ...options }
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   const backups = new Backups({ disk: backupDisk.disk, ledger, files, options: () => settings, engineId: 'storage-memory', log, now: clock.now })
-  const env = setupSession({ now: clock.now, hooks: backups.hooks })
+  const env = setupSession({ now: clock.now })
+  backups.attach(env.session)      // as the plugin does: first, so its close listener runs last
   env.contribute(contributor('accounts', 1))
 
   /** One session: opens (or creates) a book, optionally writes to it, closes it, and waits for any backup. */
@@ -326,7 +327,8 @@ describe('quitting', () => {
       disk: env.backupDisk.disk, ledger: env.ledger, files: env.files, options: () => ({ ...BOOK_OPTIONS_DEFAULTS.backups, frequency: 'monthly' }),
       engineId: 'storage-memory', log: env.log, now: env.clock.now
     })
-    const next = setupSession({ now: env.clock.now, hooks: restarted.hooks })
+    const next = setupSession({ now: env.clock.now })
+    restarted.attach(next.session)
     next.contribute(contributor('accounts', 1))
     next.driver.databases.set(file('Home.tessera'), structuredClone(env.driver.databases.get(file('Home.tessera'))!))
     await next.session.open(file('Home.tessera'))
@@ -339,27 +341,72 @@ describe('quitting', () => {
   })
 })
 
-describe('the session hooks', () => {
-  it('tell the backups when opening migrated the data, which counts as a change', async () => {
-    const opened = vi.fn()
-    const env = setupSession({ hooks: { opened, closing: async () => {} } })
+describe('how backups hook into the session', () => {
+  it('the opened event says when opening migrated the data, which counts as a change', async () => {
+    const env = setupSession()
+    const opened: unknown[] = []
+    env.session.onDidChange(change => { if (change.type === 'opened') opened.push(change) })
     await env.session.create(file('Home.tessera'))
     await env.session.close()
-    expect(opened).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ name: 'Home' }), false)
-
+    await env.session.open(file('Home.tessera'))
+    await env.session.close()
     env.contribute(contributor('budgets', 1))
     await env.session.open(file('Home.tessera'))
-    expect(opened).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ name: 'Home' }), true)
+
+    expect(opened).toEqual([
+      expect.objectContaining({ created: true, migrated: false }),
+      expect.objectContaining({ created: false, migrated: false }),
+      expect.objectContaining({ created: false, migrated: true })
+    ])
   })
 
-  it('run closing after every willClose listener, and a failing hook never stops the close', async () => {
+  it('a migration on opening counts as a change: an unedited book is backed up again', async () => {
+    const env = setup({ frequency: 'everyClose' })
+    await env.cycle()
+    env.clock.advance(0, 1)
+    await env.cycle(null)                       // unchanged: no backup
+    expect(env.autoBackups()).toHaveLength(1)
+
+    env.contribute(contributor('budgets', 1))   // the next open migrates the book
+    env.clock.advance(0, 1)
+    await env.cycle(null)
+    expect(env.autoBackups()).toHaveLength(2)
+  })
+
+  it('close listeners run last registered first', async () => {
+    const env = setupSession()
     const order: string[] = []
-    const env = setupSession({ hooks: { closing: async () => { order.push('closing'); throw new Error('boom') } } })
+    env.session.onWillClose(() => { order.push('registered first') })
+    env.session.onWillClose(() => { order.push('registered second') })
+    env.session.onWillClose(() => { order.push('registered last') })
     await env.session.create(file('Home.tessera'))
-    env.session.onWillClose(() => { order.push('listener') })
     await env.session.close()
-    expect(order).toEqual(['listener', 'closing'])
+    expect(order).toEqual(['registered last', 'registered second', 'registered first'])
+  })
+
+  it('the backup’s listener runs after every listener registered later, and one that fails never stops the close', async () => {
+    const env = setup()
+    const order: string[] = []
+    env.session.onWillClose(async () => {
+      order.push('another plugin')
+      await env.session.database('accounts').collection('accounts.things').insert({ name: 'last word' })
+    })
+    env.session.onWillClose(() => { order.push('a failing plugin'); throw new Error('boom') })
+    await env.session.create(file('Home.tessera'))
+    await env.session.close()
+    await env.backups.idle()
+
+    expect(order).toEqual(['a failing plugin', 'another plugin'])
     expect(env.session.current).toBeUndefined()
-    expect(env.log.error).toHaveBeenCalledWith('[book] The closing hook failed', expect.any(Error))
+    expect(env.log.error).not.toHaveBeenCalled()
+    const { snapshot } = await env.read(env.autoBackups()[0])
+    expect(snapshot.collections.find(c => c.name === 'accounts.things')!.docs.map(d => d.name)).toEqual(['last word'])
+  })
+
+  it('the unscoped database is the book plugin’s alone: book.session does not offer it', async () => {
+    const { publicSession } = await import('../../../../plugins/book/src/privileged/index')
+    const env = setupSession()
+    expect('unscopedDatabase' in publicSession(env.session)).toBe(false)
+    expect(() => env.session.unscopedDatabase()).toThrow('No book is open.')
   })
 })

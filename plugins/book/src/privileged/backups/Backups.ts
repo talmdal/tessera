@@ -1,14 +1,14 @@
 // Automatic backups, taken when a book closes. See docs/backup-restore-design.md, "Automatic backups".
 //
-// Closing never waits on a backup: the session's `closing` hook takes an in-memory snapshot (fast) and queues the
-// write; the book then flushes and closes as before. Writes, verification, pruning and bookkeeping run after, one at
+// Closing never waits on a backup: a close listener takes an in-memory snapshot (fast) and queues the write; the
+// book then flushes and closes as before. Close listeners run last registered first, and `attach` is called as the
+// book plugin activates, before any other plugin can reach `book.session`, so this one always runs last. Writes, verification, pruning and bookkeeping run after, one at
 // a time. On quit, `drain` gives the queue a budget inside the shell's shutdown limit and abandons what is left.
 import path from 'node:path'
-import type { Database, DatabaseSnapshot, Disposable, Logger, ShellFiles } from '@tessera/types'
+import type { Database, DatabaseSnapshot, Disposable, Event, Logger, ShellFiles } from '@tessera/types'
 import {
-  BOOK_API_VERSION, BookError, DEFAULT_BACKUP_FOLDER_NAME, type BookBackupOptions, type BookInfo
+  BOOK_API_VERSION, BookError, DEFAULT_BACKUP_FOLDER_NAME, type BookBackupOptions, type BookChange, type BookInfo
 } from '@tessera/book-api'
-import type { BookSessionHooks } from '../BookSessionImpl'
 import type { BackupDisk } from './BackupDisk'
 import { backupHeader, readBackupHeader, verifyBackup, writeBackup } from './backupFile'
 import type { BackupLedger } from './BackupLedger'
@@ -21,6 +21,13 @@ export const BACKUP_SHUTDOWN_BUDGET_MS = 6000
 export const ABANDON_GRACE_MS = 1000
 /** A partial file older than this was left by a write that will never finish. */
 export const STALE_PARTIAL_MS = 60 * 60 * 1000
+
+/** What backups need of the session: `BookSessionImpl` is one. The unscoped database is the book plugin's alone. */
+export interface BackupsSession {
+  onWillClose(listener: (book: BookInfo) => void | Promise<void>): Disposable
+  readonly onDidChange: Event<BookChange>
+  unscopedDatabase(): Database
+}
 
 export interface BackupsDeps {
   disk: BackupDisk
@@ -67,13 +74,20 @@ export class Backups {
   private watching: Disposable | undefined
   private shuttingDown = false
 
-  /** What the session calls: wire with `new BookSessionImpl({ …, hooks: backups.hooks })`. */
-  readonly hooks: BookSessionHooks = {
-    opened: (db, book, migrated) => this.opened(db, book, migrated),
-    closing: (db, book) => this.closing(db, book)
-  }
-
   constructor(private readonly deps: BackupsDeps) {}
+
+  /**
+   * Starts backing up the session's books. Call it as soon as the session exists, before anything else registers a
+   * close listener: listeners run last registered first, and this one must run last, after every other plugin's.
+   */
+  attach(session: BackupsSession): Disposable[] {
+    return [
+      session.onDidChange(change => {
+        if (change.type === 'opened') this.opened(session.unscopedDatabase(), change.book, change.migrated)
+      }),
+      session.onWillClose(book => this.closing(session.unscopedDatabase(), book))
+    ]
+  }
 
   private get now() { return this.deps.now ?? (() => new Date()) }
 
@@ -106,7 +120,7 @@ export class Backups {
 
   // ---- Closing
 
-  /** Runs after every `willClose` listener and before the book flushes: decide, snapshot, queue. Never writes. */
+  /** The last close listener, before the book flushes: decide, snapshot, queue. Never writes. */
   private async closing(db: Database, book: BookInfo): Promise<void> {
     this.watching?.dispose()
     this.watching = undefined

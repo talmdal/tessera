@@ -9,7 +9,7 @@ import { BOOK_SCHEMA_POINT } from '@tessera/book-api'
 import { ExtensionRegistryImpl } from '../../../core/extensions/ExtensionRegistry'
 import { ServiceRegistryImpl } from '../../../core/services/ServiceRegistry'
 import type { FileKind, BookDisk } from '../../../plugins/book/src/privileged/disk'
-import { BookSessionImpl, type BookSessionHooks } from '../../../plugins/book/src/privileged/BookSessionImpl'
+import { BookSessionImpl } from '../../../plugins/book/src/privileged/BookSessionImpl'
 import { RecentBooks } from '../../../plugins/book/src/privileged/RecentBooks'
 import { SchemaRegistry } from '../../../plugins/book/src/privileged/SchemaRegistry'
 import type { BackupDisk } from '../../../plugins/book/src/privileged/backups/BackupDisk'
@@ -93,7 +93,7 @@ export function contributor(id: string, version: number, migrate: Migrator['migr
 }
 
 /** A session over a memory engine, with every dependency faked and exposed. */
-export function setupSession(options: { now?: () => Date, hooks?: BookSessionHooks } = {}) {
+export function setupSession(options: { now?: () => Date } = {}) {
   const driver = memoryDriver()
   const engine = new KitStorageEngine(driver)
   const disk = memoryDisk(driver)
@@ -107,7 +107,7 @@ export function setupSession(options: { now?: () => Date, hooks?: BookSessionHoo
   const schema = new SchemaRegistry(extensions, services, log)
   const session = new BookSessionImpl({
     engine, files, prompts, recent, schema, disk: disk.disk, log, trashName: 'Trash',
-    ...(options.now && { now: options.now }), ...(options.hooks && { hooks: options.hooks })
+    ...(options.now && { now: options.now })
   })
 
   const contribute = ({ contribution, migrator }: ReturnType<typeof contributor>) => {

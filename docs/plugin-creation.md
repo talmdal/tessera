@@ -1446,9 +1446,13 @@ exports.activate = (context) => {
 **`onShuttingDown` is where interactive or slow work belongs**: prompting to
 save, flushing buffers. Rules:
 
-- Listeners run **one at a time, in registration order**, and the shell waits
-  for async ones.
-- `event.veto()` **cancels a user-initiated quit**. Later listeners are skipped,
+- Listeners run **one at a time, last registered first**, and the shell waits
+  for async ones. That is the reverse of start-up, as deactivation is: your
+  plugin registers during its own activation, after the plugins it depends
+  on, so your listener runs *before* theirs and can still use them. The
+  shell's own listeners (saving the layout, the theme, window positions,
+  options) were registered before any plugin activated, so they run last.
+- `event.veto()` **cancels a user-initiated quit**. Listeners not yet run are skipped,
   nothing is deactivated, and the app keeps running. Calling it for
   `event.reason === 'system'` (the OS is shutting down) has no effect, because
   that can't be refused.

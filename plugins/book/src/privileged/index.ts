@@ -57,7 +57,10 @@ export async function activate(context: PluginContext, options: { disk?: BookDis
 
   const recent = new RecentBooks(appState)
   const schema = new SchemaRegistry(context.extensions, context.services, context.logger)
-  const session = new BookSessionImpl({ engine, files, prompts, recent, schema, disk, log: context.logger, hooks: backups.hooks })
+  const session = new BookSessionImpl({ engine, files, prompts, recent, schema, disk, log: context.logger })
+  // First, before anything can register a close listener: close listeners run last registered first, so the
+  // backup's runs after every other plugin's, and sees whatever they write as the book closes
+  context.subscriptions.push(...backups.attach(session))
   const publisher = new BookPublisher(context, session, recent, disk)
   active = { session, backups }
 
@@ -76,10 +79,12 @@ export async function activate(context: PluginContext, options: { disk?: BookDis
     ...registerCommands(context, session, prompts),
     ...registerIpc(context, session, publisher, recent),
     context.services.provide(BOOK_PLUGIN_ID, BOOK_SESSION_SERVICE, publicSession(session)),
-    // On quit the book closes but is remembered, so it reopens at the next start
-    context.lifecycle.onShuttingDown(() => session.shutdown()),
-    // After the book has closed: give the backup it queued time to finish, inside the shutdown limit
-    context.lifecycle.onShuttingDown(() => backups.drain())
+    // On quit the book closes but is remembered, so it reopens at the next start; then the backup that closing
+    // queued gets its time to finish, inside the shutdown limit. One listener, so the two can't run out of order
+    context.lifecycle.onShuttingDown(async () => {
+      await session.shutdown()
+      await backups.drain()
+    })
   )
 
   // Reopen the last book once every plugin has activated: the schema contributors and their migrators are there

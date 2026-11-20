@@ -56,7 +56,10 @@ export interface BookSession {
    */
   registerNavigator(contributor: string): Disposable
 
-  /** Runs, awaited, before the database closes, while it is still writable. */
+  /**
+   * Runs, awaited, before the database closes, while it is still writable. Listeners run last registered first, as
+   * plugins shut down: yours runs before those of the plugins you depend on, and the book's own runs last.
+   */
   onWillClose(listener: (book: BookInfo) => void | Promise<void>): Disposable
   readonly onDidChange: Event<BookChange>
   /** After any sub-book is created, renamed, moved or deleted, and when a book opens. */

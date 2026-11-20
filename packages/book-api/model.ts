@@ -35,7 +35,8 @@ export interface BookTree {
 }
 
 export type BookChange =
-  | { type: 'opened', book: BookInfo, created: boolean }
+  /** `migrated`: opening ran migrations, so the data changed before anyone could see it change. */
+  | { type: 'opened', book: BookInfo, created: boolean, migrated: boolean }
   | { type: 'closed', book: BookInfo }
 
 /** A book in the recent list (kept in `app.state`). */

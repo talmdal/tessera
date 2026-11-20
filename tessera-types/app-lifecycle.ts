@@ -39,7 +39,11 @@ export interface AppLifecycle {
    */
   onStarted(listener: StartedListener): void
 
-  /** Runs, in registration order, when the app is asked to quit. */
+  /**
+   * Runs when the app is asked to quit, in **reverse** registration order: the reverse of start-up, as deactivation
+   * is. A plugin registers during its own activation, after the plugins it depends on, so its listener runs before
+   * theirs and can still use them; the shell's own listeners, registered before any plugin activates, run last.
+   */
   onShuttingDown(listener: ShuttingDownListener): Disposable
 
   /** Shell-internal: runs after the last plugin has deactivated, for final flushes. */
