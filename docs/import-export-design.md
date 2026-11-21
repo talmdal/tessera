@@ -34,6 +34,7 @@
 - [Commands, menus and context keys](#commands-menus-and-context-keys)
 - [IPC and events](#ipc-and-events)
 - [Changes to `accounts`](#changes-to-accounts)
+- [Importing into a book with an archived period](#importing-into-a-book-with-an-archived-period)
 - [The anonymiser: `scripts/anonymize-statement.mts`](#the-anonymiser-scriptsanonymize-statementmts)
 - [Keeping personal data out of the repository](#keeping-personal-data-out-of-the-repository)
 - [The seeded book](#the-seeded-book)
@@ -2088,6 +2089,23 @@ Nothing else in `accounts` changes. In particular the matcher reads through
 `transactions(accountId).list({ from, to })` and writes through the service,
 so every rule about closed accounts, transfers, currencies and reconciled
 rows applies to an import exactly as it does to a user typing.
+
+## Importing into a book with an archived period
+
+Archiving closes the old period for each account by advancing its
+`openingDate`. An imported statement wholly before that date is stopped before
+review. If it straddles the date, rows in the archived period are excluded by
+default and identified in the review; the user can include them only after a
+confirmation that explains the archive boundary and the resulting change.
+Accepting earlier rows moves the account's opening date back to the earliest
+accepted transaction without changing its opening balance.
+
+The boundary is enforced by `accounts.service`, not just by the importer, so
+creating or editing a transaction through the register, an import or a
+recurring entry follows the same rule. This prevents a second copy of an
+archived transaction from silently appearing in the working book. See
+[The archived period is closed](archive-design.md#the-archived-period-is-closed)
+for the archive contract and edge cases.
 
 ## The anonymiser: `scripts/anonymize-statement.mts`
 

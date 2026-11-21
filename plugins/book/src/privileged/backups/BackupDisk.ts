@@ -35,6 +35,8 @@ export interface BackupDisk {
   stat(file: string): Promise<BackupFileInfo>
   /** The backups directly in `folder`, by extension; never a `.partial` file. */
   list(folder: string): Promise<BackupFileInfo[]>
+  /** Ordinary Tessera book files directly in an archive folder, excluding staged/writing files. */
+  listArchives?(folder: string): Promise<BackupFileInfo[]>
   /** The `.partial` files directly in `folder`, left by a write that never finished. */
   partials(folder: string): Promise<BackupFileInfo[]>
   /** Deletes a file. No error if it is already gone. */
@@ -142,6 +144,11 @@ export function nodeBackupDisk(): BackupDisk {
     },
 
     list: folder => filesIn(folder, isBackupFileName),
+    async listArchives(folder) {
+      return filesIn(folder, name => !name.startsWith('.') &&
+        name.toLowerCase().endsWith('.tessera') &&
+        !name.toLowerCase().endsWith('.tessera-backup'))
+    },
 
     partials: folder => filesIn(folder, entry => entry.endsWith(PARTIAL_SUFFIX)),
 

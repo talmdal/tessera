@@ -31,6 +31,8 @@ export type ExchangeErrorCode =
    * retries with `force`.
    */
   | 'ALREADY_IMPORTED'
+  /** The statement predates the account's opening date and needs an explicit override. */
+  | 'ARCHIVED_PERIOD'
   /** The chosen format has no writer. */
   | 'NOT_WRITABLE'
   /** Beyond the row limit (`maxRows`). */
@@ -43,6 +45,8 @@ export type ExchangeConfirmation =
   /** An undo would touch a transaction reconciled since the import, or one edited since. */
   | 'reconciled'
   | 'editedSince'
+  /** Accepting the row may count an already-archived transaction twice. */
+  | 'archivedPeriod'
 
 /** What `exchange.service` throws for something the user caused. Test with `isExchangeError`, never `instanceof`. */
 export class ExchangeError extends Error {

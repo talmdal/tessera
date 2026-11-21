@@ -450,7 +450,7 @@ restore over the open book or as a new book, all in the engine-neutral
       session; a `book.backups` service (for example, *exchange* backing up
       before a large import); participants describing a backup ("312
       accounts"); per-book settings; encrypted backups; opening the backup
-      folder in the file manager; the archive feature; backing up options and
+      folder in the file manager; backing up options and
       application state.
 
 ## State and settings (proposed design)

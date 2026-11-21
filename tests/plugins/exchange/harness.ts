@@ -183,7 +183,7 @@ export async function setupExchange(setup: SetupOptions = {}) {
   /** Reads `doc` and files its first statement against an account (the chequing account by default). */
   const fileOf = async (
     doc: ExchangeDocument = document(),
-    over: { accountId?: string, index?: number, remember?: boolean, path?: string } = {}
+    over: { accountId?: string, index?: number, remember?: boolean, path?: string, archivedOverride?: boolean } = {}
   ): Promise<FileResult> => {
     const read = await readOf(doc, over.path)
     const statement = read.document.statements[over.index ?? 0]
@@ -193,7 +193,8 @@ export async function setupExchange(setup: SetupOptions = {}) {
         ...(read.document.dialect !== undefined && { dialect: read.document.dialect })
       },
       ...(read.document.truncatedAt !== undefined && { truncatedAt: read.document.truncatedAt }),
-      ...(over.remember !== undefined && { remember: over.remember })
+      ...(over.remember !== undefined && { remember: over.remember }),
+      ...(over.archivedOverride === true && { archivedOverride: true })
     })
   }
 

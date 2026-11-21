@@ -3,9 +3,12 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import type { Database, Disposable, Event, Logger, ShellFiles, ShellPrompts, StorageEngine } from '@tessera/types'
 import {
-  BOOK_API_VERSION, BOOK_FILE_EXTENSION, BOOK_FILE_FILTER, BOOK_FORMAT_VERSION, BOOK_META, BookError, isBookError,
-  type BookChange, type BookInfo, type BookSession, type BookTree, type SubBook, type SubBookParticipant
+  BOOK_API_VERSION, BOOK_FILE_EXTENSION, BOOK_FILE_FILTER, BOOK_FORMAT_VERSION, BOOK_META, BookError, isArchiveMarker,
+  isBookError,
+  type ArchiveMarker, type ArchiveParticipant, type BookChange, type BookInfo, type BookSession, type BookTree,
+  type SubBook, type SubBookParticipant
 } from '@tessera/book-api'
+import { ArchiveParticipants } from './archive/participants'
 import type { FileKind, BookDisk } from './disk'
 import { planMigrations, runMigrations, schemaVersions } from './migrations'
 import type { RecentBooks } from './RecentBooks'
@@ -229,9 +232,32 @@ export class BookSessionImpl implements BookSession {
     if (this.info?.path === target) return this.current
 
     // Everything is checked before the open book closes, so a bad pick leaves the user where they were
-    const versions = await this.probe(target)
+    const { versions, readOnly, archive } = await this.probe(target)
     const contributions = this.deps.schema.contributions()
     const plan = planMigrations(contributions, versions, bookName(target))
+
+    if (readOnly) {
+      // A file that declares itself read-only can never be migrated in place. A step from 0 is only seeding for a
+      // plugin that has no data in this file, so it is skipped: the plugin sees empty collections, which it must
+      // bear anyway. A step from 1 or later would change existing data, and that is refused.
+      if (plan.needsBackup) {
+        throw new BookError('UNSUPPORTED_FILE', archive
+          ? `“${bookName(target)}” is an archive made by an older version of Tessera and can’t be brought up to date, because an archive can’t be changed. Make a writable copy to open it.`
+          : `“${bookName(target)}” is read-only and was made by an older version of Tessera, so it can’t be brought up to date. Make a writable copy to open it.`)
+      }
+      for (const step of plan.steps) this.deps.log.info(`[book] ${target} is read-only; “${step.contribution.id}” has no data in it and was not seeded`)
+      await this.closeOpen({ forget: false })
+      const db = await this.deps.engine.open({ path: target }, { schema: this.deps.schema.collections(), readOnly: true })
+      let id: string
+      try {
+        id = await this.identify(db, target)
+      } catch (err) {
+        await db.close().catch(() => {})
+        throw err
+      }
+      return this.attach(db, target, id, false, false, archive)
+    }
+
     let backup: string | undefined
     if (plan.needsBackup) backup = await this.backup(target)
 
@@ -283,8 +309,9 @@ export class BookSessionImpl implements BookSession {
 
   // ---- Opening and closing
 
-  /** Checks a file is a book this app can open, without changing it. Resolves the contributors' versions. */
-  private async probe(file: string): Promise<Record<string, number>> {
+  /** Checks a file is a book this app can open, without changing it. Resolves the contributors' versions
+   * and whether the file declares itself read-only (an archive). */
+  private async probe(file: string): Promise<{ versions: Record<string, number>, readOnly: boolean, archive?: ArchiveMarker }> {
     const name = path.basename(file)
     if (!(await this.deps.disk.exists(file))) throw new BookError('FILE_NOT_FOUND', `“${name}” can’t be found. It may have been moved or deleted.`)
 
@@ -309,7 +336,15 @@ export class BookSessionImpl implements BookSession {
       const format = await db.meta.get(BOOK_META.format)
       if (typeof format !== 'number') throw new BookError('UNSUPPORTED_FILE', `“${name}” is not a Tessera book.`)
       if (format > BOOK_FORMAT_VERSION) throw new BookError('UNSUPPORTED_FILE', `“${name}” was saved by a newer version of Tessera. Update Tessera to open it.`)
-      return await schemaVersions(db, this.deps.schema.contributions())
+      const versions = await schemaVersions(db, this.deps.schema.contributions())
+      const marker = await db.meta.get(BOOK_META.archive)
+      let archive: ArchiveMarker | undefined
+      if (marker !== undefined) {
+        if (isArchiveMarker(marker)) archive = marker
+        else this.deps.log.warn(`[book] ${file} has an unusable archive marker (${JSON.stringify(marker)}); ignoring it`)
+      }
+      const readOnly = (await db.meta.get(BOOK_META.readOnly)) === true || archive !== undefined
+      return { versions, readOnly, ...(archive && { archive }) }
     } finally {
       // Closed before the real open: the engine caches open databases by path, not by options
       await db.close().catch(err => this.deps.log.warn(`[book] Could not close ${file} after reading it: ${describeError(err)}`))
@@ -346,9 +381,14 @@ export class BookSessionImpl implements BookSession {
     await this.deps.files.trash(file)
   }
 
-  private async attach(db: Database, file: string, id: string, created: boolean, migrated: boolean): Promise<BookInfo> {
+  private async attach(db: Database, file: string, id: string, created: boolean, migrated: boolean, archive?: ArchiveMarker): Promise<BookInfo> {
     this.db = db
-    this.info = { id, path: file, name: bookName(file), readOnly: db.readOnly }
+    const archivedThrough = await db.meta.get(BOOK_META.lastArchivedThrough)
+    this.info = {
+      id, path: file, name: bookName(file), readOnly: db.readOnly,
+      ...(archive && { archive }),
+      ...(typeof archivedThrough === 'string' && { archivedThrough })
+    }
     const book = this.current!
     try {
       await this.deps.recent.add(file, book.name)
@@ -415,6 +455,31 @@ export class BookSessionImpl implements BookSession {
 
   async deleteSubBook(id: string): Promise<void> {
     await this.changingTree(() => this.subBooks.delete(id))
+  }
+
+  /** Who takes part in archiving. The archiver reads it; registration is open to any plugin. */
+  readonly archiveParticipants = new ArchiveParticipants()
+
+  /**
+   * For the archiver, after its prune commits: tells every plugin that a large part of the open book is gone, so
+   * whatever was read from it is rebuilt. Never published on the `book.session` contract.
+   */
+  announcePruned(through: string) {
+    if (!this.info) return
+    this.info = { ...this.info, archivedThrough: through }
+    this.changes.fire({ type: 'pruned', book: this.info, through })
+  }
+
+  /**
+   * Checks a file is a book this app can open, without changing it — the same probe opening uses, callable
+   * without the file-operation queue, so code already inside `exclusive` (the archive writer) can verify a file.
+   */
+  async probeFile(file: string): Promise<void> {
+    await this.probe(file)
+  }
+
+  participateInArchive(contributor: string, participant: ArchiveParticipant, options: { before?: string[] } = {}): Disposable {
+    return this.archiveParticipants.add(contributor, participant, options)
   }
 
   participate(contributor: string, participant: SubBookParticipant): Disposable {

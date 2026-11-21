@@ -3,8 +3,8 @@
 import path from 'node:path'
 import type { Disposable, PluginContext, ShellFiles, ShellPrompts } from '@tessera/types'
 import {
-  BACKUP_FILE_EXTENSION, BACKUP_FILE_FILTER, BOOK_BACKUPS_OPTIONS_PAGE, BOOK_COMMANDS, BOOK_CONTEXT_KEYS, BOOK_DIALOGS,
-  BOOK_FILE_EXTENSION, BOOK_FILE_FILTER, BookError,
+  BACKUP_FILE_EXTENSION, BACKUP_FILE_FILTER, BOOK_ARCHIVE_OPTIONS_PAGE, BOOK_BACKUPS_OPTIONS_PAGE, BOOK_COMMANDS,
+  BOOK_CONTEXT_KEYS, BOOK_DIALOGS, BOOK_FILE_EXTENSION, BOOK_FILE_FILTER, DEFAULT_ARCHIVE_FOLDER_NAME, BookError,
   type BookInfo, type RestoreDialogInput, type RestoreDialogResult
 } from '@tessera/book-api'
 import { defaultTrashName, withBookExtension } from '../BookSessionImpl'
@@ -22,6 +22,7 @@ export interface BackupCommandsDeps {
   files: Pick<ShellFiles, 'showSaveDialog' | 'documentsPath'>
   prompts: ShellPrompts
   restorer: Pick<Restorer, 'inspect' | 'restore'>
+  archiveFolder?: () => string
   now?: () => Date
   /** The name of the OS trash in messages. */
   trashName?: string
@@ -61,17 +62,22 @@ export function registerBackupCommands(context: Pick<PluginContext, 'commands' |
   const restore = async (choice: RestoreDialogResult) => {
     const info = await deps.restorer.inspect(choice.file)
     if (!info.header || info.problem !== undefined) throw new BookError('UNSUPPORTED_FILE', info.problem ?? 'This is not a Tessera backup.')
-    const { bookName: backedUp, bookId, bookPath, takenAt } = info.header
+    const { bookName: backedUp, bookId, bookPath, takenAt, archiveThrough } = info.header
     const when = takenText(takenAt)
     const current = deps.session.current
+    const isArchive = info.header.trigger === 'archive'
+    const sourceName = isArchive ? 'archive' : 'backup'
 
     let outcome
     if (choice.target === 'replace') {
       if (!current) throw new BookError('NO_BOOK', 'No book is open to replace.')
       const other = bookId === current.id ? '' : ` This backup is of “${backedUp}”, not “${current.name}”.`
+      const archiveDetail = isArchive
+        ? `The archive holds “${backedUp}” as it was before it was archived through ${archiveThrough ?? takenText(takenAt).split(',')[0]}. Restoring it replaces this book’s current data; it does not merge. “${current.name}” as it is now is backed up first, then its file is moved to the ${trash}.${other}`
+        : `“${current.name}” as it is now is backed up first, then its file is moved to the ${trash}.${other}`
       const confirmed = await deps.prompts.confirm({
-        message: `Replace “${current.name}” with the backup from ${when}?`,
-        detail: `“${current.name}” as it is now is backed up first, then its file is moved to the ${trash}.${other}`,
+        message: `Replace “${current.name}” with the ${sourceName} from ${when}?`,
+        detail: archiveDetail,
         confirmLabel: 'Replace',
         destructive: true
       })
@@ -89,7 +95,9 @@ export function registerBackupCommands(context: Pick<PluginContext, 'commands' |
       // The save dialog asked about the file; opening the copy also closes the open book, so say that
       if (current && !(await deps.prompts.confirm({
         message: `Close “${current.name}” and open the restored copy?`,
-        detail: `“${current.name}” is not changed.`,
+        detail: isArchive
+          ? `The ${sourceName} will be a writable copy of “${backedUp}”. It does not merge, and “${current.name}” is not changed.`
+          : `“${current.name}” is not changed.`,
         confirmLabel: 'Close and Restore'
       }))) return undefined
       outcome = await deps.restorer.restore(choice.file, { kind: 'new', path: withBookExtension(path.resolve(chosen)) })
@@ -97,7 +105,7 @@ export function registerBackupCommands(context: Pick<PluginContext, 'commands' |
 
     await deps.prompts.message({
       kind: 'info',
-      message: `Restored “${outcome.book.name}” from the backup of ${when}.`,
+      message: `Restored “${outcome.book.name}” from the ${sourceName} of ${when}.`,
       ...(outcome.safetyBackup && { detail: `The book as it was before was saved as “${path.basename(outcome.safetyBackup)}” in ${path.dirname(outcome.safetyBackup)}.` })
     })
     return outcome.book
@@ -128,7 +136,8 @@ export function registerBackupCommands(context: Pick<PluginContext, 'commands' |
       const open = deps.session.current
       const input: RestoreDialogInput = {
         ...(open && { open: { id: open.id, name: open.name, readOnly: open.readOnly } }),
-        folder: deps.backups.backupFolder()
+        folder: deps.backups.backupFolder(),
+        archiveFolder: deps.archiveFolder?.() ?? path.join(deps.files.documentsPath(), DEFAULT_ARCHIVE_FOLDER_NAME)
       }
       const choice = await deps.prompts.show<RestoreDialogResult>(BOOK_DIALOGS.restore, input)
       if (!choice) return undefined
@@ -138,6 +147,11 @@ export function registerBackupCommands(context: Pick<PluginContext, 'commands' |
     context.commands.register(BOOK_COMMANDS.backupSettings, async () => {
       if (!context.commands.has(OPTIONS_OPEN_COMMAND)) return
       await context.commands.execute(OPTIONS_OPEN_COMMAND, { page: BOOK_BACKUPS_OPTIONS_PAGE })
+    }),
+
+    context.commands.register(BOOK_COMMANDS.archiveSettings, async () => {
+      if (!context.commands.has(OPTIONS_OPEN_COMMAND)) return
+      await context.commands.execute(OPTIONS_OPEN_COMMAND, { page: BOOK_ARCHIVE_OPTIONS_PAGE })
     })
   ]
 }

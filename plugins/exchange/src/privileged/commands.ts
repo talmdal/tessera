@@ -169,30 +169,51 @@ export function registerCommands(context: PluginContext, deps: CommandDeps): Dis
           ...(target.createdAccount === true && { accounts: [target.accountId] }),
           ...(!categoriesCredited && { categories: createdCategories })
         }
-        const fileIt = (force: boolean) => service.file(target.statement, target.accountId, {
+        const fileIt = (force: boolean, archivedOverride: boolean) => service.file(target.statement, target.accountId, {
           source,
           remember: target.remember,
           ...(document.truncatedAt !== undefined && { truncatedAt: document.truncatedAt }),
           accountMap,
           ...(Object.keys(created).length > 0 && { created }),
-          ...(force && { force: true })
+          ...(force && { force: true }),
+          ...(archivedOverride && { archivedOverride: true })
         })
 
-        let result: FileResult
-        try {
-          result = await fileIt(false)
-        } catch (err) {
-          if (!isExchangeError(err) || err.code !== 'ALREADY_IMPORTED') throw err
-          // Imported before. A bank that re-issues a corrected file is a real thing, so this is a question.
-          const again = await prompts.confirm({
-            title: 'Import',
-            message: 'Import this file again?',
-            detail: `${err.message} Importing it again will show its transactions once more; anything already in the register will be recognised and not added twice.`,
-            confirmLabel: 'Import Anyway'
-          })
-          if (!again) { skipped += target.statement.transactions.length; continue }
-          result = await fileIt(true)
+        let force = false
+        let archivedOverride = false
+        let result: FileResult | undefined
+        while (result === undefined) {
+          try {
+            result = await fileIt(force, archivedOverride)
+          } catch (err) {
+            if (!isExchangeError(err)) throw err
+            if (err.code === 'ALREADY_IMPORTED' && !force) {
+              const again = await prompts.confirm({
+                title: 'Import',
+                message: 'Import this file again?',
+                detail: `${err.message} Importing it again will show its transactions once more; anything already in the register will be recognised and not added twice.`,
+                confirmLabel: 'Import Anyway'
+              })
+              if (!again) { skipped += target.statement.transactions.length; break }
+              force = true
+              continue
+            }
+            if (err.code === 'ARCHIVED_PERIOD' && !archivedOverride) {
+              const again = await prompts.confirm({
+                title: 'Import',
+                message: 'Import transactions from an archived period?',
+                detail: `${err.message} Importing them may count them twice in the account balance.`,
+                confirmLabel: 'Import Anyway…',
+                destructive: true
+              })
+              if (!again) { skipped += target.statement.transactions.length; break }
+              archivedOverride = true
+              continue
+            }
+            throw err
+          }
         }
+        if (result === undefined) continue
         if (result.filed > 0) categoriesCredited = true
         filed += result.filed
         duplicates += result.duplicates
@@ -646,7 +667,9 @@ export function registerCommands(context: PluginContext, deps: CommandDeps): Dis
           if (!isExchangeError(err) || err.code !== 'CONFIRMATION_REQUIRED') throw err
           const agreed = await prompts.confirm({
             title: 'Accept',
-            message: 'Change a reconciled transaction?',
+            message: err.reasons?.includes('archivedPeriod')
+              ? 'Import a transaction from an archived period?'
+              : 'Change a reconciled transaction?',
             detail: err.message,
             confirmLabel: 'Accept',
             destructive: true

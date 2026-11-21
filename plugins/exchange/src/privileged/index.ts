@@ -94,6 +94,8 @@ export async function activate(context: PluginContext, options: ActivateOptions 
     context.extensions.contribute(EXCHANGE_PLUGIN_ID, BOOK_SCHEMA_POINT, EXCHANGE_PLUGIN_ID, EXCHANGE_SCHEMA),
     context.services.provide(EXCHANGE_PLUGIN_ID, EXCHANGE_MIGRATOR_SERVICE, exchangeMigrator),
     context.services.provide(EXCHANGE_PLUGIN_ID, EXCHANGE_SERVICE, publicService(service)),
+    // Before accounts: ordering only sequences the prunes — what each removes comes from the surveys
+    session.participateInArchive(EXCHANGE_PLUGIN_ID, service.archiveParticipant, { before: ['accounts'] }),
 
     service.onDidChange(() => { void publish() }),
     session.onDidChange(() => { void publish() }),

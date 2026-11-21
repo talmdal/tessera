@@ -25,6 +25,18 @@ async function book() {
 }
 
 describe('reconciling an account', () => {
+  it('moves the opening date back when adding a dated statement charge', async () => {
+    const { r, chq, statement, service, changes } = await book()
+    await r.begin(chq.id, statement(100000, {
+      statementDate: '2025-12-31',
+      startingBalance: 100000,
+      serviceCharge: { date: '2025-12-15', amount: 500 }
+    }))
+
+    expect(await service.get(chq.id)).toMatchObject({ openingDate: '2025-12-15', openingBalance: 100000 })
+    expect(changes.at(-1)!.updated).toContain(chq.id)
+  })
+
   it('begins with the unreconciled, non-void transactions, the later-dated flagged, and the running figures', async () => {
     const { r, chq, statement, metro, hydro, later, changes } = await book()
     const state = await r.begin(chq.id, statement(86975))

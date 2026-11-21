@@ -23,7 +23,7 @@ function setup(over: Partial<BookBackupOptions> = {}, options: {
   const remote = createFakeRemote({})
   remote.bridge.invoke.mockImplementation(async (channel: string, data?: any) => {
     if (channel === BOOK_CHANNELS.backupsStatus) return options.status ?? NEVER
-    if (channel === BOOK_CHANNELS.backupsChooseFolder) return options.choose?.(data)
+    if (channel === BOOK_CHANNELS.chooseFolder) return options.choose?.(data)
     throw new Error(`No answer for ${channel}`)
   })
   ;(window as any).api = remote.bridge
@@ -31,7 +31,9 @@ function setup(over: Partial<BookBackupOptions> = {}, options: {
   const onValidityChange = vi.fn()
 
   function Host() {
-    const [value, setValue] = useState<BookOptions>({ backups: { ...BOOK_OPTIONS_DEFAULTS.backups, ...over } })
+    const [value, setValue] = useState<BookOptions>({
+      ...BOOK_OPTIONS_DEFAULTS, backups: { ...BOOK_OPTIONS_DEFAULTS.backups, ...over }
+    })
     return (
       <BackupsOptionsPage
         value={value} defaults={BOOK_OPTIONS_DEFAULTS} disabled={options.disabled ?? false}
@@ -134,7 +136,9 @@ describe('choosing the folder', () => {
   it('asks the book to show the folder picker, starting in the current folder, and drafts the answer', async () => {
     const { onChange, calls } = setup({ folder: '/old/place' }, { choose: () => '/media/kim/USB/Backups' })
     await userEvent.click(screen.getByRole('button', { name: 'Browse…' }))
-    expect(calls(BOOK_CHANNELS.backupsChooseFolder)).toEqual([{ current: '/old/place' }])
+    expect(calls(BOOK_CHANNELS.chooseFolder)).toEqual([{
+      current: '/old/place', defaultPath: DEFAULT_FOLDER, title: 'Choose Backup Folder'
+    }])
     expect(proposed(onChange).folder).toBe('/media/kim/USB/Backups')
     expect(screen.getByTestId('backup-folder')).toHaveTextContent('/media/kim/USB/Backups')
   })

@@ -28,7 +28,7 @@ const row = (over: Partial<RecurringRow> = {}, seriesOver: Partial<Series> = {})
   kind: 'payment',
   occurrence: { index: 0, date: '2026-11-15' },
   dueCount: 1,
-  account: { id: 'c', name: 'Chequing', type: 'chequing', currency: 'CAD', closed: false },
+  account: { id: 'c', name: 'Chequing', type: 'chequing', currency: 'CAD', closed: false, openingDate: '2026-01-01' },
   payeeName: 'Hydro',
   categoryLabel: 'Utilities : Electricity',
   scheduleLabel: 'Monthly on the 15th',
@@ -95,7 +95,7 @@ describe('the enter dialog', () => {
   it('keeps each row’s own amount when several go in at once', async () => {
     const { close } = show(input([
       row({}, { id: 's1', name: 'Hydro' }),
-      row({ account: { id: 'v', name: 'Visa', type: 'creditCard', currency: 'CAD', closed: false } },
+      row({ account: { id: 'v', name: 'Visa', type: 'creditCard', currency: 'CAD', closed: false, openingDate: '2026-01-01' } },
         { id: 's2', name: 'Phone', template: { amount: -8000, payee: 'Telco', autoNumber: false, estimated: false } })
     ]))
     await userEvent.clear(screen.getByLabelText('Amount for Phone'))
@@ -109,7 +109,7 @@ describe('the enter dialog', () => {
   })
 
   it('labels a credit card’s columns its own way', () => {
-    show(input([row({ account: { id: 'v', name: 'Visa', type: 'creditCard', currency: 'CAD', closed: false } })]))
+    show(input([row({ account: { id: 'v', name: 'Visa', type: 'creditCard', currency: 'CAD', closed: false, openingDate: '2026-01-01' } })]))
     // A negative amount on a credit card is a Charge, not a Payment
     expect(screen.getAllByText('Charge').length).toBeGreaterThan(0)
   })

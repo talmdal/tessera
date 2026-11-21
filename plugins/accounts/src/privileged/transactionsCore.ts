@@ -93,6 +93,17 @@ export interface CreateCaches {
 
 export const newCaches = (): CreateCaches => ({ payees: new Map(), accounts: new Map(), categories: new Set() })
 
+/** Keep the opening row above every transaction, without changing the balance it represents. */
+async function moveOpeningDateBack(
+  c: Collections, account: Doc<StoredAccount>, date: string, caches?: CreateCaches
+): Promise<boolean> {
+  if (date >= account.openingDate) return false
+  await c.accounts.updateOne({ id: account.id }, { $set: { openingDate: date } })
+  account.openingDate = date
+  caches?.accounts.set(account.id, account)
+  return true
+}
+
 async function cachedPayee(c: Collections, name: string, caches?: CreateCaches): Promise<string> {
   if (!caches) return payeeNamed(c, name)
   const key = accountNameKey(name)
@@ -244,7 +255,7 @@ const sides = (mine: Pick<StoredTransaction, 'accountId'>, other?: Pick<StoredTr
 
 export async function createTransaction(
   c: Collections, accountId: string, draft: TransactionDraft, now: string, caches?: CreateCaches
-): Promise<{ transaction: Transaction, touched: Touched }> {
+): Promise<{ transaction: Transaction, touched: Touched, openingDateChanged: Touched }> {
   const account = await cachedOpenAccount(c, accountId, undefined, caches)
   const fields = checkDraft(draft)
   if (fields.status === 'reconciled') throw invalid('status', 'Transactions become reconciled by reconciling the account.')
@@ -252,6 +263,9 @@ export async function createTransaction(
   if (fields.externalId !== undefined) await checkExternalId(c, accountId, fields.externalId)
   const target = fields.transferAccountId === undefined ? undefined : await transferTarget(c, account, fields.transferAccountId, caches)
   const payeeId = fields.payee === undefined ? undefined : await cachedPayee(c, fields.payee, caches)
+  const openingDateChanged: Touched = new Set()
+  if (await moveOpeningDateBack(c, account, fields.date, caches)) openingDateChanged.add(accountId)
+  if (target && await moveOpeningDateBack(c, target, fields.date, caches)) openingDateChanged.add(target.id)
 
   const transferId = target ? randomUUID() : undefined
   const doc: StoredTransaction = {
@@ -273,7 +287,7 @@ export async function createTransaction(
       ...(fields.memo !== undefined && { memo: fields.memo })
     })
   }
-  return { transaction: toTransaction(created), touched: new Set([accountId, ...(target ? [target.id] : [])]) }
+  return { transaction: toTransaction(created), touched: new Set([accountId, ...(target ? [target.id] : [])]), openingDateChanged }
 }
 
 /**
@@ -282,7 +296,7 @@ export async function createTransaction(
  */
 export async function createTransactions(
   c: Collections, accountId: string, drafts: TransactionDraft[], now: string
-): Promise<{ transactions: Transaction[], touched: Touched }> {
+): Promise<{ transactions: Transaction[], touched: Touched, openingDateChanged: Touched }> {
   if (!Array.isArray(drafts)) throw invalid('date', 'Enter the transactions.')
   const caches = newCaches()
   // Checked even for an empty batch, so "that account is closed" is reported the same way whatever the size
@@ -290,6 +304,7 @@ export async function createTransactions(
 
   const transactions: Transaction[] = []
   const touched: Touched = new Set([accountId])
+  const openingDateChanged: Touched = new Set()
   // Two rows of one statement carrying the same id is the file's fault, not the user's; the index would catch it
   // at the end of a long import, so it is caught here instead, with the row named
   const seen = new Set<string>()
@@ -302,8 +317,9 @@ export async function createTransactions(
     const one = await createTransaction(c, accountId, draft, now, caches)
     transactions.push(one.transaction)
     for (const id of one.touched) touched.add(id)
+    for (const id of one.openingDateChanged) openingDateChanged.add(id)
   }
-  return { transactions, touched }
+  return { transactions, touched, openingDateChanged }
 }
 
 /** A transaction of this account, or NOT_FOUND. */
@@ -315,7 +331,7 @@ async function ownTransaction(c: Collections, accountId: string, id: string): Pr
 
 export async function updateTransaction(
   c: Collections, accountId: string, id: string, patch: TransactionPatch, options: WriteOptions, now: string
-): Promise<{ transaction: Transaction, touched: Touched }> {
+): Promise<{ transaction: Transaction, touched: Touched, openingDateChanged: Touched }> {
   const account = await openAccount(c, accountId)
   const current = await ownTransaction(c, accountId, id)
   if (options.expectedRev !== undefined && current.rev !== options.expectedRev) {
@@ -351,11 +367,14 @@ export async function updateTransaction(
 
   const payeeId = fields.payee === undefined ? undefined : await payeeNamed(c, fields.payee)
   const touched: Touched = new Set([accountId])
+  const openingDateChanged: Touched = new Set()
+  if (await moveOpeningDateBack(c, account, fields.date)) openingDateChanged.add(accountId)
 
   let transferId: string | undefined
   if (sameTransfer) {
     // Mirror what both sides share
     transferId = current.transferId
+    if (await moveOpeningDateBack(c, other!, fields.date)) openingDateChanged.add(other!.id)
     const mirrored = { date: fields.date, amount: -fields.amount, payeeId, memo: fields.memo }
     if (other.date !== mirrored.date || other.amount !== mirrored.amount || other.payeeId !== mirrored.payeeId || other.memo !== mirrored.memo) {
       await openAccount(c, other.accountId)
@@ -372,6 +391,7 @@ export async function updateTransaction(
     }
     if (fields.transferAccountId !== undefined) {
       const target = await transferTarget(c, account, fields.transferAccountId)
+      if (await moveOpeningDateBack(c, target, fields.date)) openingDateChanged.add(target.id)
       transferId = randomUUID()
       await c.transactions.insert(strip({
         accountId: target.id, date: fields.date, amount: -fields.amount, status: 'uncleared', voided: current.voided,
@@ -389,7 +409,7 @@ export async function updateTransaction(
     externalId: fields.externalId, splits: keep.splits
   })
   const saved = await c.transactions.replace(next as StoredTransaction & { id: string })
-  return { transaction: toTransaction(saved), touched }
+  return { transaction: toTransaction(saved), touched, openingDateChanged }
 }
 
 /** Drops undefined fields, so a replaced document doesn't keep a key with no value. */

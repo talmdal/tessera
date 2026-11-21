@@ -22,7 +22,9 @@ const enterable = (row: RecurringRow) => row.blockedReason === undefined && row.
 
 /** What *Enter Due Transactions…* acts on: everything overdue or due today that can actually be entered. */
 export const dueNow = (rows: readonly RecurringRow[]) =>
-  rows.filter(row => enterable(row) && (LATE_STATES as readonly string[]).includes(row.state)).map(row => row.series.id)
+  rows.filter(row => enterable(row) && (LATE_STATES as readonly string[]).includes(row.state) &&
+    (row.occurrence !== undefined && (row.account?.openingDate === undefined || row.occurrence.date >= row.account.openingDate)))
+    .map(row => row.series.id)
 
 export default function RecurringView() {
   const [showPaused, setShowPaused] = useState(false)

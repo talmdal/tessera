@@ -19,6 +19,8 @@ import {
   type Schedule, type Series, type SeriesFilter, type SeriesInput, type SeriesPatch, type SeriesTemplate,
   type WriteOptions
 } from '@tessera/recurring-api'
+import type { ArchiveParticipant } from '@tessera/book-api'
+import { recurringArchiveParticipant } from './archiveParticipant'
 import { applyPatch, checkSeriesInput, sameSchedule, type CheckedSeries } from './rules'
 import { buildSnapshot } from './snapshot'
 import {
@@ -71,6 +73,11 @@ export class RecurringServiceImpl implements RecurringService {
 
   private get today() { return this.deps.today ?? (() => todayIso()) }
   private get now() { return this.deps.now ?? (() => new Date().toISOString()) }
+
+  /** What archiving asks of the recurring data: old postings go, and overdue series roll past the cut-off. */
+  readonly archiveParticipant: ArchiveParticipant = recurringArchiveParticipant({
+    collections: () => this.c(), now: () => this.now(), today: () => this.today()
+  })
 
   private db(): Database {
     try {
@@ -524,7 +531,9 @@ export class RecurringServiceImpl implements RecurringService {
   private confirmationMessage(reasons: RecurringConfirmation[]): string {
     const parts = reasons.map(reason => reason === 'possibleDuplicate'
       ? 'One of these is already in the register, with the same date and amount.'
-      : 'One of these is dated more than a year from today.')
+      : reason === 'archivedPeriod'
+        ? 'One of these is dated before its account’s opening balance date, which already includes the archived period.'
+        : 'One of these is dated more than a year from today.')
     return `${parts.join(' ')} Enter it anyway?`
   }
 
@@ -581,6 +590,8 @@ export class RecurringServiceImpl implements RecurringService {
   private async confirmationsFor(accountId: string, draft: TransactionDraft): Promise<RecurringConfirmation[]> {
     const needs: RecurringConfirmation[] = []
     const today = this.today()
+    const account = await this.deps.accounts.get(accountId)
+    if (account && draft.date < account.openingDate) needs.push('archivedPeriod')
     if (draft.date < addIsoDays(today, -UNUSUAL_DAYS) || draft.date > addIsoDays(today, UNUSUAL_DAYS)) needs.push('unusualDate')
 
     // The same account, date and amount already there: most likely this occurrence was entered by hand

@@ -2,6 +2,7 @@
 // `book.schema` extension point, and every id, channel and event the plugin uses. Types and constants only
 // (plus the tiny `ok`/`fail` result helpers); it depends on @tessera/types alone, so any plugin can import it.
 // See docs/account-manager-design.md.
+export * from './archive'
 export * from './errors'
 export * from './model'
 export * from './names'

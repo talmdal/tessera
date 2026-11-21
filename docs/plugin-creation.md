@@ -1157,6 +1157,46 @@ context.subscriptions.push(session.participate('budget', {
 }))
 ```
 
+**4. If archiving can remove data you own, take part in archiving.** Declare
+`book.session` as a required service and register an `ArchiveParticipant` with
+`session.participateInArchive`. The survey describes what would be removed but
+must not write; `prune` removes exactly that data in the book's shared
+transaction. The user sees the survey before agreeing, and a thrown error
+rolls the whole prune back:
+
+```ts
+import type { ArchiveParticipant, BookSession } from '@tessera/book-api'
+
+const session = context.services.get<BookSession>('book.session')
+const participant: ArchiveParticipant = {
+  async survey(request, published) {
+    const removable = await findRemovableBefore(request.before, published)
+    return {
+      describe: `${removable.length} budget entries`,
+      documents: removable.length,
+      warnings: [],
+      removesIds: removable.map(entry => entry.id)
+    }
+  },
+  async prune(tx, { request, removedIds }) {
+    const result = await tx.collection('budget.entries').deleteMany({
+      date: { $lt: request.before }, id: { $in: [...removedIds] }
+    })
+    return { documents: result.deletedCount }
+  }
+}
+
+context.subscriptions.push(session.participateInArchive('budget', participant))
+```
+
+Surveys run twice: first to publish document ids that other participants may
+reference, then with the complete published-id set to produce the user's
+confirmed plan. Use that set when removal depends on what another plugin
+removes; otherwise ignore it. `prune` runs inside the single archive
+transaction and must not perform external side effects. See
+[Archiving a book](archive-design.md#participants) for the full contract,
+ordering rules and failure behavior.
+
 **Errors.** The session throws a `BookError` with a `code` (`NO_BOOK`, `DUPLICATE_NAME`, `CYCLE`,
 `UNSUPPORTED_FILE`…). Test for it with `isBookError(err)`, not `instanceof`: each plugin bundles its own copy of
 the package. For a view, `toResult(() => work())` turns one into a `{ ok: false, error }` reply it can show.

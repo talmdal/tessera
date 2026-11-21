@@ -89,7 +89,15 @@ function compileField(field: string, spec: Json | Record<string, unknown> | unde
       case '$in': case '$nin': {
         if (!Array.isArray(value)) throw new StorageError('INVALID_ARGUMENT', `${op} takes an array`)
         const list = value
-        tests.push(op === '$in' ? v => list.some(x => equals(v, x)) : v => !list.some(x => equals(v, x)))
+        // A list of primitives is a set lookup, not a scan: archiving deletes by `$in` with 100,000+ ids, and
+        // testing each of 300,000 documents against each id by deep equality is hours, not milliseconds
+        const primitive = (x: unknown) => x === null || typeof x === 'string' || typeof x === 'number' || typeof x === 'boolean'
+        if (list.every(primitive)) {
+          const set = new Set(list)
+          tests.push(op === '$in' ? v => primitive(v) && set.has(v as never) : v => !(primitive(v) && set.has(v as never)))
+        } else {
+          tests.push(op === '$in' ? v => list.some(x => equals(v, x)) : v => !list.some(x => equals(v, x)))
+        }
         break
       }
       case '$exists': tests.push(v => (v !== undefined) === Boolean(value)); break

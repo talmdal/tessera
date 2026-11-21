@@ -24,6 +24,16 @@ export type BookErrorCode =
   | 'FILE_NOT_FOUND'
   /** A `book.schema` contributor's data could not be brought up to date; nothing was changed, or a backup was taken. */
   | 'MIGRATION_FAILED'
+  /** An archive participant said archiving can't go ahead (a reconciliation is in progress). Nothing was changed. */
+  | 'ARCHIVE_BLOCKED'
+  /** The cut-off is in the future, or not after the book's last archive. */
+  | 'ARCHIVE_DATE'
+  /** Nothing before the cut-off is removable, so there is nothing to archive. */
+  | 'ARCHIVE_NOTHING_TO_DO'
+  /** The book changed between the plan the user confirmed and the removal, so nothing was removed. Try again. */
+  | 'ARCHIVE_CHANGED'
+  /** Removing would have changed an account's balance — a bug, caught before it could. Nothing was removed. */
+  | 'ARCHIVE_BALANCE_MISMATCH'
 
 export interface ResultError<C extends string = string> {
   code: C

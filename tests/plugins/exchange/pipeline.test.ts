@@ -107,6 +107,47 @@ describe('resolving the account', () => {
 })
 
 describe('filing a statement to read', () => {
+  it('stops wholly archived statements unless overridden and confirms straddling early rows on acceptance', async () => {
+    const { service, accounts, fileOf, chq } = await setupExchange()
+    await accounts.updateAccount(chq.id, { openingDate: '2026-01-01' })
+    const archived = document({
+      statements: [statement({
+        period: { from: '2025-11-01', to: '2025-11-30' },
+        transactions: [row({ date: '2025-11-03', amount: -1200 })]
+      })]
+    })
+    const refused = await rejection(fileOf(archived))
+    expect(refused.code).toBe('ARCHIVED_PERIOD')
+    expect((await service.pendingFor(chq.id))).toHaveLength(0)
+
+    await fileOf(archived, { archivedOverride: true })
+    const [forced] = await service.pendingFor(chq.id)
+    expect(forced.rows[0].archivedPeriod).toBe(true)
+    await service.dismiss(chq.id, forced.id)
+
+    const straddling = document({
+      statements: [statement({
+        period: { from: '2025-12-30', to: '2026-01-03' },
+        transactions: [row({ date: '2025-12-31', amount: -4200 }), row({ date: '2026-01-03', amount: -100 })]
+      })]
+    })
+    await fileOf(straddling, { path: '/in/december.fake' })
+    const [waiting] = await service.pendingFor(chq.id)
+    expect(waiting.rows.map(row => row.archivedPeriod ?? false)).toEqual([true, false])
+    expect((await service.pendingSummary()).find(line => line.accountId === chq.id)?.archivedItems).toBe(1)
+    expect((await service.overlayRows(chq.id))[0].note).toContain('Before opening date (already archived)')
+
+    const openingBalance = (await accounts.get(chq.id))!.openingBalance
+    const balance = (await accounts.balances(chq.id)).current
+    const refusedAccept = await rejection(service.accept(chq.id, waiting.id, waiting.rows[0].key))
+    expect(refusedAccept).toMatchObject({ code: 'CONFIRMATION_REQUIRED', reasons: ['archivedPeriod'] })
+    expect((await accounts.balances(chq.id)).current).toBe(balance)
+
+    await service.accept(chq.id, waiting.id, waiting.rows[0].key, { confirm: ['archivedPeriod'] })
+    expect(await accounts.get(chq.id)).toMatchObject({ openingDate: '2025-12-31', openingBalance })
+    expect((await accounts.balances(chq.id)).current).toBe(balance - 4200)
+  })
+
   it('stores the statement against the account, and nothing reaches the register', async () => {
     const { service, accounts, fileOf, chq } = await setupExchange()
     const result = await fileOf(document({

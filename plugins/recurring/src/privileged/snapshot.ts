@@ -49,8 +49,8 @@ export function rowOf(
     // A paused or finished series has nothing due, whatever its dates say
     dueCount: state === 'paused' || state === 'ended' ? 0 : countThrough(series.schedule, series.nextIndex, today, calendar),
     account: account
-      ? { id: account.id, name: account.name, type: account.type, currency: account.currency, closed: account.closed }
-      : { id: series.accountId, name: 'A deleted account', type: 'chequing', currency: 'CAD', closed: true },
+      ? { id: account.id, name: account.name, type: account.type, currency: account.currency, closed: account.closed, openingDate: account.openingDate }
+      : { id: series.accountId, name: 'A deleted account', type: 'chequing', currency: 'CAD', closed: true, openingDate: '' },
     ...(series.template.payee !== undefined && { payeeName: series.template.payee }),
     ...(label !== undefined && { categoryLabel: label }),
     scheduleLabel: describeSchedule(series.schedule),

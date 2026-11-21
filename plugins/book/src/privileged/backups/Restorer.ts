@@ -5,9 +5,10 @@
 // is the open book backed up and moved to the Trash (or the chosen file's old occupant trashed), the staged file
 // renamed into place, and the result opened the way File › Open opens any book: migrations run, plugins rebuild.
 import path from 'node:path'
-import type { Database, Logger, StorageEngine } from '@tessera/types'
+import type { Database, DatabaseSnapshot, Logger, StorageEngine } from '@tessera/types'
 import {
-  BOOK_FILE_EXTENSION, BOOK_META, BookError, type BackupInfo, type BookInfo, type RestoreTarget
+  BOOK_FILE_EXTENSION, BOOK_FORMAT_VERSION, BOOK_META, BookError, isArchiveMarker,
+  type ArchiveMarker, type BackupInfo, type BookInfo, type RestoreTarget
 } from '@tessera/book-api'
 import { bookName, defaultTrashName } from '../BookSessionImpl'
 import type { SessionInside } from '../BookSessionImpl'
@@ -68,14 +69,56 @@ export class Restorer {
         ...(problem !== undefined && { problem })
       }
     } catch (err) {
-      return { file, sizeBytes, problem: describe(err) }
+      try {
+        const db = await this.deps.engine.open({ path: file }, { readOnly: true })
+        try {
+          const marker = await db.meta.get(BOOK_META.archive)
+          const readOnly = await db.meta.get(BOOK_META.readOnly)
+          if (readOnly !== true || !isArchiveMarker(marker)) throw new Error('This is not a Tessera archive.')
+          const snapshot = await db.snapshot()
+          const documents = snapshot.collections.reduce((total, collection) => total + collection.docs.length, 0)
+          let problem: string | undefined
+          const format = snapshot.meta[BOOK_META.format]
+          if (typeof format === 'number' && format > BOOK_FORMAT_VERSION) {
+            problem = 'It was made by a newer version of Tessera. Update Tessera to restore it.'
+          } else {
+            for (const contribution of this.deps.contributions()) {
+              const stored = snapshot.meta[BOOK_META.schemaVersion(contribution.id)]
+              if (typeof stored === 'number' && stored > contribution.version) {
+                problem = `It needs a newer version of the “${contribution.id}” plugin (data version ${stored}; this one understands ${contribution.version}). Update Tessera to restore it.`
+                break
+              }
+            }
+          }
+          return {
+            file, sizeBytes,
+            header: {
+              bookId: marker.of, bookName: marker.ofName, bookPath: file,
+              takenAt: marker.takenAt, trigger: 'archive',
+              app: marker.app, engine: this.deps.engine.id ?? 'unknown', documents,
+              archiveThrough: marker.through
+            },
+            ...(problem !== undefined && { problem })
+          }
+        } finally {
+          await db.close()
+        }
+      } catch (archiveErr) {
+        // A malformed backup stays a backup error; an ordinary unreadable .tessera is reported as an archive/file error.
+        return { file, sizeBytes, problem: describe(archiveErr) }
+      }
     }
   }
 
-  /** The backups in a folder, newest first, then anything that couldn't be read. A missing folder holds none. */
-  async list(folder: string): Promise<BackupInfo[]> {
-    if (!(await this.deps.backupDisk.folderExists(folder))) return []
-    const found = await Promise.all((await this.deps.backupDisk.list(folder)).map(({ file }) => this.inspect(file)))
+  /** Backups and archives, newest first, then anything that couldn't be read. Missing folders hold none. */
+  async list(folder: string, archiveFolder?: string): Promise<BackupInfo[]> {
+    const found: BackupInfo[] = []
+    if (await this.deps.backupDisk.folderExists(folder)) {
+      found.push(...await Promise.all((await this.deps.backupDisk.list(folder)).map(({ file }) => this.inspect(file))))
+    }
+    if (archiveFolder && await this.deps.backupDisk.folderExists(archiveFolder) && this.deps.backupDisk.listArchives) {
+      found.push(...await Promise.all((await this.deps.backupDisk.listArchives(archiveFolder)).map(({ file }) => this.inspect(file))))
+    }
     const when = (info: BackupInfo) => info.header ? Date.parse(info.header.takenAt) : -Infinity
     return found.sort((a, b) => when(b) - when(a))
   }
@@ -88,12 +131,58 @@ export class Restorer {
    * failure says where the previous book, its safety copy and the restored copy each are.
    */
   async restore(file: string, target: RestoreTarget): Promise<RestoreOutcome> {
-    // 1. Whether this Tessera can restore it, from the header alone
-    const header = await readBackupHeader(this.deps.backupDisk.open(file))
-    const problem = restoreProblem(header, this.deps.contributions())
-    if (problem !== undefined) throw new BookError('UNSUPPORTED_FILE', `This backup can’t be restored here. ${problem}`)
-    // 2. The whole of it, checked line by line against its digest
-    const { snapshot } = await readBackup(this.deps.backupDisk.open(file))
+    let header: BackupHeader
+    let snapshot: DatabaseSnapshot
+    let archiveMarker: ArchiveMarker | undefined
+
+    try {
+      // 1. A `.tessera-backup`: header first, then the complete digest-checked snapshot
+      header = await readBackupHeader(this.deps.backupDisk.open(file))
+      const problem = restoreProblem(header, this.deps.contributions())
+      if (problem !== undefined) throw new BookError('UNSUPPORTED_FILE', `This backup can’t be restored here. ${problem}`)
+      snapshot = (await readBackup(this.deps.backupDisk.open(file))).snapshot
+    } catch (err) {
+      if (err instanceof BookError && err.code === 'DAMAGED') throw err
+      if (file.toLowerCase().endsWith('.tessera-backup')) throw err
+      // 1. An ordinary `.tessera` archive: open it read-only, verify its marker and version compatibility
+      const db = await this.deps.engine.open({ path: file }, { readOnly: true })
+      try {
+        const marker = await db.meta.get(BOOK_META.archive)
+        if ((await db.meta.get(BOOK_META.readOnly)) !== true || !isArchiveMarker(marker)) {
+          throw new Error('This is not a Tessera archive.')
+        }
+        archiveMarker = marker
+        snapshot = await db.snapshot()
+        const format = snapshot.meta[BOOK_META.format]
+        if (typeof format === 'number' && format > BOOK_FORMAT_VERSION) {
+          throw new BookError('UNSUPPORTED_FILE', 'This archive was made by a newer version of Tessera. Update Tessera to restore it.')
+        }
+        for (const contribution of this.deps.contributions()) {
+          const stored = snapshot.meta[BOOK_META.schemaVersion(contribution.id)]
+          if (typeof stored === 'number' && stored > contribution.version) {
+            throw new BookError('UNSUPPORTED_FILE', `This archive needs a newer version of the “${contribution.id}” plugin (data version ${stored}; this one understands ${contribution.version}). Update Tessera to restore it.`)
+          }
+        }
+        header = {
+          kind: 'tessera-backup',
+          version: 1,
+          book: { id: marker.of, name: marker.ofName, path: file },
+          takenAt: marker.takenAt,
+          trigger: 'archive',
+          app: marker.app,
+          engine: this.deps.engine.id,
+          bookFormat: typeof format === 'number' ? format : 0,
+          schemaVersions: {},
+          counts: {
+            collections: snapshot.collections.length,
+            documents: snapshot.collections.reduce((total, collection) => total + collection.docs.length, 0),
+            meta: Object.keys(snapshot.meta).length
+          }
+        }
+      } finally {
+        await db.close()
+      }
+    }
 
     return this.deps.session.exclusive(async inside => {
       const current = this.deps.session.current
@@ -105,7 +194,13 @@ export class Restorer {
         const db = await this.deps.engine.open({ path: staging })
         try {
           await db.load(snapshot)
-          if (target.kind === 'new') {
+          if (archiveMarker) {
+            // Restoring an archive makes it a new, writable book even when Replace is chosen.
+            await db.meta.delete(BOOK_META.readOnly)
+            await db.meta.delete(BOOK_META.archive)
+            await db.meta.set(BOOK_META.id, this.deps.engine.newId())
+            await db.meta.set(BOOK_META.restoredFrom, { bookId: archiveMarker.of, takenAt: archiveMarker.takenAt })
+          } else if (target.kind === 'new') {
             // A copy is a book of its own: its backups must never prune the original's
             await db.meta.set(BOOK_META.id, this.deps.engine.newId())
             await db.meta.set(BOOK_META.restoredFrom, { bookId: header.book.id, takenAt: header.takenAt })

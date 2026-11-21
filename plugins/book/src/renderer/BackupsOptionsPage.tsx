@@ -43,12 +43,16 @@ function WholeNumberField({ label, value, disabled, helperText, error, onChange 
     if (Number.isFinite(value) && wholeNumber(text) !== value) setText(String(value))
   }, [value])   // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <TextField
-      size="small" label={label} sx={{ maxWidth: 120 }}
-      value={text} disabled={disabled} error={error}
-      onChange={event => { setText(event.target.value); onChange(wholeNumber(event.target.value)) }}
-      slotProps={{ htmlInput: { inputMode: 'numeric', 'aria-label': label, 'aria-describedby': 'book-backups-keep-help' } }}
-      helperText={<span id="book-backups-keep-help">{helperText}</span>} />
+    <Stack sx={{ gap: 0.5 }}>
+      <TextField
+        size="small" label={label} sx={{ width: 250 }}
+        value={text} disabled={disabled} error={error}
+        onChange={event => { setText(event.target.value); onChange(wholeNumber(event.target.value)) }}
+        slotProps={{ htmlInput: { inputMode: 'numeric', 'aria-label': label, 'aria-describedby': 'book-backups-keep-help' } }} />
+      <Typography id="book-backups-keep-help" variant="caption" color={error ? 'error' : 'text.secondary'}>
+        {helperText}
+      </Typography>
+    </Stack>
   )
 }
 
@@ -96,7 +100,9 @@ export default function BackupsOptionsPage({ value, onChange, onValidityChange, 
     setBrowseError(undefined)
     setBrowsing(true)
     try {
-      const chosen = await window.api.invoke<string | undefined>(BOOK_CHANNELS.backupsChooseFolder, { current: backups.folder })
+      const chosen = await window.api.invoke<string | undefined>(BOOK_CHANNELS.chooseFolder, {
+        current: backups.folder, defaultPath: status?.defaultFolder, title: 'Choose Backup Folder'
+      })
       if (chosen !== undefined) update({ folder: chosen })
     } catch (err) {
       setBrowseError(`The folder could not be chosen: ${err instanceof Error ? err.message : String(err)}`)
