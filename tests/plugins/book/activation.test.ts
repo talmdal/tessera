@@ -67,7 +67,7 @@ describe('the book plugin: contributions', () => {
     const menus = resolveMenus([{ kind: 'menu', id: 'shell.file', label: '&File' }, ...impls('shell.menus').map(c => c.impl)])
     expect(menus.diagnostics).toEqual([])
     expect(menus.menus[0].children.filter(n => n.type === 'item').map(n => (n as any).label))
-      .toEqual(['&New Book…', '&Open Book…', '&Close Book', 'Back &Up Now', 'Back Up &To…', '&Restore from Backup…', '&Delete Book…'])
+      .toEqual(['&New Book…', '&Open Book…', '&Close Book', 'Back &Up Now', 'Back Up &To…', '&Restore from Backup…', '&Archive…', '&Delete Book…'])
 
     const views = resolveViews(impls('shell.views'), () => 'tessera-plugin://book/remoteEntry.js')
     expect(views.diagnostics).toEqual([])
@@ -77,12 +77,15 @@ describe('the book plugin: contributions', () => {
 
     const dialogs = resolveDialogs(impls('shell.dialogs'), () => 'tessera-plugin://book/remoteEntry.js')
     expect(dialogs.diagnostics).toEqual([])
-    expect(dialogs.dialogs.map(d => d.id)).toEqual([BOOK_DIALOGS.newBook, BOOK_DIALOGS.renameSubBook, BOOK_DIALOGS.restore])
+    expect(dialogs.dialogs.map(d => d.id)).toEqual([BOOK_DIALOGS.newBook, BOOK_DIALOGS.renameSubBook, BOOK_DIALOGS.restore, BOOK_DIALOGS.archive])
 
     const items = resolveBarItems(impls('shell.bar.items'))
     expect(items.diagnostics).toEqual([])
-    expect(items.items[0]).toMatchObject({ kind: 'text', text: 'Book: {book.name}', when: 'book.isOpen' })
+    expect(items.items[0]).toMatchObject({ kind: 'text', text: 'Book: {book.name}', when: 'book.isOpen && !book.isArchive' })
     expect(items.items[1]).toMatchObject({
+      kind: 'text', icon: 'Lock', text: 'Archive of “{book.name}” through {book.archiveThrough}', when: 'book.isArchive'
+    })
+    expect(items.items[2]).toMatchObject({
       kind: 'text', icon: 'Warning', text: 'Last backup failed', when: 'book.backup.failed', command: BOOK_COMMANDS.backupSettings
     })
   })
@@ -91,7 +94,8 @@ describe('the book plugin: contributions', () => {
     const { session } = await setup()
     expect(Object.keys(session).sort()).toEqual([
       'close', 'create', 'createSubBook', 'current', 'database', 'delete', 'deleteSubBook', 'moveSubBook',
-      'onDidChange', 'onDidChangeTree', 'onWillClose', 'open', 'participate', 'registerNavigator', 'renameSubBook', 'tree'
+      'onDidChange', 'onDidChangeTree', 'onWillClose', 'open', 'participate', 'participateInArchive',
+      'registerNavigator', 'renameSubBook', 'tree'
     ])
   })
 
@@ -337,13 +341,15 @@ describe('the book plugin: lifecycle', () => {
 
 describe('the Backups options page', () => {
   const DEFAULT_FOLDER = path.join(DIR, 'Documents', 'Tessera Backups')
+  const DEFAULT_ARCHIVE_FOLDER = path.join(DIR, 'Documents', 'Tessera Archives')
 
   it('is contributed under a Book category, naming a module the plugin exposes', async () => {
     const { runtime } = await setup()
     const pages = runtime.extensions.getContributions(OPTIONS_EXTENSION_POINT).filter(c => c.contributor === BOOK_PLUGIN_ID).map(c => c.impl)
     expect(pages).toEqual([
       expect.objectContaining({ id: 'book.options', title: 'Book' }),
-      expect.objectContaining({ id: 'book.options.backups', title: 'Backups', parent: 'book.options', module: './BackupsOptionsPage' })
+      expect.objectContaining({ id: 'book.options.backups', title: 'Backups', parent: 'book.options', module: './BackupsOptionsPage' }),
+      expect.objectContaining({ id: 'book.options.archive', title: 'Archive', parent: 'book.options', module: './ArchiveOptionsPage' })
     ])
     expect((pages[0] as { module?: string }).module).toBeUndefined()      // a category only groups pages
   })
@@ -354,13 +360,27 @@ describe('the Backups options page', () => {
     expect(options.get<BookOptions>(BOOK_PLUGIN_ID)).toEqual(BOOK_OPTIONS_DEFAULTS)
   })
 
+  it('reports the default archive folder even when a custom destination is configured', async () => {
+    const env = await setup()
+    const options = env.runtime.options as OptionsService
+    expect(await env.ask(BOOK_CHANNELS.archiveStatus)).toEqual({ defaultFolder: DEFAULT_ARCHIVE_FOLDER })
+    expect(options.commit(BOOK_PLUGIN_ID, {
+      ...BOOK_OPTIONS_DEFAULTS,
+      archive: { ...BOOK_OPTIONS_DEFAULTS.archive, folder: path.resolve('/media/kim/Archives') }
+    })).toEqual([])
+    expect(await env.ask(BOOK_CHANNELS.archiveStatus)).toEqual({ defaultFolder: DEFAULT_ARCHIVE_FOLDER })
+  })
+
   it('refuses a setting the page would refuse, through the same check', async () => {
     const { runtime } = await setup()
     const options = runtime.options as OptionsService
     const backups = BOOK_OPTIONS_DEFAULTS.backups
-    expect(options.commit(BOOK_PLUGIN_ID, { backups: { ...backups, keep: 0 } })).toEqual(['Keep between 1 and 999 automatic backups.'])
-    expect(options.commit(BOOK_PLUGIN_ID, { backups: { ...backups, folder: 'relative/folder' } }))
+    expect(options.commit(BOOK_PLUGIN_ID, { ...BOOK_OPTIONS_DEFAULTS, backups: { ...backups, keep: 0 } })).toEqual(['Keep between 1 and 999 automatic backups.'])
+    expect(options.commit(BOOK_PLUGIN_ID, { ...BOOK_OPTIONS_DEFAULTS, backups: { ...backups, folder: 'relative/folder' } }))
       .toEqual(['The backup folder must be a full path, such as one chosen with Browse….'])
+    expect(options.commit(BOOK_PLUGIN_ID, {
+      ...BOOK_OPTIONS_DEFAULTS, archive: { ...BOOK_OPTIONS_DEFAULTS.archive, folder: 'relative/folder' }
+    })).toEqual(['The archive folder must be a full path, such as one chosen with Browse….'])
     expect(options.get<BookOptions>(BOOK_PLUGIN_ID)).toEqual(BOOK_OPTIONS_DEFAULTS)
   })
 
@@ -369,7 +389,7 @@ describe('the Backups options page', () => {
     const usb = path.resolve('/media/kim/USB')
     env.backupDisk.folders.add(usb)
     expect((env.runtime.options as OptionsService).commit(BOOK_PLUGIN_ID, {
-      backups: { ...BOOK_OPTIONS_DEFAULTS.backups, folder: usb }
+      ...BOOK_OPTIONS_DEFAULTS, backups: { ...BOOK_OPTIONS_DEFAULTS.backups, folder: usb }
     })).toEqual([])
 
     await env.newBook()
@@ -409,15 +429,20 @@ describe('the Backups options page', () => {
     env.files.showFolderDialog.mockResolvedValueOnce('/picked').mockResolvedValueOnce(undefined)
 
     // The sender comes from the main process, never from the request: a window can't claim to be another
-    const reply = await env.runtime.ipc.dispatch({ channel: BOOK_CHANNELS.backupsChooseFolder, data: { current: null } }, { windowId: 7 })
+    const reply = await env.runtime.ipc.dispatch({
+      channel: BOOK_CHANNELS.chooseFolder,
+      data: { current: null, defaultPath: DEFAULT_FOLDER, title: 'Choose Backup Folder' }
+    }, { windowId: 7 })
     expect(reply).toMatchObject({ ok: true, data: '/picked' })
     expect(env.files.showFolderDialog).toHaveBeenLastCalledWith({
       title: 'Choose Backup Folder', defaultPath: DEFAULT_FOLDER, buttonLabel: 'Choose Folder', windowId: 7
     })
 
-    expect(await env.ask(BOOK_CHANNELS.backupsChooseFolder, { current: '/media/kim/USB' })).toBeUndefined()
+    expect(await env.ask(BOOK_CHANNELS.chooseFolder, { current: '/media/kim/USB', title: 'Choose Archive Folder' })).toBeUndefined()
     expect(env.files.showFolderDialog).toHaveBeenLastCalledWith(expect.objectContaining({ defaultPath: '/media/kim/USB' }))
-    await expect(env.ask(BOOK_CHANNELS.backupsChooseFolder, { current: 42 })).rejects.toThrow('current must be a folder path or null')
+    await env.ask(BOOK_CHANNELS.chooseFolder, { title: 'Choose Folder' })
+    expect(env.files.showFolderDialog).toHaveBeenLastCalledWith(expect.objectContaining({ defaultPath: path.join(DIR, 'Documents') }))
+    await expect(env.ask(BOOK_CHANNELS.chooseFolder, { current: 42 })).rejects.toThrow('current must be a folder path or null')
   })
 })
 
@@ -506,6 +531,14 @@ describe('the failed-backup warning', () => {
     createPluginContext('shell', env.runtime).context.commands.register('shell.options.open', (args: unknown) => { opened.push(args) })
     await env.run(BOOK_COMMANDS.backupSettings)
     expect(opened).toEqual([{ page: 'book.options.backups' }])
+  })
+
+  it('leads to the Archive page of the options dialog', async () => {
+    const env = await setup()
+    const opened: unknown[] = []
+    createPluginContext('shell', env.runtime).context.commands.register('shell.options.open', (args: unknown) => { opened.push(args) })
+    await env.run(BOOK_COMMANDS.archiveSettings)
+    expect(opened).toEqual([{ page: 'book.options.archive' }])
   })
 })
 

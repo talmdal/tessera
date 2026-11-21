@@ -171,7 +171,10 @@ export function toOverlayRow(
     ...(t.memo !== undefined && { memo: t.memo }),
     ...(categoryLabel !== undefined && { categoryLabel }),
     ...(entry.matchedId !== undefined && { matchedId: entry.matchedId }),
-    note: noteFor(entry, existingById),
+    note: [
+      ...(entry.row.archivedPeriod ? ['Before opening date (already archived)'] : []),
+      noteFor(entry, existingById)
+    ].join(' · '),
     actions: [
       { id: 'exchange.accept', label: 'Accept', command: EXCHANGE_COMMANDS.accept, primary: true },
       { id: 'exchange.change', label: 'Change…', command: EXCHANGE_COMMANDS.change },

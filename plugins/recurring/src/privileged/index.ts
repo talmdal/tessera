@@ -72,6 +72,8 @@ export async function activate(context: PluginContext, options: ActivateOptions 
   const accounts = context.services.get<AccountsService>(ACCOUNTS_SERVICE)
   const prompts = context.services.get<ShellPrompts>(SHELL_PROMPTS_SERVICE)
   const service = new RecurringServiceImpl({ session, accounts, log: context.logger, today })
+  // Before accounts: ordering only sequences the prunes — what each removes comes from the surveys
+  context.subscriptions.push(session.participateInArchive(RECURRING_PLUGIN_ID, service.archiveParticipant, { before: ['accounts'] }))
 
   const publish = () => publishSnapshot(context, service, session)
 

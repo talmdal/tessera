@@ -1,7 +1,9 @@
 // `accounts.service`: the accounts of the open book. Every rule is enforced here, so whatever writes accounts (the
 // dialogs, an importer, a future plugin) gets the same checks.
 import type { Collection, Database, Disposable, Event, Logger, Transaction } from '@tessera/types'
-import { descendantIds, type BookSession, type BookTree, type SubBookParticipant } from '@tessera/book-api'
+import {
+  descendantIds, type ArchiveParticipant, type BookSession, type BookTree, type SubBookParticipant
+} from '@tessera/book-api'
 import {
   ACCOUNT_CLASS, ACCOUNT_NOTES_MAX_LENGTH, ACCOUNT_NUMBER_MAX_LENGTH, ACCOUNT_TEXT_MAX_LENGTH, AccountsError,
   CREDIT_LIMIT_TYPES, MINIMUM_BALANCE_TYPES, accountNameKey, accountNumberKey, formatAmount, isAccountType, isAmount,
@@ -17,6 +19,7 @@ import {
 } from './store'
 import * as reconcile from './reconcileCore'
 import * as core from './transactionsCore'
+import { accountsArchiveParticipant } from './archiveParticipant'
 
 export { translate }
 
@@ -381,12 +384,12 @@ export class AccountsServiceImpl implements AccountsService {
         return found && found.accountId === accountId ? { ...found } : undefined
       }),
       create: (draft: TransactionDraft) => this.write(c => core.createTransaction(c, accountId, draft, this.now()),
-        result => touchedChange(result.touched)).then(result => result.transaction),
+        result => ({ ...touchedChange(result.touched), updated: [...result.openingDateChanged] })).then(result => result.transaction),
       createMany: (drafts: TransactionDraft[]) => this.write(c => core.createTransactions(c, accountId, drafts, this.now()),
-        result => touchedChange(result.touched)).then(result => result.transactions),
+        result => ({ ...touchedChange(result.touched), updated: [...result.openingDateChanged] })).then(result => result.transactions),
       update: (id: string, patch: TransactionPatch, options: WriteOptions = {}) =>
         this.write(c => core.updateTransaction(c, accountId, id, patch, options, this.now()),
-          result => touchedChange(result.touched)).then(result => result.transaction),
+          result => ({ ...touchedChange(result.touched), updated: [...result.openingDateChanged] })).then(result => result.transaction),
       delete: async (ids: string[], options: WriteOptions = {}) => {
         await this.write(c => core.deleteTransactions(c, accountId, ids, options), touchedChange)
       },
@@ -420,9 +423,9 @@ export class AccountsServiceImpl implements AccountsService {
     }),
     // Begin can add the statement's service charge and interest, so the balances and the register may change
     begin: (accountId, statement) => this.write(c => reconcile.begin(c, accountId, statement, this.now()),
-      state => state.reconciliation.addedIds.length > 0
-        ? { reconciliations: [accountId], transactions: [accountId], balances: [accountId] }
-        : { reconciliations: [accountId], chart: false }),
+      result => result.state.reconciliation.addedIds.length > 0
+        ? { reconciliations: [accountId], transactions: [accountId], balances: [accountId], updated: result.openingDateChanged }
+        : { reconciliations: [accountId], chart: false, updated: result.openingDateChanged }).then(result => result.state),
     mark: (accountId, ids, marked) => this.write(c => reconcile.mark(c, accountId, ids, marked, this.now()),
       () => ({ transactions: [accountId], balances: [accountId], reconciliations: [accountId] })),
     pause: accountId => this.write(c => reconcile.pause(c, accountId),
@@ -436,6 +439,18 @@ export class AccountsServiceImpl implements AccountsService {
   // ---- Taking part in sub-books
 
   /** Deleting a sub-book moves its accounts to its parent, inside the book's transaction. */
+  /** What archiving asks of the accounts: what would go, and the removal with the opening-balance adjustment. */
+  readonly archiveParticipant: ArchiveParticipant = accountsArchiveParticipant({ collections: () => this.c() })
+
+  /**
+   * After archiving pruned the book: the prune wrote through the archiver's own transaction, not this service, so
+   * the service announces the change itself — every account, as if everything changed — and the views rebuild.
+   */
+  async announceArchived(): Promise<void> {
+    const ids = (await this.read(c => c.accounts.find({}))).map(account => account.id)
+    this.changes.fire(change({ updated: ids, transactions: ids, balances: ids, chart: true }))
+  }
+
   readonly participant: SubBookParticipant = {
     describe: async subBookId => {
       const count = await this.c().accounts.count({ subBookId })

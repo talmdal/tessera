@@ -30,6 +30,8 @@ export type RecurringConfirmation =
   | 'unusualDate'
   /** A transaction with the same account, date and amount is already there: possibly a double entry. */
   | 'possibleDuplicate'
+  /** The occurrence is dated before the account's opening balance date. */
+  | 'archivedPeriod'
 
 /** What `recurring.service` throws for something the user caused. Test with `isRecurringError`, never `instanceof`. */
 export class RecurringError extends Error {

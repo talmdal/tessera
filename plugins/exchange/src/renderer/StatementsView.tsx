@@ -94,6 +94,11 @@ export default function StatementsView() {
                         : <Typography variant="body2" component="span">{line.accountName}</Typography>}
                       <Typography variant="body2" component="span" color="text.secondary">({line.items})</Typography>
                     </Stack>
+                    {(line.archivedItems ?? 0) > 0 && (
+                      <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>
+                        {line.archivedItems} before the opening date — already archived, not imported yet
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell>{line.lastReadAt === undefined ? '' : showTimestamp(line.lastReadAt)}</TableCell>
                   <TableCell align="right">

@@ -58,6 +58,8 @@ export interface FileOptions {
    * corrected file is a real thing, and so is pressing Import twice by accident.
    */
   force?: boolean
+  /** Import rows dated before the account's opening date after an explicit user confirmation. */
+  archivedOverride?: boolean
 }
 
 /**

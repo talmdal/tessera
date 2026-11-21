@@ -11,7 +11,9 @@
       "./NewBookDialog": "src/renderer/NewBookDialog.tsx",
       "./RenameDialog": "src/renderer/RenameDialog.tsx",
       "./BackupsOptionsPage": "src/renderer/BackupsOptionsPage.tsx",
-      "./RestoreDialog": "src/renderer/RestoreDialog.tsx"
+      "./ArchiveOptionsPage": "src/renderer/ArchiveOptionsPage.tsx",
+      "./RestoreDialog": "src/renderer/RestoreDialog.tsx",
+      "./ArchiveDialog": "src/renderer/ArchiveDialog.tsx"
     }
   },
   "services": {

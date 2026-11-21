@@ -1,5 +1,6 @@
 // The `book.session` service and the `book.schema` extension point: what other plugins build on.
 import type { CollectionSchema, Database, Disposable, Event, Transaction as StorageTransaction } from '@tessera/types'
+import type { ArchiveParticipant } from './archive'
 import type { BookChange, BookInfo, BookTree, SubBook } from './model'
 
 /**
@@ -48,6 +49,17 @@ export interface BookSession {
 
   /** Registers a plugin that places items in sub-books. Dispose to stop participating. */
   participate(contributor: string, participant: SubBookParticipant): Disposable
+
+  /**
+   * Registers a plugin that keeps data archiving removes, so it is surveyed before an archive and prunes its own
+   * data inside the archiving transaction. Dispose to stop taking part.
+   *
+   * `options.before` names contributors this one must run before: `recurring` and `exchange` declare
+   * `before: ['accounts']`, so the accounts participant — which makes the opening-balance adjustment and checks
+   * the balances still add up — runs last. Participants with no ordering between them run in registration order.
+   * What each one *removes* does not depend on the order: every survey's `removesIds` reaches every `prune`.
+   */
+  participateInArchive(contributor: string, participant: ArchiveParticipant, options?: { before?: string[] }): Disposable
 
   /**
    * Says that `contributor` shows the book tree in a view of its own (with its items in it), so the book's own

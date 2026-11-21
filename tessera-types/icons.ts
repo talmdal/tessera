@@ -5,7 +5,7 @@
 export const ICON_NAMES = [
   'Add', 'AccountBalance', 'Block', 'CalendarToday', 'Check', 'ChevronLeft', 'ChevronRight', 'Circle', 'Close',
   'CreditCard', 'Delete', 'Download', 'Edit', 'Error', 'ExpandLess', 'ExpandMore', 'Folder', 'Home', 'Info', 'Link',
-  'List', 'MoreVert', 'LibraryAdd', 'Pause', 'PlayArrow', 'Repeat', 'Restore', 'Save', 'Savings', 'Search', 'ShowChart', 'SkipNext',
+  'List', 'Lock', 'MoreVert', 'LibraryAdd', 'Pause', 'PlayArrow', 'Repeat', 'Restore', 'Save', 'Savings', 'Search', 'ShowChart', 'SkipNext',
   'Warning'
 ] as const
 

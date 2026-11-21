@@ -14,7 +14,7 @@ import {
 } from '@tessera/ui'
 import { whenText } from './bridge'
 
-const TRIGGER: Record<BackupTrigger, string> = { auto: 'automatic', manual: 'made by you', 'pre-restore': 'before a restore' }
+const TRIGGER: Record<BackupTrigger, string> = { auto: 'automatic', manual: 'made by you', 'pre-restore': 'before a restore', archive: 'archive' }
 const ENGINE: Record<string, string> = { 'storage-sqlite': 'SQLite', 'storage-loki': 'LokiJS', 'storage-memory': 'memory' }
 
 /** "2.1 MB", "640 KB". */
@@ -32,19 +32,23 @@ interface Group { key: string, title: string, items: BackupInfo[] }
  * backup, then files that can't be read. A backup picked with Browse… heads its own group.
  */
 export function groupBackups(listed: readonly BackupInfo[], openId: string | undefined, chosen: BackupInfo | undefined): Group[] {
+  const archives = listed.filter(info => info.header?.trigger === 'archive')
+  const backups = listed.filter(info => info.header?.trigger !== 'archive')
   const books = new Map<string, Group>()
   const unreadable: BackupInfo[] = []
-  for (const info of listed) {
+  for (const info of backups) {
     if (chosen && info.file === chosen.file) continue
     if (!info.header) { unreadable.push(info); continue }
     const group = books.get(info.header.bookId) ?? { key: info.header.bookId, title: info.header.bookName, items: [] }
     group.items.push(info)
     books.set(info.header.bookId, group)
   }
+  const archiveItems = archives.filter(info => !chosen || info.file !== chosen.file)
   const newest = (g: Group) => Date.parse(g.items[0]?.header?.takenAt ?? '') || 0
   const ordered = [...books.values()].sort((a, b) => (a.key === openId ? -1 : b.key === openId ? 1 : newest(b) - newest(a)))
   return [
     ...(chosen ? [{ key: 'chosen', title: 'Chosen file', items: [chosen] }] : []),
+    ...(archiveItems.length > 0 ? [{ key: 'archives', title: 'Archives', items: archiveItems }] : []),
     ...ordered,
     ...(unreadable.length > 0 ? [{ key: 'unreadable', title: 'Files that can’t be read', items: unreadable }] : [])
   ]
@@ -73,11 +77,12 @@ export default function RestoreDialog({ input, close }: DialogProps<RestoreDialo
 
   useEffect(() => {
     let live = true
-    window.api.invoke<BackupInfo[]>(BOOK_CHANNELS.backupsList, { folder: input.folder }).then(
+    window.api.invoke<BackupInfo[]>(BOOK_CHANNELS.backupsList,
+      input.archiveFolder ? { folder: input.folder, archiveFolder: input.archiveFolder } : { folder: input.folder }).then(
       found => { if (live) setListed(found) },
       err => { if (live) { setListed([]); setError(`The backups couldn’t be listed: ${err instanceof Error ? err.message : String(err)}`) } })
     return () => { live = false }
-  }, [input.folder])
+  }, [input.folder, input.archiveFolder])
 
   const groups = useMemo(() => groupBackups(listed ?? [], input.open?.id, chosen), [listed, input.open?.id, chosen])
   const all = useMemo(() => groups.flatMap(g => g.items), [groups])
@@ -106,6 +111,7 @@ export default function RestoreDialog({ input, close }: DialogProps<RestoreDialo
           <Stack direction="row" sx={{ alignItems: 'center', gap: 1 }}>
             <Typography variant="body2" sx={{ flex: 1, wordBreak: 'break-all' }} data-testid="restore-folder">
               Backups in {input.folder}
+              {input.archiveFolder && ` · Archives in ${input.archiveFolder}`}
             </Typography>
             <Button size="small" variant="outlined" onClick={() => { void browse() }}>Browse…</Button>
           </Stack>

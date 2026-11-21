@@ -1,7 +1,7 @@
 // What the Backups options page asks of the book: the last backup's status, followed through a push event, and a
 // folder picker. The page never reads or writes options here: the options dialog owns the draft.
 import type { BookChange, BackupStatus, BookInfo } from '@tessera/book-api'
-import { BACKUP_FILE_FILTER, BOOK_CHANNELS, BOOK_CONTEXT_KEYS, BOOK_EVENTS, BOOK_PLUGIN_ID } from '@tessera/book-api'
+import { ARCHIVE_FILE_FILTER, BACKUP_FILE_FILTER, BOOK_CHANNELS, BOOK_CONTEXT_KEYS, BOOK_EVENTS, BOOK_PLUGIN_ID } from '@tessera/book-api'
 import type { Disposable, Event, IpcMessage, PluginContext, ShellFiles } from '@tessera/types'
 import type { RecentBooks } from '../RecentBooks'
 import type { BackupLedger, LedgerEntry } from './BackupLedger'
@@ -13,8 +13,10 @@ export interface BackupsIpcDeps {
   recent: Pick<RecentBooks, 'list'>
   backups: Pick<Backups, 'defaultFolder' | 'onDidRecord' | 'backupFolder'>
   ledger: Pick<BackupLedger, 'entry' | 'byPath' | 'forget'>
-  files: Pick<ShellFiles, 'showFolderDialog' | 'showOpenDialog'>
+  files: Pick<ShellFiles, 'showFolderDialog' | 'showOpenDialog' | 'documentsPath'>
   restorer: Pick<Restorer, 'list' | 'inspect'>
+  /** The configured archive folder, or the default. */
+  archiveFolder: () => string
 }
 
 /** `events.emit` adds the plugin's prefix itself. */
@@ -68,12 +70,20 @@ export function registerBackupsIpc(context: Pick<PluginContext, 'ipc' | 'events'
   return [
     context.ipc.register(BOOK_CHANNELS.backupsStatus, () => backupStatus(deps)),
 
-    context.ipc.register(BOOK_CHANNELS.backupsChooseFolder, async (msg: IpcMessage<{ current?: unknown }>) => {
+    context.ipc.register(BOOK_CHANNELS.chooseFolder, async (msg: IpcMessage<{ current?: unknown, defaultPath?: unknown, title?: unknown }>) => {
       const current = msg.data?.current
       if (current !== undefined && current !== null && typeof current !== 'string') throw new Error('current must be a folder path or null')
+      const defaultPath = msg.data?.defaultPath
+      if (defaultPath !== undefined && defaultPath !== null && typeof defaultPath !== 'string') throw new Error('defaultPath must be a folder path or null')
+      const title = msg.data?.title
+      if (title !== undefined && (typeof title !== 'string' || title.trim() === '')) throw new Error('title must be a non-empty string')
       return deps.files.showFolderDialog({
-        title: 'Choose Backup Folder',
-        defaultPath: typeof current === 'string' && current !== '' ? current : deps.backups.defaultFolder(),
+        title: typeof title === 'string' ? title : 'Choose Folder',
+        defaultPath: typeof current === 'string' && current !== ''
+          ? current
+          : typeof defaultPath === 'string' && defaultPath !== ''
+            ? defaultPath
+            : deps.files.documentsPath(),
         buttonLabel: 'Choose Folder',
         // Modal to the window the options dialog is in, not whichever happens to be focused
         ...(msg.sender && { windowId: msg.sender.windowId })
@@ -81,17 +91,19 @@ export function registerBackupsIpc(context: Pick<PluginContext, 'ipc' | 'events'
     }),
 
     // The Restore dialog: the backups in a folder, headers only, and a backup picked from anywhere
-    context.ipc.register(BOOK_CHANNELS.backupsList, async (msg: IpcMessage<{ folder?: unknown }>) => {
+    context.ipc.register(BOOK_CHANNELS.backupsList, async (msg: IpcMessage<{ folder?: unknown, archiveFolder?: unknown }>) => {
       const folder = msg.data?.folder
+      const archiveFolder = msg.data?.archiveFolder
       if (folder !== undefined && (typeof folder !== 'string' || folder === '')) throw new Error('folder must be a folder path')
-      return deps.restorer.list(folder ?? deps.backups.backupFolder())
+      if (archiveFolder !== undefined && (typeof archiveFolder !== 'string' || archiveFolder === '')) throw new Error('archiveFolder must be a folder path')
+      return deps.restorer.list(folder ?? deps.backups.backupFolder(), typeof archiveFolder === 'string' ? archiveFolder : deps.archiveFolder())
     }),
 
     context.ipc.register(BOOK_CHANNELS.backupsChoose, async (msg: IpcMessage<unknown>) => {
       const chosen = await deps.files.showOpenDialog({
         title: 'Choose a Backup',
         defaultPath: deps.backups.backupFolder(),
-        filters: [BACKUP_FILE_FILTER, { name: 'All files', extensions: ['*'] }],
+        filters: [BACKUP_FILE_FILTER, ARCHIVE_FILE_FILTER, { name: 'All files', extensions: ['*'] }],
         buttonLabel: 'Choose',
         ...(msg.sender && { windowId: msg.sender.windowId })
       })

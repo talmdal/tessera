@@ -23,7 +23,7 @@ const row = (over: Partial<RecurringRow> & { state: DueState }, seriesOver: Part
   kind: 'payment',
   occurrence: { index: 0, date: seriesOver.nextDate ?? '2026-09-01' },
   dueCount: 1,
-  account: { id: 'c', name: 'Chequing', type: 'chequing', currency: 'CAD', closed: false },
+  account: { id: 'c', name: 'Chequing', type: 'chequing', currency: 'CAD', closed: false, openingDate: '2026-01-01' },
   payeeName: 'Hydro',
   categoryLabel: 'Utilities : Electricity',
   scheduleLabel: 'Monthly on the 1st',
@@ -182,6 +182,9 @@ describe('choosing what to enter', () => {
 
   it('works out what is due the same way the view shows it', () => {
     expect(dueNow(BOOK.rows)).toEqual(['s1', 's2'])
+    expect(dueNow([row({ state: 'overdue', occurrence: { index: 0, date: '2025-12-31' }, account: {
+      id: 'c', name: 'Chequing', type: 'chequing', currency: 'CAD', closed: false, openingDate: '2026-01-01'
+    } })])).toEqual([])
     expect(dueNow([row({ state: 'overdue', blockedReason: 'gone' })])).toEqual([])
     expect(dueNow([row({ state: 'paused' })])).toEqual([])
   })

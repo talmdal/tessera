@@ -106,6 +106,17 @@ export class Backups {
 
   private get now() { return this.deps.now ?? (() => new Date()) }
 
+  /**
+   * Whether the book has changed since its last successful backup, or has never had one: the Archive dialog
+   * offers a backup first when it has. A read-only book is never stale — it cannot change.
+   */
+  async stale(book: BookInfo): Promise<boolean> {
+    if (book.readOnly) return false
+    const entry = await this.deps.ledger.entry(book.id)
+    if (entry?.lastBackupAt === undefined || entry.lastResult !== 'ok') return true
+    return Boolean(entry.changed) || this.changedNow.has(book.id)
+  }
+
   /** Resolves once every backup queued so far has been written, or has failed. For tests and for `drain`. */
   idle(): Promise<void> {
     return this.queue
@@ -114,6 +125,8 @@ export class Backups {
   // ---- Tracking changes while a book is open
 
   private opened(db: Database, book: BookInfo, migrated: boolean) {
+    // A read-only book (an archive) has not changed and cannot change: nothing to watch, nothing to back up
+    if (book.readOnly) return
     this.changedNow.delete(book.id)
     // A migration changed the data before anyone could see it change: it still needs backing up
     if (migrated) this.changed(book)
@@ -145,6 +158,8 @@ export class Backups {
   private async closing(db: Database, book: BookInfo): Promise<void> {
     this.watching?.dispose()
     this.watching = undefined
+    // "Never backed up" would make one due; a read-only book (an archive) never needs one at all
+    if (book.readOnly) return
     const options = this.deps.options()
     const entry = await this.deps.ledger.entry(book.id)
     const history = { ...entry, changed: Boolean(entry?.changed) || this.changedNow.has(book.id) }

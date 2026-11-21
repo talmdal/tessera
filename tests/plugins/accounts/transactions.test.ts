@@ -43,6 +43,24 @@ describe('a new book', () => {
 })
 
 describe('transactions', () => {
+  it('moves an account opening date back for earlier creates, batches, edits and both sides of transfers', async () => {
+    const { t, chq, sav, service } = await book()
+    const before = chq.openingBalance
+    const [first, transfer] = await t(chq.id).createMany([
+      { date: '2025-12-10', amount: -100 },
+      { date: '2025-11-01', amount: -250, transferAccountId: sav.id }
+    ])
+
+    expect(await service.get(chq.id)).toMatchObject({ openingDate: '2025-11-01', openingBalance: before })
+    expect(await service.get(sav.id)).toMatchObject({ openingDate: '2025-11-01', openingBalance: 0 })
+    await t(chq.id).update(first.id, { date: '2025-10-15' })
+    expect(await service.get(chq.id)).toMatchObject({ openingDate: '2025-10-15', openingBalance: before })
+    await t(chq.id).update(transfer.id, { date: '2025-09-10' })
+    expect(await service.get(chq.id)).toMatchObject({ openingDate: '2025-09-10', openingBalance: before })
+    expect(await service.get(sav.id)).toMatchObject({ openingDate: '2025-09-10', openingBalance: 0 })
+    expect(transfer.transferAccountId).toBe(sav.id)
+  })
+
   it('are created with their payee (made on first use, then reused ignoring case) and category', async () => {
     const { t, chq, groceries, service } = await book()
     const first = await t(chq.id).create({ date: '2026-10-02', amount: -5025, payee: 'Metro', categoryId: groceries.id, number: ' 101 ', memo: ' weekly ' })

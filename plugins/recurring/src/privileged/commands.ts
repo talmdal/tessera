@@ -10,7 +10,7 @@ import {
   type Account, type AccountsService, type RegisterFigure, type RegisterFigureArgs, type TransactionActionArgs
 } from '@tessera/accounts-api'
 import {
-  DEFAULT_HORIZON_DAYS, LATE_STATES, RECURRING_COMMANDS, RECURRING_CONTEXT_KEYS as K, RECURRING_DIALOGS, RECURRING_EVENTS,
+  DEFAULT_HORIZON_DAYS, RECURRING_COMMANDS, RECURRING_CONTEXT_KEYS as K, RECURRING_DIALOGS, RECURRING_EVENTS,
   RECURRING_VIEWS, addIsoDays, isRecurringError,
   type EnterArgs, type EnterDialogInput, type EnterDialogRow, type EnterRequest, type EnterResult, type HolidaysDialogInput,
   type NewSeriesArgs, type RecurringConfirmation, type SeriesArgs, type SeriesDialogInput, type SkipArgs
@@ -264,9 +264,3 @@ export function registerCommands(
   ]
 }
 
-/** The series that are due now — what *Enter Due Transactions…* acts on. Exported for the view and its tests. */
-export function dueNow(rows: readonly { series: { id: string }, state: string, blockedReason?: string }[]): string[] {
-  return rows
-    .filter(row => (LATE_STATES as readonly string[]).includes(row.state) && row.blockedReason === undefined)
-    .map(row => row.series.id)
-}

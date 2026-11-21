@@ -199,7 +199,8 @@ dialogs) go in `@tessera/book-api` with the rest of the book's protocol. A
 
 *Naming:* this note says **backup file** for the `.tessera-backup` format and
 its code (`backupFile.ts`). *Archive* is kept for the separate archive feature
-in [Later](#later), which may reuse this format but is a different thing.
+([archive-design.md](archive-design.md)), which reuses this machinery but
+writes a book file, not this format.
 
 ### Format
 
@@ -1128,8 +1129,11 @@ the note above.
 - **Open the backup folder** in the OS file manager from the page
   (needs `shell.files.reveal`).
 - **Archive**: a read-only copy of a book as of a date, for closing out
-  years. A feature of its own, with its own design note. It may reuse the
-  backup file format to store the copy.
+  years. *Designed separately in
+  [archive-design.md](archive-design.md)*, which reuses `snapshot`/`load`,
+  the staged write and the Restorer's verification, but writes an ordinary
+  `.tessera` book (frozen read-only) rather than a backup file, so that it
+  opens with *Open Book*.
 - **Back up and restore the options and application state** for moving
   machines (the options note's own *Later* item).
 

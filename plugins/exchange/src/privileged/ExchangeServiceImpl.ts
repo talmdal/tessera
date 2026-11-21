@@ -4,13 +4,13 @@
 import type { Database, Disposable, Doc, Event, Json, Logger, ShellFiles, ShellPrompts } from '@tessera/types'
 import type { BookSession } from '@tessera/book-api'
 import type { AccountsService, Category, OverlayRow, Transaction } from '@tessera/accounts-api'
-import { accountNumberKey, categoryLabel, todayIso } from '@tessera/accounts-api'
+import { accountNumberKey, categoryLabel, formatAmount, todayIso } from '@tessera/accounts-api'
 import {
   CANDIDATE_LIMIT, CANDIDATE_WINDOW_DAYS, EXCHANGE_DIALOGS, EXCHANGE_OPTIONS_DEFAULTS, ExchangeError,
   MAX_DATE_WINDOW, QIF_DATE_ORDER_QUESTION, csvFingerprintOf, isDateWindow, payeeRuleProblem, type LinkPatch,
   type AcceptOptions, type AccountLink, type ExchangeChange, type ExchangeDocument, type ExchangeFormatDescriptor,
   type ExchangeOptions, type ExchangeQuestion, type ExchangeService, type ExchangeStatement, type ExportRequest,
-  type ExportResult, type FileOptions, type FileResult, type HistoryEntry, type HistoryFilter, type ImportBatch, type MatchingCandidate,
+  type ExportResult, type ExchangeConfirmation, type FileOptions, type FileResult, type HistoryEntry, type HistoryFilter, type ImportBatch, type MatchingCandidate,
   type MatchingDialogInput, type NewPayeeRule, type PayeeRule, type PayeeRuleDirectory, type PendingRow, type PendingStatement,
   type PendingSummary, type QuestionDialogInput, type RenameDialogInput, type RenamePreview, type RowEdit, type ReadOptions, type ReadResult, type UndoOptions, type UndoResult
 } from '@tessera/exchange-api'
@@ -26,6 +26,8 @@ import {
 import {
   buildDraft, categoryIndex, checkCurrency, linkForSource, normalisePath, toExistingRow
 } from './planning'
+import type { ArchiveParticipant } from '@tessera/book-api'
+import { exchangeArchiveParticipant } from './archiveParticipant'
 import {
   Emitter, change, collectionsOf, invalid, notFound, toBatch, toLink, toPending, toRule, translate,
   type Collections, type StoredBatch, type StoredPending, type StoredRule
@@ -77,6 +79,9 @@ export class ExchangeServiceImpl implements ExchangeService {
       return this.deps.session.database('exchange')
     } catch (err) { throw translate(err) }
   }
+
+  /** What archiving asks of the exchange data: import batches whose undo window went with their transactions. */
+  readonly archiveParticipant: ArchiveParticipant = exchangeArchiveParticipant({ collections: () => this.c() })
 
   private c(): Collections {
     return collectionsOf(this.db())
@@ -224,6 +229,18 @@ export class ExchangeServiceImpl implements ExchangeService {
     const account = await this.deps.accounts.get(accountId)
     if (account === undefined) throw notFound('That account no longer exists.')
     checkCurrency(statement, account)
+    const archivedRows = statement.transactions.filter(row => row.date < account.openingDate)
+    const whollyArchived = statement.period?.to !== undefined
+      ? statement.period.to < account.openingDate
+      : archivedRows.length === statement.transactions.length && archivedRows.length > 0
+    if (whollyArchived && options.archivedOverride !== true) {
+      const firstDate = statement.transactions.reduce((first, row) => row.date < first ? row.date : first, statement.transactions[0].date)
+      const lastDate = statement.transactions.reduce((last, row) => row.date > last ? row.date : last, statement.transactions[0].date)
+      const from = statement.period?.from ?? firstDate
+      const to = statement.period?.to ?? lastDate
+      throw new ExchangeError('ARCHIVED_PERIOD',
+        `“${options.source.fileName}” covers ${from}–${to}, before “${account.name}”’s opening date of ${account.openingDate}. Its transactions may already be included in the opening balance.`)
+    }
 
     // Re-reading a file still waiting is caught whole, before any row-level checks
     const waiting = await this.pendingFor(accountId)
@@ -258,7 +275,10 @@ export class ExchangeServiceImpl implements ExchangeService {
     if (options.remember === true) await this.rememberLink(statement, options.source.formatId, accountId)
     if (kept.length === 0) return { filed: 0, duplicates }
 
-    const rows: PendingRow[] = kept.map((transaction, at) => ({ key: `r${at}`, transaction }))
+    const rows: PendingRow[] = kept.map((transaction, at) => ({
+      key: `r${at}`, transaction,
+      ...(transaction.date < account.openingDate && { archivedPeriod: true })
+    }))
     const stored = await this.write(async c => {
       const doc = await c.pending.insert({
         accountId,
@@ -389,6 +409,9 @@ export class ExchangeServiceImpl implements ExchangeService {
         accountName: account.name,
         currency: account.currency,
         items: statements.reduce((n, s) => n + s.rows.length, 0),
+        ...(statements.some(s => s.rows.some(row => row.transaction.date < account.openingDate)) && {
+          archivedItems: statements.reduce((n, s) => n + s.rows.filter(row => row.transaction.date < account.openingDate).length, 0)
+        }),
         ...(newest !== undefined && { lastReadAt: newest.readAt }),
         ...(withLedger?.ledger !== undefined && { bankBalance: withLedger.ledger.amount }),
         localBalance: balances.current
@@ -453,6 +476,12 @@ export class ExchangeServiceImpl implements ExchangeService {
     // the matcher compares — which is the point of having rules at all.
     const renameOf = await this.renamer(accountId)
     const links = await this.links()
+    for (const statement of statements) {
+      for (const row of statement.rows) {
+        if (row.transaction.date < account.openingDate) row.archivedPeriod = true
+        else delete row.archivedPeriod
+      }
+    }
     const entries = effectiveRows(statements, existing, statement => this.matchOptions(statement, links), renameOf)
     return { account, statements, existing, existingById, categories, accountsByName, entries, links, renameOf }
   }
@@ -540,18 +569,28 @@ export class ExchangeServiceImpl implements ExchangeService {
       categories: categoryIndex(categories), accountsByName: this.accountsFor(statement, accountsByName)
     })
 
+    if (entry.disposition !== 'duplicate') {
+      const reasons: ExchangeConfirmation[] = []
+      const details: string[] = []
+      if (entry.row.transaction.date < account.openingDate && !(options.confirm ?? []).includes('archivedPeriod')) {
+        reasons.push('archivedPeriod')
+        details.push(`Import ${formatAmount(entry.row.transaction.amount, account.currency)} dated ${entry.row.transaction.date} into “${account.name}”? It is before the account’s opening date of ${account.openingDate}; accepting it changes the balance, and Tessera can’t tell whether it is already in the archive.`)
+      }
+      if (entry.matchedId !== undefined && existingById.get(entry.matchedId)?.status === 'reconciled' &&
+        !(options.confirm ?? []).includes('reconciled')) {
+        reasons.push('reconciled')
+        details.push('This line matches a transaction that is already reconciled. Accepting it will change that transaction.')
+      }
+      if (reasons.length > 0) {
+        throw new ExchangeError('CONFIRMATION_REQUIRED', details.join('\n\n'), undefined, reasons)
+      }
+    }
+
     let createdId: string | undefined
     let merged: Awaited<ReturnType<typeof mergeInto>> | undefined
     if (entry.disposition === 'duplicate') {
       // Already in the register: accepting only acknowledges it
     } else if (entry.matchedId !== undefined) {
-      // A reconciled transaction is settled: merging rewrites its date, amount and payee, so it is asked about,
-      // never done on one click. Checked before anything is written.
-      if (existingById.get(entry.matchedId)?.status === 'reconciled' && !(options.confirm ?? []).includes('reconciled')) {
-        throw new ExchangeError('CONFIRMATION_REQUIRED',
-          'This line matches a transaction that is already reconciled. Accepting it will change that transaction.',
-          undefined, ['reconciled'])
-      }
       try {
         merged = await mergeInto(entry.matchedId, entry.row.transaction, draft, accountId, {
           accounts: this.deps.accounts,

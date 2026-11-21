@@ -142,7 +142,7 @@ export interface RecurringRow {
   state: DueState
   /** Occurrences due on or before today: 1 when it is due today, 3 when two were also missed. */
   dueCount: number
-  account: { id: string, name: string, type: AccountType, currency: string, closed: boolean }
+  account: { id: string, name: string, type: AccountType, currency: string, closed: boolean, openingDate: string }
   payeeName?: string
   /** `Parent : Child`, or `Transfer to: Savings`, as the register shows it. */
   categoryLabel?: string

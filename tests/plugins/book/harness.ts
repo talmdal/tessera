@@ -212,6 +212,9 @@ export function memoryBackupDisk() {
       return { file, size: stored.bytes.length, modifiedAt: stored.modifiedAt }
     },
     list: async folder => inFolder(folder, isBackupFileName),
+    listArchives: async folder => inFolder(folder, name => !name.startsWith('.') &&
+      name.toLowerCase().endsWith('.tessera') &&
+      !name.toLowerCase().endsWith('.tessera-backup')),
     partials: async folder => inFolder(folder, n => n.endsWith('.partial')),
     remove: async file => { files.delete(file) }
   }

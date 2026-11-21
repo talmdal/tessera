@@ -9,7 +9,7 @@ const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
 /** Longest book name kept, in characters: the stamp and suffix still fit any file system's limit. */
 const MAX_NAME = 100
 
-const SUFFIX: Record<BackupTrigger, string> = { auto: '', manual: ' (manual)', 'pre-restore': ' (before restore)' }
+const SUFFIX: Record<BackupTrigger, string> = { auto: '', manual: ' (manual)', 'pre-restore': ' (before restore)', archive: '' }
 
 /** A book name made safe to start a file name with, on every platform. */
 export function safeFileName(name: string): string {

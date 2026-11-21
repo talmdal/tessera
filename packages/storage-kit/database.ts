@@ -504,7 +504,8 @@ class KitTransaction implements Transaction {
         const { result, changes } = compute(draft.state)
         if (changes.length > 0) {
           draft.state.apply(changes)
-          draft.changes.push(...changes)
+          // One at a time: spreading 100,000+ changes (archiving's deleteMany) into push overflows the call stack
+          for (const change of changes) draft.changes.push(change)
           this.drafts.set(name, draft)
         }
         return result

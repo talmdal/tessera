@@ -7,6 +7,10 @@ import {
 import type { BookDisk } from './disk'
 import type { BookSessionImpl } from './BookSessionImpl'
 import type { RecentBooks } from './RecentBooks'
+import { humanDate as archiveThroughText } from './archive/naming'
+
+/** An archive's cut-off as a person reads it: `2026-01-01` → `1 Jan 2026` (locale-dependent). Local, never UTC. */
+export { archiveThroughText }
 
 /** `events.emit` adds the plugin's prefix itself: 'book:state.changed' is emitted as 'state.changed'. */
 const local = (event: string) => event.slice(`${BOOK_PLUGIN_ID}:`.length)
@@ -15,6 +19,7 @@ const text = (value: unknown, what: string) => {
   if (typeof value !== 'string' || value === '') throw new Error(`${what} is required`)
   return value
 }
+
 
 /**
  * Mirrors the session into context keys (for menus and `when`) and push events (for views). Events carry the
@@ -46,6 +51,8 @@ export class BookPublisher {
     const keys = this.context.contextKeys
     keys.set(BOOK_CONTEXT_KEYS.isOpen, book !== undefined)
     keys.set(BOOK_CONTEXT_KEYS.isReadOnly, book?.readOnly ?? false)
+    keys.set(BOOK_CONTEXT_KEYS.isArchive, book?.archive !== undefined)
+    keys.set(BOOK_CONTEXT_KEYS.archiveThrough, book?.archive && archiveThroughText(book.archive.through))
     keys.set(BOOK_CONTEXT_KEYS.name, book?.name)
     keys.set(BOOK_CONTEXT_KEYS.hasNavigator, this.session.hasNavigator)
     this.context.events.emit(local(BOOK_EVENTS.state), this.state())

@@ -23,6 +23,9 @@ export const BACKUP_FILE_EXTENSION = '.tessera-backup'
 /** The filter for dialogs that pick a backup. */
 export const BACKUP_FILE_FILTER = { name: 'Tessera backup', extensions: [BACKUP_FILE_EXTENSION.slice(1)] }
 
+/** The filter for dialogs that browse for archive books. */
+export const ARCHIVE_FILE_FILTER = { name: 'Tessera archives', extensions: [BOOK_FILE_EXTENSION.slice(1)] }
+
 /** Version of the book's own format (its meta keys and sub-book collection). */
 export const BOOK_FORMAT_VERSION = 1
 
@@ -40,6 +43,15 @@ export const BOOK_META = {
   id: 'ledger.bookId',
   /** On a book restored as a new book: `{ bookId, takenAt }` of the backup it came from. */
   restoredFrom: 'ledger.restoredFrom',
+  /**
+   * `true` on a book that can never be written — an archive. A property of the file, not of the volume it is on,
+   * so it survives copies and moves. Honoured at open; never written by anything but the archive writer.
+   */
+  readOnly: 'ledger.readOnly',
+  /** On an archive: an `ArchiveMarker` saying which book it was cut from, when, and through what date. */
+  archive: 'ledger.archive',
+  /** On a working book that has been archived: the latest cut-off. The next archive must be after it. */
+  lastArchivedThrough: 'ledger.lastArchivedThrough',
   /** The schema version of a `book.schema` contributor. */
   schemaVersion: (contributor: string) => `ledger.schema.${contributor}`
 } as const
@@ -66,6 +78,13 @@ export const BOOK_COMMANDS = {
   restore: 'book.restore',
   /** Opens Tools › Options at the Backups page: where the failed-backup warnings lead. */
   backupSettings: 'book.backupSettings',
+  /** Opens Tools › Options at the Archive page. */
+  archiveSettings: 'book.archiveSettings',
+  /**
+   * File › Archive… (phase 5; headless until then). Argument: `ArchiveArgs`. Writes a complete frozen copy of the
+   * open book, then removes the settled transactions from before the cut-off. Resolves the `ArchiveOutcome`.
+   */
+  archive: 'book.archive',
   /** Argument: `{ id }`. No menu item of its own; the accounts navigator and menu run it. */
   renameSubBook: 'book.subBook.rename',
   /** Argument: `{ id }`. Moves the sub-book's contents up to its parent, then deletes it. */
@@ -82,9 +101,19 @@ export interface SubBookArgs {
   id: string
 }
 
+/** Argument of `book.archive`. The removal options come from the book options (phase 8); until then, both on. */
+export interface ArchiveArgs {
+  /** The cut-off, `YYYY-MM-DD`: data before it is archived. */
+  before: string
+}
+
 export const BOOK_CONTEXT_KEYS = {
   isOpen: 'book.isOpen',
   isReadOnly: 'book.isReadOnly',
+  /** The open book is an archive (`BookInfo.archive` is set): shows the archive status text. */
+  isArchive: 'book.isArchive',
+  /** The archive's cut-off as a person reads it, e.g. `1 Jan 2026`, for status text. */
+  archiveThrough: 'book.archiveThrough',
   /** The open book's name, for status text such as `Book: {book.name}`. */
   name: 'book.name',
   /** Another plugin's view shows the book tree (`registerNavigator`), so the Book panel is hidden. */
@@ -95,18 +124,30 @@ export const BOOK_CONTEXT_KEYS = {
 
 /** The Backups options page's id, for opening the options dialog at it. */
 export const BOOK_BACKUPS_OPTIONS_PAGE = 'book.options.backups'
+/** The Archive options page's id. */
+export const BOOK_ARCHIVE_OPTIONS_PAGE = 'book.options.archive'
 
 const channel = (event: string) => channelFor(BOOK_PLUGIN_ID, event)
 
 /** Requests, renderer → main. */
 export const BOOK_CHANNELS = {
-  /** → `BackupStatus`, for the Backups options page. */
+  /** → `Result<ArchiveDialogInput>`: what the Archive dialog opens with. */
+  archiveInput: channel('archive.input'),
+  /** `{ before }` → `Result<ArchivePlan>`: what archiving before that date would do, recomputed as the date moves. */
+  archivePlan: channel('archive.plan'),
+  /**
+   * `ArchiveRunRequest` → `Result<ArchiveOutcome | null>`: confirms (in the main process), optionally backs up
+   * first, and archives. Null when the user cancelled the confirmation: the dialog stays open.
+   */
+  archiveRun: channel('archive.run'),
   backupsStatus: channel('backups.status'),
   /**
-   * `{ current: string | null }` → the chosen folder's path, or undefined if cancelled. Opens the folder picker in
-   * `current`, or in the default backup folder when that is null.
+   * `{ current?, defaultPath?, title? }` → the chosen folder's path, or undefined if cancelled. The caller chooses
+   * a starting folder and title so the same picker serves backups and archives.
    */
-  backupsChooseFolder: channel('backups.chooseFolder'),
+  chooseFolder: channel('chooseFolder'),
+  /** → `ArchiveOptionsStatus`, available with or without an open book. */
+  archiveStatus: channel('archive.status'),
   /** `{ folder?: string }` → `BackupInfo[]`: the backups in a folder (the backup folder by default), newest first. */
   backupsList: channel('backups.list'),
   /** → `BackupInfo`, or undefined if cancelled: picks a backup file anywhere, with an open dialog. */
@@ -156,7 +197,9 @@ export const BOOK_DIALOGS = {
   /** Input `RenameSubBookDialogInput`, result `{ id }`. */
   renameSubBook: 'book.dialog.rename',
   /** Input `RestoreDialogInput`, result `RestoreDialogResult`. */
-  restore: 'book.dialog.restore'
+  restore: 'book.dialog.restore',
+  /** Input `ArchiveDialogInput`, result `ArchiveOutcome` (the dialog runs the archive itself, through IPC). */
+  archive: 'book.dialog.archive'
 } as const
 
 export interface NewBookDialogInput {

@@ -204,6 +204,8 @@ export interface PendingRow {
   /** Stable within the statement. */
   key: string
   transaction: ExchangeTransaction
+  /** The transaction predates this account's opening date and is covered by its opening balance. */
+  archivedPeriod?: boolean
   /**
    * The user's decision from Change Transaction Matching, winning over the matcher: a transaction id to merge
    * into, or `null` for “keep this transaction unmatched”. Absent: the matcher proposes.
@@ -258,6 +260,8 @@ export interface PendingSummary {
   currency: string
   /** Statement rows waiting in this account's register. */
   items: number
+  /** Rows that predate the account's opening date; accepting one requires confirmation. */
+  archivedItems?: number
   /** The newest statement's `readAt`; absent for a linked source with nothing waiting. */
   lastReadAt?: string
   /** The newest statement's ledger balance, when one carried it. */

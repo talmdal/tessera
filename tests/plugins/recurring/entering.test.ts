@@ -148,6 +148,21 @@ describe('entering several at once', () => {
 })
 
 describe('what it asks before writing', () => {
+  it('requires explicit confirmation before entering an occurrence before its account opening date', async () => {
+    const { create, service, accounts, chq } = await setupRecurring()
+    await accounts.updateAccount(chq.id, { openingDate: '2026-11-01' })
+    const openingBalance = (await accounts.get(chq.id))!.openingBalance
+    const series = await create({ schedule: monthly('2026-10-10') })
+
+    const asked = await rejection(service.enter([{ seriesId: series.id }]))
+    expect(asked).toMatchObject({ code: 'CONFIRMATION_REQUIRED', reasons: ['archivedPeriod'] })
+    expect(await accounts.transactions(chq.id).list()).toHaveLength(0)
+
+    const result = await service.enter([{ seriesId: series.id }], { confirm: ['archivedPeriod'] })
+    expect(result.entered).toHaveLength(1)
+    expect(await accounts.get(chq.id)).toMatchObject({ openingDate: '2026-10-10', openingBalance })
+  })
+
   it('asks once, across every occurrence, before anything is written', async () => {
     const { create, service, accounts, chq } = await setupRecurring()
     // Already in the register, same date and amount: most likely this one was entered by hand

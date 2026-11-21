@@ -65,6 +65,8 @@ export async function activate(context: PluginContext) {
     context.services.provide(ACCOUNTS_PLUGIN_ID, ACCOUNTS_MIGRATOR_SERVICE, accountsMigrator),
     context.services.provide(ACCOUNTS_PLUGIN_ID, ACCOUNTS_SERVICE, publicService(service)),
     session.participate(ACCOUNTS_PLUGIN_ID, service.participant),
+    // Last of the archive participants: it moves the opening balances and checks no balance moved as a result
+    session.participateInArchive(ACCOUNTS_PLUGIN_ID, service.archiveParticipant),
     // The navigator shows the book tree with accounts in it, so the book's own panel steps aside
     session.registerNavigator(ACCOUNTS_PLUGIN_ID),
     service.onDidChange(async change => {
@@ -74,6 +76,8 @@ export async function activate(context: PluginContext) {
     }),
     session.onDidChange(change => {
       if (change.type === 'opened' && change.created) void reveal(ACCOUNTS_VIEWS.navigator)
+      // Archiving wrote through its own transaction, not this service: rebuild everything that was read
+      if (change.type === 'pruned') void service.announceArchived()
     }),
     // A contributed navigator row's badge comes from a context key, so the navigator re-reads the list when it moves
     navigatorItems.watchBadges(() => context.events.emit(local(ACCOUNTS_EVENTS.navigatorItems), navigatorItems.resolved())),

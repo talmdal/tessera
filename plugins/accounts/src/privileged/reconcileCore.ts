@@ -96,7 +96,9 @@ function checkCharge(kind: ChargeKind, charge: StatementCharge | undefined): Sta
  * Starts a reconciliation, or updates and resumes the one in progress. The statement's service charge and interest
  * become transactions, marked as on the statement, which the reconciliation remembers so Cancel can delete them.
  */
-export async function begin(c: Collections, accountId: string, input: StatementInput & { reconcilerId: string }, now: string): Promise<ReconcileState> {
+export async function begin(
+  c: Collections, accountId: string, input: StatementInput & { reconcilerId: string }, now: string
+): Promise<{ state: ReconcileState, openingDateChanged: string[] }> {
   const account = await openAccount(c, accountId)
   const checked = checkFigures(input)
   const charges = ([['serviceCharge', input?.serviceCharge], ['interest', input?.interest]] as const)
@@ -104,14 +106,16 @@ export async function begin(c: Collections, accountId: string, input: StatementI
   const reconcilerId = typeof input.reconcilerId === 'string' && input.reconcilerId !== '' ? input.reconcilerId : 'unknown'
 
   const added: string[] = []
+  const openingDateChanged = new Set<string>()
   for (const [kind, charge] of charges) {
     if (!charge) continue
     try {
-      const { transaction } = await createTransaction(c, accountId, {
+      const { transaction, openingDateChanged: changed } = await createTransaction(c, accountId, {
         date: charge.date, amount: chargeAmount(kind, account.type, charge.amount), payee: CHARGE_PAYEES[kind], status: 'cleared',
         ...(charge.categoryId !== undefined && { categoryId: charge.categoryId })
       }, now)
       added.push(transaction.id)
+      for (const id of changed) openingDateChanged.add(id)
     } catch (err) {
       // Named after the dialog's field, not the register's
       if (err instanceof AccountsError && err.field === 'category') throw new AccountsError(err.code, err.message, kind)
@@ -124,13 +128,13 @@ export async function begin(c: Collections, accountId: string, input: StatementI
     await c.reconciliations.updateOne({ id: existing.id }, {
       $set: { ...checked, reconcilerId, paused: false, addedIds: [...(existing.addedIds ?? []), ...added] }
     })
-    return stateOf(c, accountId, (await inProgress(c, accountId))!)
+    return { state: await stateOf(c, accountId, (await inProgress(c, accountId))!), openingDateChanged: [...openingDateChanged] }
   }
   const created = await c.reconciliations.insert({
     accountId, activeFor: accountId, reconcilerId, status: 'inProgress', paused: false, startedAt: now, original: {},
     addedIds: added, ...checked
   })
-  return stateOf(c, accountId, created)
+  return { state: await stateOf(c, accountId, created), openingDateChanged: [...openingDateChanged] }
 }
 
 export async function mark(c: Collections, accountId: string, ids: string[], marked: boolean, now: string): Promise<ReconcileState> {
