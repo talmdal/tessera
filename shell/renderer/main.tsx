@@ -5,6 +5,7 @@ import App from './App'
 import { DialogHost } from './dialogs/DialogHost'
 import { createIpcFontSource, InstalledFontsProvider } from './fonts/InstalledFonts'
 import { IconsProvider } from './icons/IconsProvider'
+import { PrintStyles } from './print/printStyles'
 import { SettingsDialog } from './settings/SettingsDialog'
 import { BarItemsProvider, createIpcBarItemSource } from './layout/BarItemsProvider'
 import { ShellStateProvider } from './state/ShellState'
@@ -24,6 +25,7 @@ const root = createRoot(document.getElementById('root')!)
 // Nothing is drawn until the window's theme is known; the main process keeps the window hidden until then.
 root.render(
   <ShellThemeProvider bridge={bridge} initial={bridge.initialTheme}>
+    <PrintStyles />
     <ShellStateProvider bridge={window.api}>
       <IconsProvider bridge={window.api}>
         <ViewsProvider source={source} loader={loader}>

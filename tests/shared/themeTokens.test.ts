@@ -27,6 +27,14 @@ describe('tokensFor', () => {
     expect(tokens.text).toEqual({ primary: DEFAULT_THEME.light!.text!.primary, secondary: '#333333' })
   })
 
+  it("gives charts twelve colours: a theme's own first, the shell's for the rest", () => {
+    const tokens = tokensFor(sunrise({ light: { chart: ['#112233', '#445566'] } }), 'light')
+
+    expect(tokens.chart).toHaveLength(12)
+    expect(tokens.chart.slice(0, 2)).toEqual(['#112233', '#445566'])
+    expect(tokens.chart.slice(2)).toEqual(DEFAULT_THEME.light!.chart!.slice(2))
+  })
+
   it('uses a different variant for each mode', () => {
     expect(tokensFor(sunrise(), 'light').primary).toBe('#ff8800')
     expect(tokensFor(sunrise(), 'dark').primary).toBe('#ffaa55')

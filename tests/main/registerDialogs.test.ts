@@ -26,7 +26,8 @@ function setup() {
   const files: ShellFiles = {
     showOpenDialog: vi.fn(async () => undefined), showOpenFilesDialog: vi.fn(async () => []), showOpenFolderDialog: vi.fn(async () => undefined),
     showSaveDialog: vi.fn(async () => '/tmp/x.tessera'),
-    exists: vi.fn(async () => true), trash: vi.fn(async () => {}), documentsPath: () => '/docs', downloadsPath: () => '/downloads'
+    exists: vi.fn(async () => true), trash: vi.fn(async () => {}), documentsPath: () => '/docs', downloadsPath: () => '/downloads',
+    writeFile: vi.fn(async () => {})
   }
   const reveal = { rendererReady: vi.fn() }
   registerWindowReady(shell, reveal, dialogs)

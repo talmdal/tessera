@@ -17,6 +17,7 @@ import { loadBootstrapConfig, toPluginSelection } from './bootstrap/bootstrapCon
 import { createElectronFiles } from './dialogs/electronFiles'
 import { createElectronPrompts } from './dialogs/electronPrompts'
 import { registerDialogs } from './dialogs/registerDialogs'
+import { createElectronPrint } from './print/electronPrint'
 import { bindRouterToElectron } from './ipc/bindRouter'
 import { createAppStatePersistence } from './layout/appStatePersistence'
 import { LayoutHost, registerLayout } from './layout/registerLayout'
@@ -132,7 +133,8 @@ async function bootstrap() {
   const files = createElectronFiles({ dialog, BrowserWindow, shell: electronShell, app })
   registerDialogs(shell, runtime, dialogs, {
     prompts: createElectronPrompts({ dialog, BrowserWindow }, dialogs),
-    files
+    files,
+    print: createElectronPrint({ BrowserWindow, app, writeFile: (file, data) => files.writeFile(file, data) })
   })
   registerSettings(shell, runtime, {
     remoteEntryFor, targetWindow, log,

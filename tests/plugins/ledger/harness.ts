@@ -103,6 +103,8 @@ export function memoryDisk(driver: ReturnType<typeof memoryDriver>) {
 
 export function fakeFiles(driver: ReturnType<typeof memoryDriver>, disk: ReturnType<typeof memoryDisk>) {
   const trashed: string[] = []
+  /** What `writeFile` wrote, by path, as bytes. */
+  const written = new Map<string, Uint8Array>()
   const files = {
     showOpenDialog: vi.fn(async (): Promise<string | undefined> => undefined),
     showOpenFilesDialog: vi.fn(async (): Promise<string[]> => []),
@@ -116,9 +118,10 @@ export function fakeFiles(driver: ReturnType<typeof memoryDriver>, disk: ReturnT
       disk.sides.delete(f)
     }),
     documentsPath: vi.fn(() => path.join(DIR, 'Documents')),
-    downloadsPath: vi.fn(() => path.join(DIR, 'Downloads'))
+    downloadsPath: vi.fn(() => path.join(DIR, 'Downloads')),
+    writeFile: vi.fn(async (f: string, data: Uint8Array | string) => { written.set(f, typeof data === 'string' ? new TextEncoder().encode(data) : data) })
   } satisfies ShellFiles
-  return { files, trashed }
+  return { files, trashed, written }
 }
 
 export function fakePrompts() {

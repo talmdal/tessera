@@ -2,7 +2,17 @@ import { defineConfig } from 'vitest/config'
 import path from 'node:path'
 
 /** Tests run with TZ set to a zone with half-hour daylight saving (the `timezone` project). */
-const TIMEZONE_TESTS = ['tests/packages/budgetApi.test.ts']
+const TIMEZONE_TESTS = ['tests/packages/budgetApi.test.ts', 'tests/packages/reportsApi.test.ts']
+
+/**
+ * Tests that build large ledgers in memory (the `heavy` project): 100,000 transactions, or every figure of a year's
+ * reports listed. Each in a fresh worker: in a shared one, the heap it leaves slowed the jsdom tests that ran next in
+ * it, past their time limit, and other files' heaps slowed its own collections, past its per-stretch budgets.
+ */
+const HEAVY_TESTS = [
+  'tests/plugins/accounts/totalsScale.test.ts', 'tests/plugins/budget/statusScale.test.ts', 'tests/plugins/format-csv/exportScale.test.ts',
+  'tests/plugins/format-qif/exportScale.test.ts', 'tests/plugins/reports/scale.test.ts', 'tests/plugins/reports/drill.test.ts'
+]
 
 export default defineConfig({
   // Files outside a folder with its own tsconfig (such as tessera-ui/) still get the automatic JSX runtime
@@ -18,6 +28,9 @@ export default defineConfig({
       '@tessera/import-api': path.resolve(__dirname, 'packages/import-api/index.ts'),
       '@tessera/export-api': path.resolve(__dirname, 'packages/export-api/index.ts'),
       '@tessera/budget-api': path.resolve(__dirname, 'packages/budget-api/index.ts'),
+      '@tessera/reports-api': path.resolve(__dirname, 'packages/reports-api/index.ts'),
+      // Before @tessera/ui, which would otherwise match it as a prefix
+      '@tessera/ui/charts': path.resolve(__dirname, 'tessera-ui/charts/index.ts'),
       '@tessera/ui': path.resolve(__dirname, 'tessera-ui/index.ts')
     }
   },
@@ -68,9 +81,9 @@ export default defineConfig({
           isolate: true
         }
       },
-      // - timezone: the budget's date arithmetic runs in a zone with half-hour daylight saving, where a date worked out
-      //   through a local Date slips a day at once (docs/budget-design.md, Phase B0 results). Isolated, so the zone
-      //   reaches no other file.
+      // - timezone: the budget's and reports' date arithmetic runs in a zone with half-hour daylight saving, where a
+      //   date worked out through a local Date slips a day at once (docs/budget-design.md, Phase B0 results). Isolated,
+      //   so the zone reaches no other file.
       {
         extends: true,
         test: {
@@ -83,9 +96,29 @@ export default defineConfig({
       {
         extends: true,
         test: {
+          name: 'heavy',
+          include: HEAVY_TESTS,
+          isolate: true
+        }
+      },
+      // - browser: the tests in headless Chromium (tests/browser). Run after every other project (a later group), so
+      //   Chromium's processes don't compete for the CPU with the jsdom tests, whose typing tests run near their time
+      //   limit under load. Skipped, saying why, where there is no Chromium (tests/browser/harness.ts).
+      {
+        extends: true,
+        test: {
+          name: 'browser',
+          include: ['tests/browser/**/*.test.ts'],
+          environment: 'node',
+          sequence: { groupOrder: 1 }
+        }
+      },
+      {
+        extends: true,
+        test: {
           name: 'shared',
           include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
-          exclude: ['dist', 'node_modules', 'tests/main/**', 'tests/preload/**', ...TIMEZONE_TESTS],
+          exclude: ['dist', 'node_modules', 'tests/main/**', 'tests/preload/**', 'tests/browser/**', ...TIMEZONE_TESTS, ...HEAVY_TESTS],
           isolate: false,
           // The @tessera/ui fixture plugin the renderer tests load; only this project's tests use it
           globalSetup: ['./tests/setup/buildUiFixture.ts']

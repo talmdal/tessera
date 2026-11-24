@@ -65,7 +65,28 @@ export const BUDGET_COMMANDS = {
   /** Budget › Delete Line, after a confirmation. Argument (optional): `{ id }`; else the line selected. */
   deleteLine: 'budget.line.delete',
   /** The transactions behind a row's actual, in a dialog. Argument: `TransactionsArgs`. */
-  transactions: 'budget.transactions'
+  transactions: 'budget.transactions',
+  /**
+   * The budget shown, over the months shown, as the Budget vs Actual report, in the report view (R5). Argument
+   * (optional): `{ id }`; else the budget shown. Does nothing (false) without the reports plugin.
+   */
+  showReport: 'budget.showReport'
+} as const
+
+/**
+ * What the budget plugin adds to the reports (reporting-design.md, "7. Budget vs Actual"): its source over
+ * `budget.service.status`, the service behind it, the Budgets group, and the Budget vs Actual report. Contributed to
+ * the reports plugin's points; nothing of the budget needs the reports plugin to be there.
+ */
+export const BUDGET_REPORTS = {
+  /** The source: budgets' lines and their budget, actual and remaining, by month. */
+  source: 'budget.status',
+  /** The `ReportSource` service behind it. */
+  service: 'budget.reportSource',
+  /** The Budgets group: a heading in the Reports tab, a submenu of the Reports menu. */
+  group: 'budget.group',
+  /** Budget vs Actual. */
+  vsActual: 'budget.vsActual'
 } as const
 
 /** Optional argument of the budget and line commands: what to act on. */
@@ -204,6 +225,8 @@ export interface BudgetsView {
   ledgerName: string
   /** How the view draws, from the Budget page. */
   options: ViewOptions
+  /** The reports plugin is there, so the budget can be shown as a report (R5). */
+  reports: boolean
 }
 
 /** The Budget page's settings the view draws by. */

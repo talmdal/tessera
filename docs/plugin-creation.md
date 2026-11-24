@@ -25,6 +25,8 @@ extension points.
 - [Storing data in the ledger](#storing-data-in-the-ledger)
 - [Using accounts from another plugin](#using-accounts-from-another-plugin)
 - [Using budgets from another plugin](#using-budgets-from-another-plugin)
+- [Using reports from another plugin](#using-reports-from-another-plugin)
+- [Adding a report](#adding-a-report)
 - [Adding an import format](#adding-an-import-format)
 - [Adding an export format](#adding-an-export-format)
 - [Styling and theming](#styling-and-theming)
@@ -886,16 +888,17 @@ Views currently receive **no props**. Use `window.api.invoke` to get data.
 ## Asking the user: dialogs, prompts and files
 
 Ask the user through the shell, never through Electron directly, so every plugin's questions look and behave the
-same, stay modal to the right window, and can be tested with fakes. The shell provides two services **before any
+same, stay modal to the right window, and can be tested with fakes. The shell provides three services **before any
 plugin activates**, so you can list them in `services.requires`. Their types are in `@tessera/types`.
 
 | Service | Methods | Shown as |
 |---|---|---|
 | `shell.prompts` (`ShellPrompts`) | `confirm`, `message`, `prompt`, `show` | native message boxes; the shell's dialog frame for `prompt` and `show` |
-| `shell.files` (`ShellFiles`) | `showOpenDialog`, `showOpenFilesDialog`, `showSaveDialog`, `showOpenFolderDialog`, `exists`, `trash`, `documentsPath`, `downloadsPath` | native file and folder dialogs; the OS trash |
+| `shell.files` (`ShellFiles`) | `showOpenDialog`, `showOpenFilesDialog`, `showSaveDialog`, `showOpenFolderDialog`, `exists`, `trash`, `documentsPath`, `downloadsPath`, `writeFile` | native file and folder dialogs; the OS trash; a file written whole or not at all |
+| `shell.print` (`ShellPrint`) | `print`, `savePdf`, `paperSize` | the system's print dialog; a PDF of the window ([Printing](#printing-and-writing-files)) |
 
 ```json
-"services": { "requires": ["shell.prompts", "shell.files"] }
+"services": { "requires": ["shell.prompts", "shell.files", "shell.print"] }
 ```
 
 ```ts
@@ -935,6 +938,67 @@ const folder = await files.showOpenFolderDialog({ title: 'Restore To', defaultPa
 ```
 
 Every method takes an optional `windowId`; by default the question belongs to the focused window.
+
+### Printing and writing files
+
+**Write a file the user chose with `files.writeFile`**, not Node's `fs`: it writes to `<file>.partial` and renames it
+over the file, retrying for up to 10 s while Windows reports the file held (antivirus, a sync client, a spreadsheet
+with last month's file open), so the file is either the whole new one or what it was. On failure it removes the
+`.partial` file and throws an error whose message is written for the user ("Report.csv couldn’t be saved: another
+program may have it open…"), ready for `prompts.message`. Text is written as UTF-8; pass bytes for anything else (a
+CSV with a byte-order mark, as `@tessera/export-api`'s `encodeText` makes one).
+
+```ts
+const file = await files.showSaveDialog({ defaultPath: path.join(folder, 'Spending 2026.csv'), filters: [{ name: 'CSV', extensions: ['csv'] }] })
+if (!file) return false
+try {
+  await files.writeFile(file, encodeText(csv, 'utf-8', { bom: true }).bytes)
+} catch (err) {
+  await prompts.message({ kind: 'error', message: 'Could not export the report.', detail: (err as Error).message })
+}
+```
+
+**Printing is two halves, since what prints is drawn in the renderer.** Your view draws what to print in a **print
+area** (`PrintArea` from `@tessera/ui`); while one is mounted, the shell's print stylesheet prints it and nothing else
+in the window. Your privileged code then calls `shell.print` for that window. The reports plugin does it so
+(`plugins/reports/src/privileged/output.ts`, `src/renderer/PrintLayout.tsx`):
+
+```ts
+// privileged: ask the view to draw what to print; it answers on a channel once it has
+context.events.emit('print.requested', { request: 1 })
+context.ipc.register('notes:print.ready', async (msg: IpcMessage<{ landscape: boolean }>) => {
+  const target = { windowId: msg.sender?.windowId, landscape: msg.data.landscape }
+  return print.print(target)                     // true once printed, false if the user cancelled; rejects saying why
+  // or: await print.savePdf({ ...target, path })   // on the paper of the user's region (Letter or A4), written as writeFile writes
+})
+```
+
+```tsx
+// renderer: drawn only while printing, and kept until the privileged side has printed
+import { PrintArea, PRINT_WIDTHS } from '@tessera/ui'
+
+{printing && (
+  <PrintArea title="Notes for March">          {/* the print job's name, and the PDF's title */}
+    <Typography variant="h6" component="h1">Notes for March</Typography>
+    <Box sx={{ width: PRINT_WIDTHS.portrait }}><Chart {...chart} /></Box>
+    <table>…every row, not a scrolled or windowed list…</table>
+  </PrintArea>
+)}
+```
+
+- **A print area is drawn off screen, at a page's width** (`PRINT_WIDTHS`: 680 px portrait, 960 landscape, which fit
+  both A4 and Letter), so a chart in it measures itself as it will print. Say when it has drawn before printing: a
+  chart from `@tessera/ui/charts` is loaded on first use.
+- **It prints in light colours whatever the window's theme**: the print area draws in the light variant of the
+  window's theme, so a dark window doesn't print black pages. Backgrounds aren't printed.
+- **The stylesheet numbers the pages** ("Page 2 of 5"), repeats a table's `thead` on each page, and keeps table rows
+  and figures whole.
+- **Without a print area**, a window prints its main area's shown view, un-scrolled and without the bars, in black
+  ink, leaving out anything marked `data-print="hide"`. It is a fallback; a view that prints on purpose uses a print
+  area.
+- **Print the view in front**: the reports plugin's print command is enabled only while its view is the main area's
+  view, with `MAIN_ACTIVE_VIEW_KEY` (from `@tessera/types`) in its enablement, so Ctrl+P in another view doesn't print
+  a report behind it.
 
 ### Contributing a dialog
 
@@ -1284,6 +1348,21 @@ Follow the ledger with `session.onDidChange` (`opened`, `closed`) and flush anyt
 `session.onWillClose`, which runs while the ledger can still be written. Menus follow the context keys
 `ledger.isOpen`, `ledger.isReadOnly` and `ledger.name`.
 
+**The ledger's year start** (ledger-api 1.5) is when its year begins: a calendar year, or a tax or fiscal year (6
+April). Anything by year (a report's *This year*, a suggested date) follows it rather than 1 January:
+
+```ts
+import { yearStartOf, yearStartLabel } from '@tessera/ledger-api'
+
+const { month, day } = yearStartOf(session.current)    // { month: 4, day: 6 }; a calendar year if none is open
+yearStartLabel({ month, day })                          // "6 April", in the user's locale
+session.onDidChangeInfo(ledger => refresh())            // the user changed it in File › Ledger Properties…
+```
+
+The user sets it in *File › Ledger Properties…*; from code, `session.setYearStart({ month, day })`, which refuses a
+read-only ledger (`READ_ONLY`) and a day that isn't there every year (`INVALID`: February stops at 28). It is in the
+ledger's meta, so backups and archive files keep the year they were made with.
+
 **A ledger can open read-only.** An archive file (File › Archive Ledger…'s copy) opens read-only for viewing, with
 `session.current.readOnly` true and `session.current.archive` set, and `ledger.isReadOnly` and `ledger.isArchive` as
 context keys. Every write to it fails with `READ_ONLY`. So a plugin that writes when a ledger opens (tidying up after
@@ -1415,6 +1494,30 @@ const totals = await accounts.transactionTotals({
 transactions takes well under 100 ms, but it all runs on the main process in one go: ask for the range you show, not
 all time, and not on every change (a view can wait a quarter of a second for changes to settle). `formatAmount` keeps
 its formatters, so formatting thousands of amounts is cheap.
+
+**More for reports** (accounts-api 1.15):
+
+```ts
+// By payee too: each row has payeeId (null for none), within its category or transfer account
+const byPayee = await accounts.transactionTotals({ from: '2026-01-01', to: '2026-12-31', byPayee: true })
+const payees = await accounts.payees.get([...new Set(byPayee.flatMap(r => r.payeeId ? [r.payeeId] : []))])
+
+// What archives removed, as totals by month, for the months of the range: add them to the live totals, which they
+// never overlap. Each row has the account's currency, sub-ledger and name when it was archived: it may be gone
+const archived = await accounts.archivedTotals({ from: '2020-01-01', to: '2026-12-31', includeTransfers: true })
+
+// Each account's balance at the end of each date (at most BALANCE_DATES_MAX, 240), archived history included
+const points = await accounts.balanceHistory({ dates: ['2025-12-31', '2026-06-30'] })
+// [{ accountId, date: '2025-12-31', balance: 460000, exact: true }, …]; removed: true for an account an archive removed
+const removed = await accounts.removedAccounts()     // what those were: name, type, currency, sub-ledger, opening
+```
+
+- **Archived months are kept by month**, so a date inside one is answered as of the month's end, with `exact: false`.
+  An account whose history an archive before 1.15 left incomplete has no point before its last archive date, and
+  `archivedTotals` has nothing for a ledger archived only before then: say so rather than show a wrong figure.
+- **What a budget or a report covers** is one rule, in `@tessera/accounts-api`: `accountScope(input, subLedgers,
+  accounts, currency)` for the ledger, a sub-ledger and everything beneath it, account types (within a sub-ledger, if
+  given) or accounts by id; and `crossesScope(total, scope, exists)` for whether a transfer leaves it, and so counts.
 
 **An importer** matches a statement to an account (or creates one), then adds its lines:
 
@@ -1671,6 +1774,155 @@ context.subscriptions.push(budgets.onDidChange(change => {
 - **The Budget menu's commands** (`budget.new`, `budget.line.new`…) are user actions on what the budget view shows.
   `budget.show` with `{ id }` shows a budget from anywhere (a report's link, say).
 
+## Using reports from another plugin
+
+The `reports` plugin is the report manager: it runs whatever reports plugins contribute, shows them in the Reports
+tab and the report view, and keeps the user's saved reports in the ledger
+([reporting-design.md](reporting-design.md)). Another plugin opens a report, runs one for figures of its own, or reads
+the user's saved reports. (To contribute a report of your own, see [Adding a report](#adding-a-report).)
+
+```ts
+import {
+  REPORTS_COMMANDS, REPORTS_SERVICE, REPORTS_SETTINGS_DEFAULTS, REPORTS_SETTINGS_ID, type ReportsService, type ReportsSettings
+} from '@tessera/reports-api'
+
+// Open a report in the report view, as the Reports menu would; parameters over what it would start with
+await context.commands.execute(REPORTS_COMMANDS.show, { definitionId: 'reports.spendingByCategory', parameters: { period: { preset: 'lastMonth' } } })
+
+// Its figures, for a view of your own (require 'reports.service' in your manifest)
+const reports = context.services.get<ReportsService>(REPORTS_SERVICE)
+const result = await reports.run({ definitionId: 'reports.netWorth' })
+
+// The Reports page's settings, to read: what reports open on, and the rows kept before "Other". Undefined until the
+// reports plugin has activated: requiring its service makes sure it has
+const settings = context.settings.read<ReportsSettings>(REPORTS_SETTINGS_ID)
+const topRows = settings.get()?.topRows ?? REPORTS_SETTINGS_DEFAULTS.topRows
+```
+
+- **A result is ready to draw:** columns and rows of integers (minor units, counts, basis points), a chart's series,
+  notes. Format figures with the money helpers; never add them up again.
+- **Saved reports** are the user's, in the ledger: `reports.saved()` lists them, `run({ savedId })` runs one, and the
+  write methods (`saveReport`, `updateReport`…) check them as the dialogs do, failing with a `ReportsError` whose `code`
+  and `field` say why (`DUPLICATE_NAME`, `CONFLICT`, `READ_ONLY`…). Test with `isReportsError(err)`.
+- **Follow changes** with `reports.onDidChange`: `{ catalog, figures, sources }` when what is offered or saved
+  changed, or the figures of reports on those sources may have.
+- **The Reports page's settings are the user's,** to read, not change. `topRows` is the top a report keeps where it
+  takes it from the user (`top: 'user'` in its spec), unless the report was customised with its own.
+- **Printing and exporting** are the report view's: `REPORTS_COMMANDS.print`, `savePdf` and `exportCsv` act on the
+  report shown, while the report view is in front. A report you contribute prints, saves as PDF and exports to CSV
+  with nothing more from you: its table as shown, its chart at the page's width.
+
+## Adding a report
+
+A plugin adds a report to the Reports tab and menu, with no UI of its own: the reports plugin draws it, with its
+heading, chart, table, *Customise Report…*, saving and *Show Transactions*. There are two ways, both plain
+contributions to the reports plugin's extension points; neither needs the reports plugin to be installed (without it,
+they are simply not used). The budget plugin's *Budget vs Actual* is the worked example
+([reporting-design.md](reporting-design.md#adding-a-report-from-another-plugin)).
+
+**1. A definition on an existing source.** A report of the ledger's transactions needs no data of its own: the
+reports plugin's `reports.flows` source knows the rules of what counts (transfers, voids, archived months).
+
+```ts
+import { FLOWS_SOURCE, REPORT_DEFINITIONS_POINT, REPORT_GROUPS, type ReportDefinitionContribution } from '@tessera/reports-api'
+
+const BY_ACCOUNT: ReportDefinitionContribution = {
+  id: 'card-tools.spendingByAccount',               // starts with your plugin's id
+  label: 'Spending by Account',
+  description: 'Which card or account the spending went through.',
+  group: REPORT_GROUPS.spending,                     // or a group of your own (reports.groups)
+  version: 1,                                        // raise it when a saved copy would read differently
+  spec: {
+    specVersion: 1, source: FLOWS_SOURCE,
+    parameters: { period: { preset: 'thisYear' }, scope: { kind: 'ledger' }, currency: 'mostUsed' },
+    query: {
+      filters: [{ dimension: 'group', in: ['expense'] }],
+      rows: { dimension: 'account', sort: 'valueDesc' },
+      measures: [{ measure: 'amount', label: 'Spending' }, { measure: 'count', label: 'Transactions' }]
+    },
+    presentation: { show: 'both', table: { totals: { row: true } }, chart: { kind: 'bar', measure: 0, horizontal: true } }
+  }
+}
+context.subscriptions.push(context.extensions.contribute('card-tools', REPORT_DEFINITIONS_POINT, BY_ACCOUNT.id, BY_ACCOUNT))
+```
+
+- **A spec is data:** what to group by (`rows`, `columns`), what to add up (`measures`, shown as values, shares, a
+  change from the period compared with, a per cent of another measure…), and how to lay it out. No code, and no ids
+  of anything in a ledger (a category or an account): those are the user's, chosen in the heading.
+- **Options** (`options`) are what *Customise Report…* offers: a choice or a yes-or-no, each a patch on the spec
+  (RFC 7396: objects merge, arrays and values replace, `null` removes).
+- **`when`** offers the report only while a context key holds (`'budget.hasBudgets'`).
+- A definition that doesn't validate is refused, with a `[reports]` warning naming the part at fault; check yours
+  in a test with `definitionProblems(definition, source, pluginId)`.
+
+**2. A source of your own, with definitions on it**, when the figures are your plugin's: the budget's status is. A
+source describes what it can answer (`reports.sources`), and a service in the main process answers it.
+
+```ts
+import {
+  REPORT_DEFINITIONS_POINT, REPORT_GROUPS_POINT, REPORT_SOURCES_POINT,
+  type ReportSource, type ReportSourceContribution
+} from '@tessera/reports-api'
+
+const STATUS_SOURCE: ReportSourceContribution = {
+  id: 'budget.status', label: 'Budget', service: 'budget.reportSource',   // declared in your manifest's services.provides
+  time: 'months', maxPeriods: 24,     // whole months, at most 24 (a period that cuts a month is widened, and said so)
+  scopes: 'none', currency: false,    // the budget has its own accounts and currency: no Accounts or Currency offered
+  parameters: [{ key: 'budget', label: 'Budget', kind: 'member' }],      // its choices from members({ parameter })
+  drillDown: true,                    // it lists the transactions behind a figure
+  fields: [
+    { kind: 'dimension', key: 'line', label: 'Line', type: 'member', tree: true, signed: true,
+      values: [{ id: 'income', label: 'Income', sign: 1 }, { id: 'expense', label: 'Expenses', sign: -1, negativeIsBad: true }] },
+    { kind: 'dimension', key: 'month', label: 'Month', type: 'time' },
+    { kind: 'measure', key: 'budget', label: 'Budget', unit: 'money', combine: 'sum', drillDown: false },
+    { kind: 'measure', key: 'actual', label: 'Actual', unit: 'money', combine: 'sum' },
+    { kind: 'measure', key: 'remaining', label: 'Remaining', unit: 'money', combine: 'sum', drillDown: false }
+  ]
+}
+
+const source: ReportSource = {
+  async query(request) { /* rows by request.dimensions, values by request.measures, members for each member dimension */ },
+  async members(request) { /* a parameter's choices: the budgets, the one shown marked isDefault */ },
+  async transactions(request) { /* the transactions behind request.key, for request.measure, at most request.limit */ },
+  onDidChange: listener => budgets.onDidChange(() => listener())
+}
+
+context.subscriptions.push(
+  context.services.provide('budget', 'budget.reportSource', source),
+  context.extensions.contribute('budget', REPORT_SOURCES_POINT, STATUS_SOURCE.id, STATUS_SOURCE),
+  context.extensions.contribute('budget', REPORT_GROUPS_POINT, 'budget.group', { id: 'budget.group', label: 'Budgets', order: 30 }),
+  context.extensions.contribute('budget', REPORT_DEFINITIONS_POINT, VS_ACTUAL.id, VS_ACTUAL)
+)
+```
+
+- **Answer what is asked, at the grain asked:** a row for each combination of `request.dimensions`' keys, its values
+  in `request.measures`' order, as integers (minor units, counts). Give the members of each member dimension with
+  their labels and, for a tree, `parentId` (a top member's is one of the dimension's `values`). Never format amounts,
+  and never add up what the engine will: it rolls a tree up, totals, nets, shares and pivots months across, the same
+  for every report.
+- **Apply your own rules, once.** The budget's rows come from its status, row by row, so the report can't disagree
+  with the budget view; no other code repeats what counts in a budget.
+- **A scope and currency of your own:** `scopes: 'none'` and `currency: false`, and say which in your reply:
+  `subject` ("Household · Personal") and `currency` ("CAD") go in the report's subtitle and its figures' format.
+- **Measures that add up** (`combine: 'sum'`) are added at every level; a share of another is worked out per cell
+  by the spec (`{ measure: 'actual', show: 'percentOf', of: 'budget' }`), never given by you. A measure with nothing
+  behind it to list (a plan) says `drillDown: false`.
+- **Nets and colour:** a signed tree's top members carry their sign, and `negativeIsBad` under one colours its rows'
+  negative figures red (what is left of an expense budget). A net row may read a measure the other way
+  (`nets: [{ label: 'Net', negate: ['remaining'] }]`: how far ahead of the plan).
+- **Show Transactions:** `transactions(request)` gets the report's period (or a column's months), its parameters,
+  and `request.key`: per dimension, the keys the figure gathers (a tree's take in what is beneath them, except those
+  in `own`; `signed` for a net, whose parts take their top member's sign). List each transaction with its part of the
+  figure, in date order, at most `request.limit`, saying how many there are and how much archived months hold.
+- **The service runs in the main process**, declared in `services.provides`. Without it (your plugin failed to start)
+  your reports are listed as unavailable. **Ten seconds** a query (`SOURCE_TIMEOUT_MS`); past it, the report says it
+  took too long.
+- **Follow your data** with `onDidChange`, so a report shown on it runs again.
+- **Ids start with your plugin id:** sources, groups, definitions and the service.
+- **Test with the engine:** `shape` gives the report a spec makes of your rows, and `specProblems` and
+  `definitionProblems` check your contributions, with no report manager. The budget's own test holds every figure of
+  *Budget vs Actual* to its status, row for row (`tests/plugins/budget/report.test.ts`).
+
 ## Adding an import format
 
 *File › Import…* belongs to the bundled `import` plugin (the import manager), which knows no file format. A format is
@@ -1878,12 +2130,12 @@ export default function Summary() {
 }
 ```
 
-`@tessera/ui` (version 1.4) exports a curated set, added when a view needs it:
+`@tessera/ui` (version 1.6) exports a curated set, added when a view needs it:
 
 | For | Components |
 |---|---|
 | Layout and surfaces | `Box`, `Stack`, `Paper`, `Divider`, `Toolbar`, `Collapse` |
-| Text and feedback | `Typography`, `Alert`, `CircularProgress`, `Tooltip` |
+| Text and feedback | `Typography`, `Alert`, `CircularProgress`, `LinearProgress`, `Tooltip` |
 | Buttons | `Button`, `IconButton`, `ToggleButton`, `ToggleButtonGroup` |
 | Forms | `TextField`, `Autocomplete`, `Checkbox`, `Radio`, `RadioGroup`, `FormControl`, `FormControlLabel`, `FormLabel`, `FormHelperText`, `InputAdornment` |
 | Lists and menus | `List`, `ListItemButton`, `ListItemIcon`, `ListItemText`, `Menu`, `MenuItem` |
@@ -1941,6 +2193,43 @@ the variants and components:
 for what the MUI theme can't style, such as a canvas or a third-party chart. It is read
 only: the user changes the theme, plugins don't.
 
+**Charts.** `@tessera/ui/charts` draws bars (grouped, stacked, or along the side for long labels), lines, areas,
+donuts, and a series drawn as a line over bars, in the theme's chart palette and font roles, with a legend, tooltips
+and a label for screen readers. It is a second entry of `@tessera/ui`: the shell shares it too, and loads it (MUI X
+Charts, about 130 KB) the first time a view imports it, so load your chart's module lazily and the window's start-up
+never pays for it:
+
+```tsx
+// SpendingChart.tsx: the only module that imports the charts
+import { Chart } from '@tessera/ui/charts'
+import { formatAmount } from '@tessera/accounts-api'
+
+export default function SpendingChart({ months, income, spending }: { months: string[], income: number[], spending: number[] }) {
+  return (
+    <Chart
+      kind="groupedBar"
+      categories={months}
+      series={[
+        { key: 'income', label: 'Income', values: income, tone: 'positive' },      // the theme's success colour
+        { key: 'spending', label: 'Spending', values: spending, tone: 'negative' }  // its error colour
+      ]}
+      format={v => formatAmount(v, 'CAD')}                       // values stay minor units; this is only how they read
+      label="Income and spending, bar chart: March income $4,200.00, spending $5,150.10"
+    />
+  )
+}
+
+// In the view: const SpendingChart = lazy(() => import('./SpendingChart')), drawn inside <Suspense>
+```
+
+- **Colours come from the theme:** a series takes the palette's next colour, or its `tone` (`positive` for money in,
+  `negative` for money out, `emphasis` for a total drawn over the rest, in the text colour). There is no colour prop.
+- **Give every chart a `label`** saying what it shows, and show its figures somewhere as text too (a table beside
+  it): a chart alone says nothing to a screen reader or to someone who needs an exact figure.
+- **Never import MUI X:** only `Chart` is exported, so what draws the charts can change without your plugin changing.
+
+Reports draw their charts this way ([reporting-design.md](reporting-design.md#charts)).
+
 **Contributing a theme.** A plugin can offer a colour scheme by contributing to
 `shell.themes`; see [theming-design.md](theming-design.md#themes) for the token set. A
 theme with a `light` and a `dark` variant can follow the system; one with a single
@@ -1957,7 +2246,8 @@ context.extensions.contribute(context.pluginId, 'shell.themes', 'budget.sunrise'
 
 Set only the tokens you want to change (`primary`, `secondary`, `error`, `warning`, `info`,
 `success`, `background.default`, `background.paper`, `text.primary`, `text.secondary`,
-`divider`); the rest come from the shell's theme. Colours are hex or `rgb()`/`hsl()`:
+`divider`, and `chart`: a list of 1 to 12 colours for charts' series, the shell's for the rest); the rest come from
+the shell's theme. Colours are hex or `rgb()`/`hsl()`:
 colour names are rejected so every colour can be parsed and adjusted. A theme with a
 mistake is skipped with a `[theme]` warning. The theme then appears on the Options dialog's
 **Appearance** page (Tools ▸ Options…), as a card drawn from its colours, with a preview of
@@ -2003,7 +2293,7 @@ its Sunrise sets serif headings.
 A theme that is hard to read still works, but the log says so: `Theme "budget.sunrise"
 may be hard to read: text.primary on background.paper is 3.1:1 in light mode (WCAG AA asks
 for 4.5:1)`. Check yours against the figures: 4.5:1 for text and 3:1 for the primary
-colour on the paper.
+colour, and each chart colour, on the paper.
 
 ---
 
@@ -2032,9 +2322,10 @@ rather than bundle its own copies:
 | `react/jsx-runtime` | same as React |
 | `react-dom` | the shell's react-dom |
 | `@tessera/ui` | the shell's components, icons and theme access (see [Styling and theming](#styling-and-theming)) |
+| `@tessera/ui/charts` | the shell's charts, loaded the first time a view imports them (see [Charts](#styling-and-theming)) |
 
-A plugin may import only `@tessera/types` and `@tessera/ui` from the framework,
-and **never `@mui/*` or `@emotion/*` directly**: they are the shell's private
+A plugin may import only `@tessera/types` and `@tessera/ui` (with its charts, `@tessera/ui/charts`) from the
+framework, and **never `@mui/*` or `@emotion/*` directly**: they are the shell's private
 dependencies, and a second copy would ignore the shell's theme. The plugin build
 fails with a message pointing at `@tessera/ui` if you do.
 
@@ -2051,7 +2342,8 @@ requirements:
 - **Exposes:** one key per view `module`, e.g. `'./SummaryView': './src/SummaryView.tsx'`.
   Each exposed module default-exports a React component.
 - **Shared:** `react`, `react/jsx-runtime` and `react-dom` marked as
-  singletons and *not* eagerly bundled.
+  singletons and *not* eagerly bundled; `@tessera/ui` and `@tessera/ui/charts`
+  likewise, never bundled.
 - **Output location:** all chunks and assets alongside, or below, the
   remote entry, referenced by relative URLs.
 
@@ -2065,9 +2357,9 @@ plugin's backend.
 **User-installed plugins** have no build step provided yet, so a third-party
 author must produce a remote that meets the requirements above, with
 `@module-federation/vite`, `@module-federation/enhanced` (webpack) or
-rspack's Module Federation. Mark `react`, `react/jsx-runtime` and
-`react-dom` as shared singletons with `import: false` so no fallback copy is
-bundled. The hand-written container in the [Quick start](#quick-start) is
+rspack's Module Federation. Mark `react`, `react/jsx-runtime`,
+`react-dom`, `@tessera/ui` and `@tessera/ui/charts` as shared singletons with
+`import: false` so no fallback copy is bundled. The hand-written container in the [Quick start](#quick-start) is
 for illustration: it shows the protocol the tools generate, where
 `init(shareScope)` receives the shared modules and `get('./Expose')` returns a
 factory for the exposed module.

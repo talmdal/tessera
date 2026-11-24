@@ -1,9 +1,9 @@
-// The ledger's commands: File › New, Open, Close and Delete Ledger, and the sub-ledger commands views run.
+// The ledger's commands: File › New, Open, Close and Delete Ledger, Ledger Properties, and the sub-ledger commands views run.
 import type { Disposable, PluginContext, ShellPrompts } from '@tessera/types'
 import {
   LEDGER_COMMANDS, LEDGER_CONTEXT_KEYS, LEDGER_DIALOGS, LEDGER_VIEWS, childrenOf, isLedgerError,
-  type LedgerInfo, type NewLedgerArgs, type NewLedgerDialogInput, type NewLedgerDialogResult,
-  type RenameSubLedgerDialogInput, type SubLedgerArgs
+  yearStartOf, type LedgerInfo, type LedgerPropertiesDialogInput, type NewLedgerArgs, type NewLedgerDialogInput,
+  type NewLedgerDialogResult, type RenameSubLedgerDialogInput, type SubLedgerArgs
 } from '@tessera/ledger-api'
 import type { LedgerSessionImpl } from './LedgerSessionImpl'
 
@@ -77,6 +77,17 @@ export function registerCommands(context: PluginContext, session: LedgerSessionI
       if (deleted) await reveal(LEDGER_VIEWS.start)
       return deleted
     }, { enablement: `${WRITABLE} && ${IDLE}` }),
+
+    // The dialog saves the year start itself (through its channel), so it can show a refusal beside the field
+    context.commands.register(LEDGER_COMMANDS.properties, async (): Promise<LedgerInfo | undefined> => {
+      const ledger = session.current
+      if (!ledger) return undefined
+      const input: LedgerPropertiesDialogInput = {
+        name: ledger.name, path: ledger.path, yearStart: yearStartOf(ledger), readOnly: ledger.readOnly,
+        ...(ledger.archive && { archive: ledger.archive })
+      }
+      return prompts.show<LedgerInfo>(LEDGER_DIALOGS.properties, input)
+    }, { enablement: K.isOpen }),
 
     context.commands.register(LEDGER_COMMANDS.renameSubLedger, async (args?: unknown) => {
       const id = subLedgerId(args)

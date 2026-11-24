@@ -31,7 +31,13 @@ export const ACCOUNTS_COLLECTIONS = {
   transactions: 'accounts.transactions',
   payees: 'accounts.payees',
   categories: 'accounts.categories',
-  reconciliations: 'accounts.reconciliations'
+  reconciliations: 'accounts.reconciliations',
+  /** What archives removed, as totals: one document per account and month (since 1.15; see archivedMonths.ts). */
+  archivedMonths: 'accounts.archivedMonths',
+  /** The ids those totals name, numbered: one document, appended to. */
+  archivedIds: 'accounts.archivedIds',
+  /** What an account an archive removed leaves for its history: where it started, and what it was. */
+  archivedAccounts: 'accounts.archivedAccounts'
 } as const
 
 export const ACCOUNTS_COMMANDS = {

@@ -1,7 +1,7 @@
 // Every name the ledger plugin publishes: ids, commands, context keys, IPC channels, events, views and dialogs.
 // Both halves of the plugin, other plugins and the tests use these constants, never the strings.
 import { channelFor } from '@tessera/types'
-import type { ArchiveOutcome, LedgerInfo, LedgerTree } from './model'
+import type { ArchiveOutcome, LedgerArchiveInfo, LedgerInfo, LedgerTree, YearStart } from './model'
 import type { ArchiveDescription } from './service'
 
 export const LEDGER_PLUGIN_ID = 'ledger'
@@ -35,6 +35,12 @@ export const LEDGER_META = {
   createdAt: 'ledger.createdAt',
   /** The application version that created the file. */
   createdWith: 'ledger.createdWith',
+  /**
+   * The ledger's `YearStart`, `{ month, day }`: written when it is created, or the first time an older ledger is opened
+   * writable, from the Archiving page's year start, so nothing changes on upgrade. Copied into backups and archive
+   * files with the rest of the meta. (Since 1.5.)
+   */
+  yearStart: 'ledger.yearStart',
   /** The schema version of a `ledger.schema` contributor. */
   schemaVersion: (contributor: string) => `ledger.schema.${contributor}`
 } as const
@@ -123,7 +129,12 @@ export const LEDGER_COMMANDS = {
   /** Argument: `{ id }`. No menu item of its own; the accounts navigator and menu run it. */
   renameSubLedger: 'ledger.subLedger.rename',
   /** Argument: `{ id }`. Moves the sub-ledger's contents up to its parent, then deletes it. */
-  deleteSubLedger: 'ledger.subLedger.delete'
+  deleteSubLedger: 'ledger.subLedger.delete',
+  /**
+   * File › Ledger Properties…: the open ledger's name and file, and its year start, which the dialog sets (read-only
+   * for an archive file). Resolves the ledger as it is after, or undefined if cancelled. (Since 1.5.)
+   */
+  properties: 'ledger.properties'
 } as const
 
 /** Argument of `ledger.new`. With `parentId` (null = the ledger itself), the dialog starts with that parent chosen. */
@@ -188,6 +199,8 @@ export const LEDGER_CHANNELS = {
   createSubLedger: channel('subLedger.create'),
   /** `{ id, name, expectedRev? }` → `Result<SubLedger, LedgerErrorCode>`. Used by the rename dialog. */
   renameSubLedger: channel('subLedger.rename'),
+  /** `{ yearStart }` → `Result<LedgerInfo, LedgerErrorCode>`: sets the open ledger's year start. The properties dialog's. */
+  setYearStart: channel('yearStart.set'),
   // The Restore dialog's requests. They answer only while File › Restore Ledger… has the dialog open.
   /** → `{ folder, backups: BackupInfo[] }`: the backups in the default backup folder, newest first. */
   restoreList: channel('restore.list'),
@@ -239,7 +252,9 @@ export const LEDGER_DIALOGS = {
   /** Input `RestoreDialogInput`, result `RestoreDialogResult`. */
   restore: 'ledger.dialog.restore',
   /** Input `ArchiveDialogInput`, result `ArchiveOutcome` (undefined if cancelled). */
-  archive: 'ledger.dialog.archive'
+  archive: 'ledger.dialog.archive',
+  /** Input `LedgerPropertiesDialogInput`, result `LedgerInfo` (undefined if cancelled or nothing changed). */
+  properties: 'ledger.dialog.properties'
 } as const
 
 export interface NewLedgerDialogInput {
@@ -330,7 +345,7 @@ export interface ArchiveLedgerArgs {
 /** What the Archive dialog opens with. */
 export interface ArchiveDialogInput {
   ledgerName: string
-  /** YYYY-MM-DD, from the Archiving page (`suggestedArchiveDate`). */
+  /** YYYY-MM-DD: the start of the ledger's current year (its `yearStart`), back by the Archiving page's years to keep. */
   suggestedBefore: string
   /** YYYY-MM-DD: the archive date can't be later. */
   today: string
@@ -379,6 +394,17 @@ export const LEDGER_ARCHIVE_SETTINGS_PAGE = 'ledger.archive.settings'
 export interface RestoreProgress {
   step: string
   done?: number
+}
+
+/** What File › Ledger Properties… shows. */
+export interface LedgerPropertiesDialogInput {
+  /** The ledger's name and its file's path. */
+  name: string
+  path: string
+  yearStart: YearStart
+  /** An archive file, or a ledger open read-only: shown, not changed. */
+  readOnly: boolean
+  archive?: LedgerArchiveInfo
 }
 
 export interface RenameSubLedgerDialogInput {

@@ -56,7 +56,7 @@ describe('opening an archive file', () => {
 
     expect(opened).toEqual({
       path: ARCHIVE, name: 'Home (archive before 2026-01-01)', readOnly: true,
-      archive: { before: '2026-01-01', takenAt: TAKEN, ledgerName: 'Home' }
+      archive: { before: '2026-01-01', takenAt: TAKEN, ledgerName: 'Home' }, yearStart: { month: 1, day: 1 }
     })
     // Its ledger's id isn't its own
     expect(session.current?.id).toBeUndefined()

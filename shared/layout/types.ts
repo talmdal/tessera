@@ -1,5 +1,5 @@
 // shared/layout/types.ts — slot ids, channel names and defaults for the layout controller.
-import { channelFor } from '@tessera/types'
+import { channelFor, MAIN_ACTIVE_VIEW_KEY } from '@tessera/types'
 import type { Border, LayoutState } from '@tessera/types'
 import { SHELL_CONTRIBUTOR_ID } from '../plugins/manifest'
 import { BOTTOM_SLOT, LEFT_SLOT, MAIN_SLOT, RIGHT_SLOT, TOP_SLOT } from '../views/types'
@@ -67,7 +67,7 @@ export const layoutKey = {
   collapsed: (side: Border) => `shell.layout.${side}.collapsed`,
   visible: (side: Border) => `shell.layout.${side}.visible`,
   activeView: (side: Border) => `shell.layout.${side}.activeView`,
-  mainActiveView: 'shell.layout.main.activeView'
+  mainActiveView: MAIN_ACTIVE_VIEW_KEY
 } as const
 
 /** What the renderer shows before the snapshot arrives: every slot empty. */

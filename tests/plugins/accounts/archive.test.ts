@@ -14,7 +14,7 @@ import {
   ArchiveCheckError, TOTALS_YIELD_EVERY, describePlan, planArchive, removedTotals, verifyArchive, type LedgerData
 } from '../../../plugins/accounts/src/privileged/archiveCore'
 import { collectionsOf, type StoredAccount, type StoredReconciliation, type StoredTransaction } from '../../../plugins/accounts/src/privileged/store'
-import { sumTransactions, sumsByAccount } from '../../../plugins/accounts/src/privileged/transactionsCore'
+import { compareTotals, sumTransactions, sumsByAccount } from '../../../plugins/accounts/src/privileged/transactionsCore'
 import { file } from '../ledger/harness'
 import { chequing, rejection, setupAccounts, type AccountsSetup } from './harness'
 
@@ -643,7 +643,8 @@ async function randomLedger(seed: number) {
         docs.push({ accountId: a.id, date, amount, status: status(), voided, createdAt: stamp, updatedAt: stamp, transferId, transferAccountId: b.id })
         docs.push({ accountId: b.id, date, amount: -amount, status: status(), voided, createdAt: stamp, updatedAt: stamp, transferId, transferAccountId: a.id })
       } else {
-        docs.push({ accountId: a.id, date, amount, status: status(), voided, createdAt: stamp, updatedAt: stamp, ...(number && { number }) })
+        // Payees by position, drawing nothing from the random source, so the ledgers stay as they were before payees
+        docs.push({ accountId: a.id, date, amount, status: status(), voided, createdAt: stamp, updatedAt: stamp, ...(number && { number }), ...(i % 4 !== 0 && { payeeId: `payee-${i % 7}` }) })
       }
     }
     // Half the closed accounts hold only settled history from 2022 (before every date archived to) that brings them to
@@ -882,3 +883,166 @@ describe('the description and the plan', () => {
 
 // Types used only to describe the fixtures above
 export type { Account }
+
+// accounts-api 1.15: what an archive keeps as totals, so that reports and balances of the months archived don't change
+// (docs/reporting-design.md, "Archived months").
+describe('what the archive keeps: totals, and balances at past dates', () => {
+  const ALL = { from: '2000-01-01', to: '2100-12-31', includeTransfers: true }
+  /** Month ends from December 2021 to December 2026: every month a random ledger can hold. */
+  const MONTH_ENDS = Array.from({ length: 61 }, (_, i) => new Date(Date.UTC(2022, i, 0)).toISOString().slice(0, 10))
+  /** Totals added up by account, month, category or transfer account, and (for categories) payee when `byPayee`. */
+  function sum(byPayee: boolean, ...lists: TransactionTotal[][]) {
+    const all = new Map<string, [number, number, number]>()
+    for (const t of lists.flat()) {
+      const key = `${t.accountId}|${t.month}|${t.categoryId}|${t.transferAccountId}|${byPayee && t.transferAccountId === null ? t.payeeId ?? '' : ''}`
+      const [inflow, outflow, count] = all.get(key) ?? [0, 0, 0]
+      all.set(key, [inflow + t.inflow, outflow + t.outflow, count + t.count])
+    }
+    return all
+  }
+  const balanceMap = (points: { accountId: string, date: string, balance: number }[]) => new Map(points.map(p => [`${p.accountId}|${p.date}`, p.balance]))
+
+  it('keeps every total, by payee too, and every balance at every month end, removed accounts included: on random ledgers', async () => {
+    let archived = 0, removedAccounts = 0, withTransfers = 0
+    for (let seed = 1; seed <= 40; seed++) {
+      const { service, archive, r } = await randomLedger(seed)
+      const before = r.pick(['2023-01-01', '2024-01-01', '2024-07-01', '2025-01-01', '2026-01-01'])
+      const label = `seed ${seed}, before ${before}`
+      const was = { plain: await service.transactionTotals(ALL), byPayee: await service.transactionTotals({ ...ALL, byPayee: true }) }
+      const balancesWere = await service.balanceHistory({ dates: MONTH_ENDS })
+      const accountsWere = new Map((await service.list()).map(a => [a.id, a]))
+
+      const outcome = await archive(before, { [REMOVE_CLOSED]: r.next() < 0.7 }).catch(err => err as { code: string })
+      if ('code' in outcome) continue
+      archived++
+
+      // Live and archived together are what there was, without payees and with them
+      const kept = await service.archivedTotals(ALL)
+      expect(sum(false, await service.transactionTotals(ALL), kept), label).toEqual(sum(false, was.plain))
+      expect(sum(true, await service.transactionTotals({ ...ALL, byPayee: true }), await service.archivedTotals({ ...ALL, byPayee: true })), label)
+        .toEqual(sum(true, was.byPayee))
+      // In the contract's order, each with where its account was and its name
+      expect(kept, label).toEqual([...kept].sort(compareTotals))
+      for (const t of kept) expect([t.currency, t.subLedgerId, t.accountName], label).toEqual([accountsWere.get(t.accountId)!.currency, accountsWere.get(t.accountId)!.subLedgerId, accountsWere.get(t.accountId)!.name])
+
+      // Every balance at every month end is what it was, and so every total: an account the archive removed included
+      const now = await service.balanceHistory({ dates: MONTH_ENDS })
+      expect(balanceMap(now), label).toEqual(balanceMap(balancesWere))
+      expect(now.every(p => p.exact), label).toBe(true)
+      const gone = new Set(now.filter(p => p.removed).map(p => p.accountId))
+      for (const id of gone) expect(accountsWere.has(id) && await service.get(id), label).toBeUndefined()
+      if (gone.size > 0) removedAccounts++
+      if (kept.some(t => t.transferAccountId !== null)) withTransfers++
+    }
+    // The generator reaches the cases: archives, removed accounts and archived transfers
+    expect(archived).toBeGreaterThan(25)
+    expect(removedAccounts).toBeGreaterThan(0)
+    expect(withTransfers).toBeGreaterThan(0)
+  })
+
+  it('adds a second archive\'s totals to the month the first kept, in one document per account and month', async () => {
+    const { service, t, reconcile, archive, session } = await ledger()
+    const chq = await service.createAccount(chequing({ openingDate: '2024-01-01' }))
+    const food = (await service.categories.list()).find(c => c.name === 'Groceries')!.id
+    const first = await t(chq.id).create({ date: '2024-03-05', amount: -1000, categoryId: food, payee: 'Metro' })
+    const later = await t(chq.id).create({ date: '2024-03-20', amount: -400, categoryId: food, payee: 'Metro' })
+    await reconcile(chq.id, [first.id])
+    const was = await service.balanceHistory({ dates: ['2024-03-31'] })
+
+    await archive('2025-01-01')
+    await reconcile(chq.id, [later.id])
+    await archive('2025-01-01')
+
+    expect(await session.database('accounts').collection('accounts.archivedMonths').count()).toBe(1)
+    expect(await service.archivedTotals({ ...ALL, byPayee: true })).toEqual([expect.objectContaining({ accountId: chq.id, month: '2024-03', categoryId: food, outflow: 1400, count: 2, payeeId: expect.any(String) })])
+    expect(await service.balanceHistory({ dates: ['2024-03-31'] })).toEqual(was)
+    expect((await service.get(chq.id))!.archived).toMatchObject({ count: 2, countWithTotals: 2 })
+  })
+
+  it('keeps nothing when the archive rolls back', async () => {
+    const { service, t, reconcile, archive, session } = await ledger()
+    const chq = await service.createAccount(chequing())
+    const old = await t(chq.id).create({ date: '2024-05-01', amount: -100 })
+    await reconcile(chq.id, [old.id])
+    session.participateInArchive('import', { describe: async () => undefined, archive: async () => { throw new Error('lines') } })
+
+    expect(await rejection(archive('2025-01-01'))).toMatchObject({ code: 'ARCHIVE_FAILED' })
+
+    expect(await service.archivedTotals(ALL)).toEqual([])
+    for (const name of ['accounts.archivedMonths', 'accounts.archivedIds', 'accounts.archivedAccounts']) {
+      expect(await session.database('accounts').collection(name).count(), name).toBe(0)
+    }
+  })
+
+  it('gives no balance before an archive that kept no totals (as before 1.15), rather than a wrong one', async () => {
+    const { service, t, reconcile, archive, session } = await ledger()
+    const chq = await service.createAccount(chequing({ openingDate: '2024-01-01', openingBalance: 5000 }))
+    const old = await t(chq.id).create({ date: '2024-05-01', amount: -100 })
+    await t(chq.id).create({ date: '2025-05-01', amount: -200 })
+    await reconcile(chq.id, [old.id])
+    await archive('2025-01-01')
+    expect((await service.get(chq.id))!.archived).toMatchObject({ count: 1, countWithTotals: 1 })
+    const dates = ['2024-12-31', '2025-06-30']
+    expect((await service.balanceHistory({ dates })).map(p => [p.date, p.balance])).toEqual([['2024-12-31', 4900], ['2025-06-30', 4700]])
+
+    // As an archive made before 1.15 left it: its count, but no totals
+    const db = session.database('accounts')
+    await db.collection('accounts.archivedMonths').deleteMany()
+    await db.collection('accounts.accounts').updateOne({ id: chq.id }, { $unset: { 'archived.countWithTotals': true } })
+
+    expect((await service.balanceHistory({ dates })).map(p => [p.date, p.balance])).toEqual([['2025-06-30', 4700]])
+    expect(await service.archivedTotals(ALL)).toEqual([])
+  })
+
+  it('keeps what an account it removes needs: its name with its totals, and its balances, marked removed', async () => {
+    const { service, t, reconcile, archive, session } = await ledger()
+    const chq = await service.createAccount(chequing({ openingDate: '2021-01-01' }))
+    const visa = await service.createAccount(chequing({ name: 'Old Visa', type: 'creditCard', openingDate: '2021-01-01', openingBalance: -30000 }))
+    const charge = await t(visa.id).create({ date: '2021-02-01', amount: -5000 })
+    const paid = await t(chq.id).create({ date: '2021-06-30', amount: -35000, transferAccountId: visa.id })
+    await reconcile(visa.id, [charge.id, (await t(visa.id).list()).find(x => x.transferId === paid.transferId)!.id])
+    await reconcile(chq.id, [paid.id])
+    await service.closeAccount(visa.id)
+    const dates = ['2021-01-31', '2021-03-31', '2021-12-31']
+    const was = await service.balanceHistory({ dates })
+
+    await archive('2026-01-01')
+
+    expect(await service.get(visa.id)).toBeUndefined()
+    expect(await service.balanceHistory({ dates })).toEqual(was.map(p => p.accountId === visa.id ? { ...p, removed: true } : p))
+    expect((await service.balanceHistory({ dates, accountIds: [visa.id] })).map(p => p.balance)).toEqual([-30000, -35000, 0])
+    expect((await service.archivedTotals(ALL)).filter(r => r.accountId === visa.id).map(r => r.accountName)).toEqual(['Old Visa', 'Old Visa'])
+    // What reports need to place it: its type and where it was, as well as its name
+    expect(await service.removedAccounts()).toEqual([{
+      id: visa.id, name: 'Old Visa', type: 'creditCard', currency: 'CAD', subLedgerId: null, openingDate: '2021-01-01',
+      openingBalance: -30000, closedOn: '2026-11-04', removedBefore: '2026-01-01', complete: true
+    }])
+    expect(await session.database('accounts').collection('accounts.archivedAccounts').find()).toEqual([expect.objectContaining({
+      accountId: visa.id, name: 'Old Visa', type: 'creditCard', currency: 'CAD', subLedgerId: null, openingDate: '2021-01-01',
+      openingBalance: -30000, removedBefore: '2026-01-01', complete: true, closedOn: '2026-11-04'
+    })])
+  })
+
+  it('moves what it kept with a deleted sub-ledger to the parent: months, transfers\' other side, and removed accounts', async () => {
+    const { service, t, reconcile, archive, session } = await ledger()
+    const home = await session.createSubLedger({ name: 'Home', parentId: null })
+    const old = await session.createSubLedger({ name: 'Old', parentId: home.id })
+    const chq = await service.createAccount(chequing({ openingDate: '2021-01-01' }))
+    const gone = await service.createAccount(chequing({ name: 'Old Savings', type: 'savings', subLedgerId: old.id, openingDate: '2021-01-01', openingBalance: 0 }))
+    const moved = await t(chq.id).create({ date: '2021-03-01', amount: -2500, transferAccountId: gone.id })
+    const back = await t(gone.id).create({ date: '2021-09-01', amount: -2500, transferAccountId: chq.id })
+    await reconcile(chq.id, (await t(chq.id).list()).map(x => x.id))
+    await reconcile(gone.id, (await t(gone.id).list()).map(x => x.id))
+    void moved; void back
+    await service.closeAccount(gone.id)
+    await archive('2026-01-01')
+    const kept = () => service.archivedTotals(ALL)
+    expect((await kept()).filter(r => r.accountId === chq.id).map(r => r.transferSubLedgerId)).toEqual([old.id, old.id])
+
+    await session.deleteSubLedger(old.id)
+
+    expect((await kept()).filter(r => r.accountId === chq.id).map(r => r.transferSubLedgerId)).toEqual([home.id, home.id])
+    expect((await kept()).filter(r => r.accountId === gone.id).map(r => r.subLedgerId)).toEqual([home.id, home.id])
+    expect(await session.database('accounts').collection('accounts.archivedAccounts').find()).toEqual([expect.objectContaining({ accountId: gone.id, subLedgerId: home.id })])
+  })
+})

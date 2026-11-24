@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, inject, vi } from 'vitest'
 import type { RegisteredIcon, ThemeDescriptor, ThemeSnapshot } from '@tessera/types'
 import { THEME_CHANGED, THEME_GET, DEFAULT_THEME } from '../../shared/theme/types'
 import { resetIconSources } from '../../tessera-ui/iconSource'
+import { TESSERA_UI_VERSION } from '../../tessera-ui/version'
 import { IconRegistryProvider } from '../../tessera-ui/internal'
 import { createFederationViewLoader } from '../../shell/renderer/views/federationViewLoader'
 import { ShellThemeProvider } from '../../shell/renderer/theme/ShellThemeProvider'
@@ -80,6 +81,21 @@ describe('a plugin view using @tessera/ui', () => {
     // The Save icon is the shell's component; the plugin's own is fetched, from the registry the plugin cannot see
     expect(container.querySelector('svg[data-icon="Save"]')).toBeInTheDocument()
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('tessera-plugin://themed/logo.svg'))
+  })
+
+  it('draws a chart from the shell\'s @tessera/ui/charts, shared with it, in the theme\'s palette', async () => {
+    const ChartView = await createFederationViewLoader().load({
+      id: 'themed.chart', title: 'Chart', slot: 'shell.main', module: './ChartView', pluginId: 'themed', remoteEntry
+    })
+    const { bridge } = createFakeRemote({ [THEME_GET]: () => snapshot(red, 'light') })
+
+    render(<ShellThemeProvider bridge={bridge} initial={snapshot(red, 'light')}><ChartView /></ShellThemeProvider>)
+
+    // jsdom lays nothing out, so the chart draws no bars here (tests/browser/charts.test.ts draws them): what matters is
+    // that the plugin's import reached the shell's module, the same version as @tessera/ui
+    expect(screen.getByRole('figure', { name: 'Spending, bar chart' })).toBeInTheDocument()
+    expect(screen.getByTestId('chart-view')).toHaveAttribute('data-version', TESSERA_UI_VERSION)
+    await settle()
   })
 
   it('does not bundle its own icons, or MUI', async () => {

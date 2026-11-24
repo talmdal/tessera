@@ -5,3 +5,4 @@
 export { IconRegistryProvider } from './iconRegistry'
 export { ThemeStateContext } from './themeState'
 export { FontRolesContext } from './fontRoles'
+export { PrintThemeContext } from './PrintArea'

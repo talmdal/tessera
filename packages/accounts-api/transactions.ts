@@ -1,5 +1,5 @@
 // The transactions half of `accounts.service`: each account's transactions, and the payees and categories they use.
-import type { AccountBalances, Category, ClearingStatus, PayeeSuggestion, RegisterSnapshot, Transaction } from './model'
+import type { AccountBalances, Category, ClearingStatus, Payee, PayeeSuggestion, RegisterSnapshot, Transaction } from './model'
 import type { WriteOptions } from './service'
 
 /** A new transaction, in the user's terms: the service creates the payee and the other side of a transfer. */
@@ -113,6 +113,11 @@ export interface TransactionManager {
 export interface PayeeDirectory {
   /** Payees whose name starts with `prefix` (ignoring case), with what each was last used for. Empty prefix: all. */
   search(prefix: string, limit?: number): Promise<PayeeSuggestion[]>
+  /**
+   * The payees with these ids, in one read, in no particular order; ids that don't exist are left out. For naming the
+   * payees of totals by payee, a report's rows. (Since 1.15.)
+   */
+  get(ids: string[]): Promise<Payee[]>
 }
 
 export interface CategoryDirectory {

@@ -7,6 +7,7 @@ import { displayDate, type ArchiveDescription, type ArchiveResult } from '@tesse
 import { ACCOUNTS_ARCHIVE_OPTIONS, type AccountArchived, type AccountsArchived, type AccountsChange, type ArchivedTotal } from '@tessera/accounts-api'
 import type { Collections, StoredAccount, StoredReconciliation, StoredTransaction } from './store'
 import { TotalsBuilder, balancesFor, sumTransactions } from './transactionsCore'
+import { addTransaction, emptyMonth, mergeInto, pack, readIds, unpack, writeIds, type MonthTotals } from './archivedMonths'
 
 /** The removal lets the event loop turn every so many writes, so the window stays responsive (Phase 0 results). */
 export const ARCHIVE_YIELD_EVERY = 2000
@@ -17,6 +18,12 @@ export const ARCHIVE_YIELD_EVERY = 2000
  * no smaller step would split (tests/plugins/accounts/totalsScale.test.ts; docs/budget-design.md, Phase B1 results).
  */
 export const TOTALS_YIELD_EVERY = 10000
+
+/**
+ * Keeping archived months lets the event loop turn every so many months written: each is a large document, packed and
+ * merged, so 2,000 of them (`ARCHIVE_YIELD_EVERY`, for deletes) would be one stretch of 0.4 s at 100,000 transactions.
+ */
+export const KEEP_YIELD_EVERY = 250
 
 type Account = Doc<StoredAccount>
 type Txn = Doc<StoredTransaction>
@@ -269,6 +276,66 @@ export async function removedTotals(data: Pick<LedgerData, 'accounts' | 'transac
   return totals.rows
 }
 
+/**
+ * Keeps what the plan removes as totals, so that reports and balances of the months archived don't change
+ * (`AccountsService.archivedTotals`, `balanceHistory`): one document per account and month in `accounts.archivedMonths`,
+ * packed against the dictionary of ids (archivedMonths.ts), added into the month an earlier archive kept, if one did.
+ * And, for each account the plan removes, what its history needs (`accounts.archivedAccounts`). From the documents
+ * already read, in the archive's storage transaction; lets the event loop turn every so many transactions read and
+ * writes. See docs/reporting-design.md, "Archived months".
+ */
+export async function keepArchived(c: Collections, data: Pick<LedgerData, 'accounts' | 'transactions'>, plan: Pick<ArchivePlan, 'remove' | 'removeAccounts' | 'before'>, turn: () => Promise<void>): Promise<void> {
+  const accounts = new Map(data.accounts.map(a => [a.id, a]))
+  const months = new Map<string, { accountId: string, month: string, totals: MonthTotals }>()
+  let steps = 0
+  const add = (t: Txn) => {
+    if (t.voided) return
+    const month = t.date.slice(0, 7)
+    const key = `${t.accountId}|${month}`
+    let kept = months.get(key)
+    if (!kept) months.set(key, kept = { accountId: t.accountId, month, totals: emptyMonth() })
+    addTransaction(kept.totals, t, t.transferAccountId === undefined ? null : accounts.get(t.transferAccountId)?.subLedgerId ?? null)
+  }
+  // As removedTotals walks them: the plan lists its removals in the transactions' order; a set finds any it didn't
+  let next = 0
+  for (const t of data.transactions) {
+    if (++steps % TOTALS_YIELD_EVERY === 0) await turn()
+    if (t.id !== plan.remove[next]) continue
+    next++
+    add(t)
+  }
+  if (next < plan.remove.length) {
+    const missed = new Set(plan.remove.slice(next))
+    for (const t of data.transactions) if (missed.has(t.id)) add(t)
+  }
+
+  // The months already kept are read once, and the dictionary with them
+  const ids = await readIds(c)
+  const existing = new Map((await c.archivedMonths.find()).map(d => [`${d.accountId}|${d.month}`, d]))
+  let writes = 0
+  for (const [key, { accountId, month, totals }] of months) {
+    const account = accounts.get(accountId)!
+    const old = existing.get(key)
+    const merged = old ? mergeInto(unpack(old, ids), totals) : totals
+    const doc = { accountId, month, name: account.name, currency: account.currency, subLedgerId: account.subLedgerId, ...pack(merged, ids) }
+    if (old) await c.archivedMonths.replace({ ...doc, id: old.id })
+    else await c.archivedMonths.insert(doc)
+    if (++writes % KEEP_YIELD_EVERY === 0) await turn()
+  }
+  await writeIds(c, ids)
+
+  for (const id of plan.removeAccounts) {
+    const a = accounts.get(id)!
+    await c.archivedAccounts.insert({
+      accountId: id, name: a.name, type: a.type, currency: a.currency, subLedgerId: a.subLedgerId, openingDate: a.openingDate,
+      openingBalance: a.archived?.originalOpeningBalance ?? a.openingBalance, ...(a.closedOn !== undefined && { closedOn: a.closedOn }),
+      removedBefore: plan.before,
+      // Whole, unless an archive before accounts-api 1.15 took some of its history without keeping the totals
+      complete: (a.archived?.countWithTotals ?? 0) === (a.archived?.count ?? 0)
+    })
+  }
+}
+
 export interface ArchiveApplied {
   result: ArchiveResult
   change: Partial<AccountsChange>
@@ -306,6 +373,8 @@ export async function applyArchive(
     const archived = {
       count: (previous?.count ?? 0) + removed.removed,
       originalOpeningBalance: previous?.originalOpeningBalance ?? account.openingBalance,
+      // This archive keeps its totals (keepArchived, below): an earlier one, before accounts-api 1.15, may not have
+      countWithTotals: (previous?.countWithTotals ?? 0) + removed.removed,
       ...(highestNumber >= 0 && { highestNumber })
     } satisfies AccountArchived
     const lastArchiveDate = account.lastArchiveDate !== undefined && account.lastArchiveDate > before ? account.lastArchiveDate : before
@@ -318,6 +387,7 @@ export async function applyArchive(
 
   verifyArchive(data, { accounts: await c.accounts.find(), transactions: await c.transactions.find() }, plan)
   const totals = await removedTotals(data, plan, turn)
+  await keepArchived(c, data, plan, turn)
 
   const touched = kept.map(k => k.id)
   const removedReconciliations = new Set(plan.removeReconciliations)

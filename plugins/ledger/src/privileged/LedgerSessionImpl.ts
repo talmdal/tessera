@@ -2,10 +2,11 @@
 import path from 'node:path'
 import type { Database, Disposable, Event, Json, Logger, ShellFiles, ShellPrompts, StorageEngine } from '@tessera/types'
 import {
-  LEDGER_API_VERSION, LEDGER_ARCHIVE_FILTER, LEDGER_BACKUP_META, LEDGER_FILE_EXTENSION, LEDGER_FILE_FILTER, LEDGER_FORMAT_VERSION, LEDGER_META, LedgerError, isLedgerError,
+  DEFAULT_YEAR_START, LEDGER_API_VERSION, LEDGER_ARCHIVE_FILTER, LEDGER_BACKUP_META, LEDGER_FILE_EXTENSION, LEDGER_FILE_FILTER, LEDGER_FORMAT_VERSION, LEDGER_META, LedgerError,
+  isLedgerError, yearStartProblem,
   type LedgerArchiveInfo,
   type ArchiveOutcome, type ArchiveParticipant, type ArchiveRecord, type LedgerArchived, type LedgerChange, type LedgerInfo,
-  type LedgerSession, type LedgerTree, type SubLedger, type SubLedgerParticipant
+  type LedgerSession, type LedgerTree, type SubLedger, type SubLedgerParticipant, type YearStart
 } from '@tessera/ledger-api'
 import { ArchiveParticipants, ParticipantFailure, archiveRecords, type ArchivePart } from './archive/participants'
 import type { FileKind, LedgerDisk } from './disk'
@@ -26,6 +27,11 @@ export interface LedgerSessionDeps {
   /** The name of the OS trash in messages. */
   trashName?: string
   now?: () => Date
+  /**
+   * The year start a new ledger, or an older ledger without one, is given: the Archiving page's year start, where it
+   * was kept before ledgers had their own, so nothing changes on upgrade. A calendar year if not given.
+   */
+  defaultYearStart?: () => YearStart
 }
 
 /** The file kind each storage engine writes, for a useful message when a ledger and the engine don't match. */
@@ -140,6 +146,7 @@ export class LedgerSessionImpl implements LedgerSession {
   private readonly archivedEvents: Emitter<LedgerArchived>
   /** Advances on every committed change to the open ledger: an archive checks that none came after its copy began. */
   private changeCounter = 0
+  private readonly infoChanges: Emitter<LedgerInfo>
 
   readonly onDidChange: Event<LedgerChange>
   readonly onDidChangeTree: Event<LedgerTree>
@@ -148,6 +155,7 @@ export class LedgerSessionImpl implements LedgerSession {
   /** The running operation's label each time one begins or ends (undefined: none). */
   readonly onDidChangeOperation: Event<string | undefined>
   readonly onDidArchive: Event<LedgerArchived>
+  readonly onDidChangeInfo: Event<LedgerInfo>
 
   constructor(private readonly deps: LedgerSessionDeps) {
     this.changes = new Emitter(deps.log, 'change')
@@ -162,10 +170,12 @@ export class LedgerSessionImpl implements LedgerSession {
     this.archivers = new ArchiveParticipants(deps.log)
     this.archivedEvents = new Emitter(deps.log, 'archive')
     this.onDidArchive = this.archivedEvents.event
+    this.infoChanges = new Emitter(deps.log, 'information')
+    this.onDidChangeInfo = this.infoChanges.event
   }
 
   get current(): LedgerInfo | undefined {
-    return this.info && { ...this.info }
+    return this.info && { ...this.info, ...(this.info.yearStart && { yearStart: { ...this.info.yearStart } }) }
   }
 
   private openDatabase(): Database {
@@ -388,7 +398,7 @@ export class LedgerSessionImpl implements LedgerSession {
     await this.closeOpen({ forget: false, why: 'switch' })
     this.db = db
     this.changed = false
-    this.info = { path: target, name, readOnly: true, archive }
+    this.info = { path: target, name, readOnly: true, archive, yearStart: await this.readYearStart(db, target) }
     const ledger = this.current!
     this.deps.log.info(`[ledger] Opened the archive ${target} read-only`)
     this.changes.fire({ type: 'opened', ledger, created: false })
@@ -509,6 +519,7 @@ export class LedgerSessionImpl implements LedgerSession {
    */
   private async attach(db: Database, file: string, { created, upgraded = false }: { created: boolean, upgraded?: boolean }): Promise<LedgerInfo> {
     const id = await this.identify(db, file)
+    const yearStart = await this.readYearStart(db, file)
     this.db = db
     this.changed = upgraded
     this.watching = db.onDidChange(() => {
@@ -516,7 +527,7 @@ export class LedgerSessionImpl implements LedgerSession {
       this.changed = true
       this.changeCounter++
     })
-    this.info = { path: file, name: ledgerName(file), readOnly: db.readOnly, ...(id !== undefined && { id }) }
+    this.info = { path: file, name: ledgerName(file), readOnly: db.readOnly, ...(id !== undefined && { id }), yearStart }
     const ledger = this.current!
     try {
       await this.deps.recent.add(file, ledger.name, id)
@@ -544,6 +555,66 @@ export class LedgerSessionImpl implements LedgerSession {
       this.deps.log.warn(`[ledger] Could not give ${file} an id: ${describeError(err)}`)
       return undefined
     }
+  }
+
+  /** The year start a ledger without one is given: the default's, if it is one a year can start on. */
+  private seedYearStart(): YearStart {
+    let seed: YearStart | undefined
+    try { seed = this.deps.defaultYearStart?.() } catch (err) { this.deps.log.warn(`[ledger] Could not read the default year start: ${describeError(err)}`) }
+    return seed !== undefined && yearStartProblem(seed) === undefined ? { month: seed.month, day: seed.day } : { ...DEFAULT_YEAR_START }
+  }
+
+  /**
+   * The ledger's year start: read from its meta, or, for a new ledger or one made before ledgers had one, the default,
+   * written now (one meta write, as `identify`'s) so it doesn't change if the default does later. A read-only ledger (an
+   * archive file among them) is shown with the default and written nothing. A damaged value reads as the default.
+   */
+  private async readYearStart(db: Database, file: string): Promise<YearStart> {
+    const stored = await db.meta.get(LEDGER_META.yearStart)
+    if (stored !== undefined && yearStartProblem(stored) === undefined) {
+      const { month, day } = stored as unknown as YearStart
+      return { month, day }
+    }
+    const seed = this.seedYearStart()
+    if (stored !== undefined) this.deps.log.warn(`[ledger] ${file} has a year start that can't be used; using ${seed.day}/${seed.month}`)
+    if (db.readOnly) return seed
+    try {
+      await db.meta.set(LEDGER_META.yearStart, { ...seed })
+    } catch (err) {
+      this.deps.log.warn(`[ledger] Could not give ${file} a year start: ${describeError(err)}`)
+    }
+    return seed
+  }
+
+  // ---- The ledger's information
+
+  /**
+   * Sets the open ledger's year start, in its meta, in the file-operation queue so the ledger can't close meanwhile.
+   * The same year start again writes nothing and fires nothing.
+   */
+  setYearStart(yearStart: YearStart): Promise<LedgerInfo> {
+    return this.serial(async () => {
+      const db = this.openDatabase()
+      if (db.readOnly) {
+        throw new LedgerError('READ_ONLY', this.info?.archive ? 'An archive file can’t be changed.' : 'This ledger is open read-only.')
+      }
+      const problem = yearStartProblem(yearStart)
+      if (problem !== undefined) throw new LedgerError('INVALID', problem, 'yearStart')
+      const next: YearStart = { month: yearStart.month, day: yearStart.day }
+      const was = this.info!.yearStart
+      if (was?.month === next.month && was.day === next.day) return this.current!
+      try {
+        await db.meta.set(LEDGER_META.yearStart, { ...next })
+      } catch (err) { throw translate(err) }
+      this.info = { ...this.info!, yearStart: next }
+      // Meta isn't a collection, so the database's change event doesn't count it: the next backup must include it
+      this.changed = true
+      this.changeCounter++
+      const ledger = this.current!
+      this.deps.log.info(`[ledger] ${ledger.path} now starts its year on ${next.day}/${next.month}`)
+      this.infoChanges.fire(ledger)
+      return ledger
+    })
   }
 
   private async closeOpen({ forget, why }: { forget: boolean, why: CloseReason }) {

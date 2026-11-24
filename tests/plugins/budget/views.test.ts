@@ -61,7 +61,8 @@ describe('the budget plugin: commands, context keys and the budget shown', () =>
     for (const command of [C.properties, C.deleteBudget, C.newLine, C.editLine, C.deleteLine]) expect(env.enabled(command), command).toBe(false)
     expect(await env.ask(BUDGET_CHANNELS.budgets)).toEqual({
       budgets: [], shown: null, month: '2027-03', period: 'month', readOnly: false, archive: false, ledgerName: 'Home',
-      options: { showBars: true, showEmptyLines: false }
+      // No reports plugin in this app: the budget isn't offered as a report
+      options: { showBars: true, showEmptyLines: false }, reports: false
     })
   })
 
@@ -94,6 +95,19 @@ describe('the budget plugin: commands, context keys and the budget shown', () =>
     env.prompts.show.mockResolvedValueOnce(undefined)
     await env.run(C.newBudget)
     expect(env.prompts.show).toHaveBeenLastCalledWith(BUDGET_DIALOGS.budget, expect.objectContaining({ subLedgerId: h.business.id }))
+  })
+
+  it('suggests the month the ledger\'s year starts in (File › Ledger Properties…), not the Archiving page\'s', async () => {
+    const env = await setup()
+    await env.open()
+    env.prompts.show.mockResolvedValue(undefined)
+    await env.session.setYearStart({ month: 4, day: 6 })
+    await env.run(C.newBudget)
+    expect(env.prompts.show).toHaveBeenLastCalledWith(BUDGET_DIALOGS.budget, expect.objectContaining({ yearStartMonth: 4 }))
+    // The Archiving page's old year start is only what a ledger without one is given: it no longer decides this
+    env.runtime.settings.commit([{ id: 'ledger.archive', value: { ...env.runtime.settings.snapshot('ledger.archive')!.value as object, yearStartMonth: 7 } }])
+    await env.run(C.newBudget)
+    expect(env.prompts.show).toHaveBeenLastCalledWith(BUDGET_DIALOGS.budget, expect.objectContaining({ yearStartMonth: 4 }))
   })
 
   it('remembers the budget shown last in each ledger, and opens on the current month', async () => {

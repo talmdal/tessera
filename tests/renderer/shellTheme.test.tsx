@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { useTheme, type Theme } from '@mui/material'
-import { useFontRoles, useThemeState as usePublicThemeState } from '@tessera/ui'
+import { PrintArea, useFontRoles, useThemeState as usePublicThemeState } from '@tessera/ui'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FontSettings, ThemeDescriptor, ThemeSnapshot } from '@tessera/types'
 import { DEFAULT_THEME, THEME_CHANGED, THEME_GET } from '../../shared/theme/types'
@@ -374,5 +374,25 @@ describe('ShellThemeProvider', () => {
     const Outside = () => { useWindowTheme(); return null }
 
     expect(() => render(<Outside />)).toThrow('This hook must be used inside <ShellThemeProvider>')
+  })
+})
+
+describe('ShellThemeProvider: what prints (reports\' R6)', () => {
+  function PrintProbe() {
+    const theme = useTheme()
+    return <span data-testid="printed">{`${theme.palette.mode} ${theme.palette.primary.main} ${theme.typography.fontSize}`}</span>
+  }
+
+  it('draws a print area in the light variant of the window\'s theme, in the user\'s fonts, from a dark window', async () => {
+    const sized = { ...DEFAULT_FONT_SETTINGS, roles: { ...DEFAULT_FONT_SETTINGS.roles, ui: { family: null, size: 15, weight: null } } }
+    const initial = { ...snapshot({ theme: 'p.sunrise', mode: 'dark' }, [DEFAULT_THEME, sunrise()]), fonts: sized }
+    const { bridge } = createFakeRemote({ [THEME_GET]: () => initial })
+    render(<ShellThemeProvider bridge={bridge} initial={initial}><Probe /><PrintArea><PrintProbe /></PrintArea></ShellThemeProvider>)
+    await settle()
+    expect(screen.getByTestId('mode')).toHaveTextContent('dark')
+    const light = createShellTheme(sunrise(), 'light', { fonts: resolveFonts(sized) })
+    expect(screen.getByTestId('printed')).toHaveTextContent(`light ${light.palette.primary.main} 15`)
+    // In the print area, beside the window's root, not inside it
+    expect(screen.getByTestId('printed').closest('[data-print-area]')?.parentElement).toBe(document.body)
   })
 })

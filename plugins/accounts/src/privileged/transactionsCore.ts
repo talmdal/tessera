@@ -10,7 +10,7 @@ import {
   AccountsError, isAccountsError, CATEGORY_NAME_MAX_LENGTH, CATEGORY_SEPARATOR, CLEARED_STATUSES, CLEARING_STATUSES, EXTERNAL_ID_MAX_LENGTH, MEMO_MAX_LENGTH,
   PAYEE_NAME_MAX_LENGTH, TRANSACTION_NUMBER_MAX_LENGTH, accountNameKey, categoryLabel, isAmount, isIsoDate,
   transferLabel,
-  type Account, type AccountBalances, type BankMatch, type BankUnmatch, type Category, type ClearingStatus, type Confirmation, type PayeeSuggestion,
+  type Account, type AccountBalances, type BankMatch, type BankUnmatch, type Category, type ClearingStatus, type Confirmation, type Payee, type PayeeSuggestion,
   type RegisterSnapshot, type TotalsQuery, type Transaction, type TransactionDraft, type TransactionPatch, type TransactionTotal,
   type WriteOptions
 } from '@tessera/accounts-api'
@@ -93,7 +93,7 @@ export async function balancesOf(c: Collections, account: Account): Promise<Acco
 // ---- Totals by account, month, and category or transfer account (for reports and budgets; docs/budget-design.md)
 
 /** What totals read of a transaction. */
-export type Totalled = Pick<StoredTransaction, 'accountId' | 'date' | 'amount' | 'voided' | 'categoryId' | 'transferAccountId'>
+export type Totalled = Pick<StoredTransaction, 'accountId' | 'date' | 'amount' | 'voided' | 'categoryId' | 'transferAccountId' | 'payeeId'>
 
 /**
  * Totals built one transaction at a time, grouped account, then month, then category or transfer account: nested maps,
@@ -105,20 +105,37 @@ export class TotalsBuilder<T extends TransactionTotal> {
   private readonly groups = new Map<string, Map<string, MonthGroups<T>>>()
   readonly rows: T[] = []
 
-  constructor(private readonly make: (transaction: Totalled, month: string) => T) {}
+  /** `byPayee`: one level more, a row per payee ('' for none) within each category or transfer account. */
+  constructor(private readonly make: (transaction: Totalled, month: string) => T, private readonly byPayee = false) {}
 
   add(t: Totalled): void {
     let byMonth = this.groups.get(t.accountId)
     if (!byMonth) this.groups.set(t.accountId, byMonth = new Map())
     const month = t.date.slice(0, 7)
     let groups = byMonth.get(month)
-    if (!groups) byMonth.set(month, groups = { categories: new Map(), transfers: new Map() })
+    if (!groups) byMonth.set(month, groups = { categories: new Map(), transfers: new Map(), payees: new Map() })
     // A transfer is totalled by its other account, whatever else it carries; an uncategorised transaction under ''
-    const [map, key] = t.transferAccountId !== undefined ? [groups.transfers, t.transferAccountId] : [groups.categories, t.categoryId ?? '']
-    let row = map.get(key)
-    if (!row) {
-      map.set(key, row = this.make(t, month))
-      this.rows.push(row)
+    const transfer = t.transferAccountId !== undefined
+    const key = transfer ? t.transferAccountId! : t.categoryId ?? ''
+    let row: T | undefined
+    if (this.byPayee) {
+      // Transfers and categories apart, as a transfer account's id and a category's never meet
+      const outer = transfer ? 't' + key : 'c' + key
+      let byPayee = groups.payees.get(outer)
+      if (!byPayee) groups.payees.set(outer, byPayee = new Map())
+      const payee = t.payeeId ?? ''
+      row = byPayee.get(payee)
+      if (!row) {
+        byPayee.set(payee, row = this.make(t, month))
+        this.rows.push(row)
+      }
+    } else {
+      const map = transfer ? groups.transfers : groups.categories
+      row = map.get(key)
+      if (!row) {
+        map.set(key, row = this.make(t, month))
+        this.rows.push(row)
+      }
     }
     if (t.amount >= 0) row.inflow += t.amount
     else row.outflow -= t.amount
@@ -126,7 +143,7 @@ export class TotalsBuilder<T extends TransactionTotal> {
   }
 }
 
-interface MonthGroups<T> { categories: Map<string, T>, transfers: Map<string, T> }
+interface MonthGroups<T> { categories: Map<string, T>, transfers: Map<string, T>, payees: Map<string, Map<string, T>> }
 
 /** A new, empty total for a transaction's group. */
 export const emptyTotal = (t: Totalled, month: string): TransactionTotal => ({
@@ -136,11 +153,33 @@ export const emptyTotal = (t: Totalled, month: string): TransactionTotal => ({
   inflow: 0, outflow: 0, count: 0
 })
 
-/** Month, then account, then category (none first), then transfer account: plain comparisons, not the locale's. */
+/** A new, empty total for a transaction's group and payee (`byPayee`). */
+export const emptyPayeeTotal = (t: Totalled, month: string): TransactionTotal => ({ ...emptyTotal(t, month), payeeId: t.payeeId ?? null })
+
+/**
+ * Month, then account, then category (none first), then transfer account, then payee (none first): plain comparisons,
+ * not the locale's. The contract's order; `sortTotals` sorts into it faster.
+ */
 export function compareTotals(a: TransactionTotal, b: TransactionTotal): number {
   const order = (x: string, y: string) => x < y ? -1 : x > y ? 1 : 0
   return order(a.month, b.month) || order(a.accountId, b.accountId)
     || order(a.categoryId ?? '', b.categoryId ?? '') || order(a.transferAccountId ?? '', b.transferAccountId ?? '')
+    || order(a.payeeId ?? '', b.payeeId ?? '')
+}
+
+/**
+ * Totals in `compareTotals`' order, sorted by one key per row: the fields joined with U+0000, which sorts before any
+ * character they hold, so the joined keys compare as the fields do. Four times faster than `compareTotals`, which
+ * compares up to five ids, sharing their first characters, for each comparison: half of `transactionTotals`' time at
+ * 100,000 transactions (docs/reporting-design.md, Phase R0 results, 1). Sorts a copy.
+ */
+export function sortTotals<T extends TransactionTotal>(rows: readonly T[]): T[] {
+  const keyed = rows.map(row => [
+    row.month + '\u0000' + row.accountId + '\u0000' + (row.categoryId ?? '') + '\u0000' + (row.transferAccountId ?? '') + '\u0000' + (row.payeeId ?? ''),
+    row
+  ] as const)
+  keyed.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)
+  return keyed.map(([, row]) => row)
 }
 
 /** Checks a `TotalsQuery`. Throws INVALID naming the field at fault. */
@@ -155,6 +194,9 @@ export function checkTotalsQuery(query: TotalsQuery): TotalsQuery {
   if (query.includeTransfers !== undefined && typeof query.includeTransfers !== 'boolean') {
     throw invalid('includeTransfers', 'Say whether to include transfers with true or false.')
   }
+  if (query.byPayee !== undefined && typeof query.byPayee !== 'boolean') {
+    throw invalid('byPayee', 'Say whether to total by payee with true or false.')
+  }
   return query
 }
 
@@ -165,14 +207,14 @@ export function checkTotalsQuery(query: TotalsQuery): TotalsQuery {
  */
 export function transactionTotals(transactions: Iterable<Totalled>, query: TotalsQuery, accounts: ReadonlySet<string>): TransactionTotal[] {
   const only = query.accountIds === undefined ? undefined : new Set(query.accountIds)
-  const totals = new TotalsBuilder(emptyTotal)
+  const totals = query.byPayee === true ? new TotalsBuilder(emptyPayeeTotal, true) : new TotalsBuilder(emptyTotal)
   for (const t of transactions) {
     if (t.voided || t.date < query.from || t.date > query.to || !accounts.has(t.accountId)) continue
     if (only !== undefined && !only.has(t.accountId)) continue
     if (t.transferAccountId !== undefined && query.includeTransfers !== true) continue
     totals.add(t)
   }
-  return totals.rows.sort(compareTotals)
+  return sortTotals(totals.rows)
 }
 
 /** Reads and totals, through the collections: one `find` on the dates (docs/budget-design.md, Phase B0 results). */
@@ -205,6 +247,13 @@ export async function searchPayees(c: Collections, prefix: string, limit = 20): 
     })
   }
   return suggestions
+}
+
+/** The payees with these ids, in one read; ids that don't exist are left out (`PayeeDirectory.get`). */
+export async function getPayees(c: Collections, ids: readonly string[]): Promise<Payee[]> {
+  if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')) throw invalid('ids', 'Give the payees as a list of their ids.')
+  if (ids.length === 0) return []
+  return (await c.payees.getMany([...new Set(ids)])).map(toPayee)
 }
 
 export async function listCategories(c: Collections): Promise<Category[]> {

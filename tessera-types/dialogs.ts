@@ -5,7 +5,7 @@
 //  - `shell.dialogs` (extension point): a plugin's own modal dialog. The shell draws the frame (modal, title, size,
 //    Escape and clicking outside to cancel); the plugin's component draws the content and the buttons.
 //  - `shell.files` (service): open (one file or several), save and folder dialogs, the documents and downloads
-//    folders, and moving files to the OS trash.
+//    folders, moving files to the OS trash, and writing a file safely (whole or not at all).
 
 /** The service id of `ShellPrompts`. The shell provides it before any plugin activates, so `requires` can name it. */
 export const SHELL_PROMPTS_SERVICE = 'shell.prompts'
@@ -157,4 +157,13 @@ export interface ShellFiles {
   documentsPath(): string
   /** The user's downloads folder, where browsers save what the user downloads, such as bank statements. */
   downloadsPath(): string
+  /**
+   * Writes a file whole or not at all, replacing it if it is there (a Save dialog has already asked): the data goes to
+   * `<path>.partial`, which is then renamed over `path`, retried for up to 10 s while another program holds the file
+   * (Windows refuses a rename while antivirus, a sync client or a spreadsheet has it open). Text is written as UTF-8,
+   * without a byte-order mark (pass bytes for one). On failure the `.partial` file is removed, `path` is as it was,
+   * and the error's message says why in words for the user: "Report.csv couldn’t be saved: another program may have
+   * it open…". (Added for reports' CSV and PDF files, R6.)
+   */
+  writeFile(path: string, data: Uint8Array | string): Promise<void>
 }

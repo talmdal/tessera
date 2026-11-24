@@ -333,6 +333,12 @@ function BudgetPage({ budget, view }: { budget: BudgetSummary, view: BudgetsView
               <MenuItem key="options" onClick={() => run(SETTINGS_OPEN_COMMAND, BUDGET_SETTINGS_PAGE)}>
                 <ListItemIcon><Icon name="Edit" fontSize="small" /></ListItemIcon><ListItemText>Budget Options…</ListItemText>
               </MenuItem>,
+              // The same months as Budget vs Actual in the report view, when the reports plugin is there
+              ...(view.reports ? [
+                <MenuItem key="report" onClick={() => run(C.showReport, { id: budget.id })}>
+                  <ListItemIcon><Icon name="ShowChart" fontSize="small" /></ListItemIcon><ListItemText>Show as Report</ListItemText>
+                </MenuItem>
+              ] : []),
               <Divider key="divider" />,
               <MenuItem key="properties" disabled={readOnly} onClick={() => run(C.properties, { id: budget.id })}>
                 <ListItemIcon><Icon name="Edit" fontSize="small" /></ListItemIcon><ListItemText>Budget Properties…</ListItemText>

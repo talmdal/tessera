@@ -66,7 +66,7 @@ export function viewOf(over: Partial<BudgetsView> = {}): BudgetsView {
   return {
     budgets: [{ ...BUDGET, covers: 'Personal' }, { ...BUDGET, id: 'business', name: 'Business', subLedgerId: 'business', covers: 'Business' }],
     shown: BUDGET.id, month: '2027-03', period: 'month', readOnly: false, archive: false, ledgerName: 'Home',
-    options: { showBars: true, showEmptyLines: false }, ...over
+    options: { showBars: true, showEmptyLines: false }, reports: false, ...over
   }
 }
 

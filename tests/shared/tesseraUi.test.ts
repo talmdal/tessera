@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import * as ui from '@tessera/ui'
+import * as charts from '@tessera/ui/charts'
 
 const root = path.resolve(__dirname, '../../tessera-ui')
 
@@ -12,7 +13,7 @@ describe('@tessera/ui', () => {
       'Alert', 'Autocomplete', 'Box', 'Button', 'Checkbox', 'CircularProgress', 'Collapse', 'Dialog', 'DialogActions',
       'DialogContent', 'DialogTitle', 'Divider', 'FormControl', 'FormControlLabel', 'FormHelperText', 'FormLabel', 'Icon',
       'IconButton', 'InputAdornment', 'LinearProgress', 'List', 'ListItemButton', 'ListItemIcon', 'ListItemText', 'Menu', 'MenuItem',
-      'Paper', 'Radio', 'RadioGroup', 'Stack', 'TESSERA_UI_VERSION', 'Tab', 'Table', 'TableBody', 'TableCell',
+      'PRINT_WIDTHS', 'Paper', 'PrintArea', 'Radio', 'RadioGroup', 'Stack', 'TESSERA_UI_VERSION', 'Tab', 'Table', 'TableBody', 'TableCell',
       'TableContainer', 'TableHead', 'TableRow', 'Tabs', 'TextField', 'ToggleButton', 'ToggleButtonGroup', 'Toolbar',
       'Tooltip', 'Typography', 'createSvgIcon', 'useFontRoles', 'useTheme', 'useThemeState'
     ])
@@ -21,6 +22,19 @@ describe('@tessera/ui', () => {
   it('never re-exports MUI wholesale', () => {
     const source = fs.readFileSync(path.join(root, 'index.ts'), 'utf8')
     expect(source).not.toMatch(/^\s*export\s+\*/m)
+  })
+
+  it('has a charts entry of its own, exporting only the chart and the version', () => {
+    expect(Object.keys(charts).sort()).toEqual(['Chart', 'TESSERA_UI_VERSION'])
+    expect(charts.TESSERA_UI_VERSION).toBe(ui.TESSERA_UI_VERSION)
+    const source = fs.readFileSync(path.join(root, 'charts', 'index.ts'), 'utf8')
+    expect(source).not.toMatch(/^\s*export\s+\*/m)
+    expect(source).not.toMatch(/@mui\/x-charts/)
+  })
+
+  it('keeps MUI X Charts out of the main entry, so the window does not load it at start', () => {
+    const main = fs.readFileSync(path.join(root, 'index.ts'), 'utf8')
+    expect(main).not.toMatch(/x-charts|\.\/charts/)
   })
 
   it("declares the version the shell and the plugin build share", () => {

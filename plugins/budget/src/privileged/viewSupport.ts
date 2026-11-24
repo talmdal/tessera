@@ -68,13 +68,25 @@ export class BudgetViewSupport {
    * transactions start from.
    */
   async rowTransactions(budgetId: string, row: RowRef, range: MonthRange): Promise<{ rows: TransactionRow[], total: number, actual: number, archived?: { amount: number, before?: string } }> {
+    if (typeof row !== 'object' || row === null) throw invalid('row', 'Choose a row.')
+    return this.rowsTransactions(budgetId, [{ row, sign: 1 }], range)
+  }
+
+  /**
+   * The transactions behind several rows at once, each with a sign: a group's total, or the net (income adding,
+   * expenses taking away), as Budget vs Actual asks for them (R5). Each transaction once, with its part of them all.
+   */
+  async rowsTransactions(budgetId: string, parts: readonly { row: RowRef, sign: 1 | -1 }[], range: MonthRange): Promise<{ rows: TransactionRow[], total: number, actual: number, archived?: { amount: number, before?: string } }> {
     if (typeof range !== 'object' || range === null || !isMonth(range.from) || !isMonth(range.to) || range.to < range.from) throw invalid('months', 'Choose the months, as YYYY-MM.')
     if (monthsOf(range).length > STATUS_MONTHS_MAX) throw invalid('months', `Choose at most ${STATUS_MONTHS_MAX} months.`)
-    if (typeof row !== 'object' || row === null) throw invalid('row', 'Choose a row.')
+    if (parts.some(p => typeof p.row !== 'object' || p.row === null)) throw invalid('row', 'Choose a row.')
     const { lines, categories, scope, accounts, totals } = await this.service.gather(budgetId, range)
     const { place } = classifier(lines, categories)
-    const keys = rowKeys(row, lines, categories)
-    const counts = (placements: Placement[]) => placements.filter(p => keys.has(p.key)).reduce((sum, p) => sum + p.amount, 0)
+    // Each bucket's sign: a transaction is in one bucket, so in one row (a subtotal's buckets are its lines')
+    const signs = new Map<string, number>()
+    for (const { row, sign } of parts) for (const key of rowKeys(row, lines, categories)) signs.set(key, sign)
+    const keys = new Set(signs.keys())
+    const counts = (placements: Placement[]) => placements.filter(p => keys.has(p.key)).reduce((sum, p) => sum + signs.get(p.key)! * p.amount, 0)
 
     let archivedAmount = 0
     for (const t of totals) if (t.archived) archivedAmount += counts(place(t))

@@ -15,8 +15,20 @@ const singleton = (lib: object, version: string) => ({
 })
 
 /**
+ * A share loaded the first time a plugin asks for it, rather than with the window: for what only some views use.
+ * Vite builds the dynamic import as a chunk of its own.
+ */
+const lazySingleton = (load: () => Promise<object>, version: string) => ({
+  version,
+  get: () => load().then(lib => () => lib),
+  shareConfig: { singleton: true, requiredVersion: `^${version}` }
+})
+
+/**
  * The shell's federation host. Plugins receive the shell's React rather than bundling their own, and
  * the shell's `@tessera/ui`, whose MUI and Emotion hold the theme and style cache every view shares.
+ * `@tessera/ui/charts` is shared the same way, loaded when a view first needs it: MUI X Charts is a third
+ * of the window's code, and most views draw no chart.
  */
 export function createShellFederation(): ModuleFederation {
   return createInstance({
@@ -26,7 +38,8 @@ export function createShellFederation(): ModuleFederation {
       'react': singleton(React, React.version),
       'react/jsx-runtime': singleton(JsxRuntime, React.version),
       'react-dom': singleton(ReactDOM, ReactDOM.version),
-      '@tessera/ui': singleton(TesseraUi, TesseraUi.TESSERA_UI_VERSION)
+      '@tessera/ui': singleton(TesseraUi, TesseraUi.TESSERA_UI_VERSION),
+      '@tessera/ui/charts': lazySingleton(() => import('@tessera/ui/charts'), TesseraUi.TESSERA_UI_VERSION)
     }
   })
 }

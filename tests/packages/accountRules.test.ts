@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS, AccountsError, accountNameKey, accountNumberKey, isAccountType, isAccountsError,
-  isAmount, isIsoDate, isLiability, maskAccountNumber, toAccountsResult, todayIso, validateAccountName
+  isAmount, isIsoDate, isLiability, maskAccountNumber, toAccountsResult, todayIso, validateAccountName,
+  accountScope, crossesScope, type AccountType
 } from '@tessera/accounts-api'
 
 describe('account rules', () => {
@@ -75,5 +76,73 @@ describe('the current period', () => {
     expect(periodStart({ openingDate: '2023-01-01', lastArchiveDate: '2025-01-01' })).toBe('2025-01-01')
     // An account opened after the archive date: it starts when it opened
     expect(periodStart({ openingDate: '2025-06-01', lastArchiveDate: '2025-01-01' })).toBe('2025-06-01')
+  })
+})
+
+// The scope a budget or a report covers, and when a transfer crosses it (accounts-api 1.15). The budget's worked cases
+// (docs/budget-design.md, "Transfers across the budget's scope"), generalised to reports' scopes
+// (docs/reporting-design.md, "Scope and currency").
+describe('what a budget or a report covers', () => {
+  const tree = [
+    { id: 'personal', parentId: null, name: 'Personal', order: 0 },
+    { id: 'joint', parentId: 'personal', name: 'Joint', order: 0 },
+    { id: 'business', parentId: null, name: 'Business', order: 1 }
+  ]
+  const a = (id: string, subLedgerId: string | null, type: AccountType = 'chequing', currency = 'CAD') => ({ id, name: id, subLedgerId, type, currency })
+  const accounts = [
+    a('Personal Chequing', 'personal'), a('Savings', 'personal', 'savings'), a('Joint Visa', 'joint', 'creditCard'),
+    a('US Visa', 'personal', 'creditCard', 'USD'), a('Business Chequing', 'business'), a('Mortgage', null, 'mortgage'), a('Cash', null, 'cash')
+  ]
+  const all = new Set(accounts.map(x => x.id))
+  const exists = (id: string) => all.has(id)
+  const transfer = (other: string | null, transferSubLedgerId?: string | null) => ({ transferAccountId: other, ...(transferSubLedgerId !== undefined && { transferSubLedgerId }) })
+
+  it('covers a sub-ledger and everything beneath it, where each account is now, counting the currency asked for', () => {
+    const scope = accountScope({ kind: 'subLedger', subLedgerId: 'personal' }, tree, accounts, 'CAD')
+    expect([...scope.inside].sort()).toEqual(['Joint Visa', 'Personal Chequing', 'Savings', 'US Visa'])
+    expect([...scope.counted].sort()).toEqual(['Joint Visa', 'Personal Chequing', 'Savings'])
+    expect(scope.notCounted).toEqual([{ accountId: 'US Visa', name: 'US Visa', currency: 'USD' }])
+    expect(scope.covers({ id: 'gone', subLedgerId: 'joint' })).toBe(true)
+    expect(scope.covers({ id: 'gone', subLedgerId: null })).toBe(false)
+  })
+
+  it('counts a transfer exactly when it crosses the scope: the owner’s pay from the business, not savings', () => {
+    const personal = accountScope({ kind: 'subLedger', subLedgerId: 'personal' }, tree, accounts, 'CAD')
+    expect(crossesScope(transfer('Business Chequing'), personal, exists)).toBe(true)      // the owner's pay: money in
+    expect(crossesScope(transfer('Savings'), personal, exists)).toBe(false)              // inside the scope
+    expect(crossesScope(transfer('US Visa'), personal, exists)).toBe(false)              // inside, whatever its currency
+    expect(crossesScope(transfer(null), personal, exists)).toBe(false)                   // not a transfer
+    // Over the whole ledger, no transfer ever crosses
+    const ledger = accountScope({ kind: 'ledger' }, tree, accounts, 'CAD')
+    expect(accounts.every(x => !crossesScope(transfer(x.id), ledger, exists))).toBe(true)
+    expect(ledger.counted.size).toBe(6)
+  })
+
+  it('judges an account an archive removed where it was', () => {
+    const personal = accountScope({ kind: 'subLedger', subLedgerId: 'personal' }, tree, accounts, 'CAD')
+    expect(crossesScope(transfer('Old Savings', 'joint'), personal, exists)).toBe(false)
+    expect(crossesScope(transfer('Old Business Savings', 'business'), personal, exists)).toBe(true)
+    expect(crossesScope(transfer('Old Cash', null), personal, exists)).toBe(true)
+  })
+
+  it('covers account types, in the ledger or beneath a sub-ledger: everyday accounts, in the business', () => {
+    const everyday: AccountType[] = ['chequing', 'savings', 'creditCard', 'lineOfCredit']
+    const ledger = accountScope({ kind: 'types', types: everyday }, tree, accounts, 'CAD')
+    expect([...ledger.counted].sort()).toEqual(['Business Chequing', 'Joint Visa', 'Personal Chequing', 'Savings'])
+    // Paying the mortgage, or putting money in the cash account, leaves the everyday accounts
+    expect(crossesScope(transfer('Mortgage'), ledger, exists)).toBe(true)
+    expect(crossesScope(transfer('Cash'), ledger, exists)).toBe(true)
+    expect(crossesScope(transfer('Savings'), ledger, exists)).toBe(false)
+    const business = accountScope({ kind: 'types', types: everyday, subLedgerId: 'business' }, tree, accounts, 'CAD')
+    expect([...business.inside]).toEqual(['Business Chequing'])
+    // An account whose type isn't known (one an archive removed) is outside a scope of types
+    expect(business.covers({ id: 'gone', subLedgerId: 'business' })).toBe(false)
+  })
+
+  it('covers accounts chosen by id, an archived one’s old id included', () => {
+    const chosen = accountScope({ kind: 'accounts', accountIds: ['Savings', 'Old Savings'] }, tree, accounts, 'CAD')
+    expect([...chosen.inside]).toEqual(['Savings'])
+    expect(crossesScope(transfer('Personal Chequing'), chosen, exists)).toBe(true)
+    expect(crossesScope(transfer('Old Savings', 'personal'), chosen, exists)).toBe(false)
   })
 })

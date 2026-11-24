@@ -1,7 +1,9 @@
-// shell/main/dialogs/electronFiles.ts — `shell.files` over Electron's file dialogs, its known folders and the OS trash.
+// shell/main/dialogs/electronFiles.ts — `shell.files` over Electron's file dialogs, its known folders and the OS trash,
+// and files written whole or not at all (writeFile.ts).
 import fs from 'node:fs'
 import type { FileDialogOptions, ShellFiles } from '@tessera/types'
 import { parentWindow, PromptsPlatform } from './electronPrompts'
+import { nodeWriteDisk, writeFileAtomically, type WriteDisk } from './writeFile'
 
 /** The parts of Electron this needs, so tests can pass fakes. */
 export interface FilesPlatform extends Pick<PromptsPlatform, 'BrowserWindow'> {
@@ -11,6 +13,8 @@ export interface FilesPlatform extends Pick<PromptsPlatform, 'BrowserWindow'> {
   }
   shell: { trashItem(path: string): Promise<void> }
   app: { getPath(name: 'documents' | 'downloads'): string }
+  /** The disk `writeFile` writes to. Default Node's. */
+  disk?: WriteDisk
 }
 
 function dialogOptions(options: FileDialogOptions) {
@@ -67,6 +71,8 @@ export function createElectronFiles(platform: FilesPlatform): ShellFiles {
 
     documentsPath: () => platform.app.getPath('documents'),
 
-    downloadsPath: () => platform.app.getPath('downloads')
+    downloadsPath: () => platform.app.getPath('downloads'),
+
+    writeFile: (path, data) => writeFileAtomically(platform.disk ?? nodeWriteDisk, path, data)
   }
 }

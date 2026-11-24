@@ -19,12 +19,15 @@ import Edit from '@mui/icons-material/Edit'
 import ErrorIcon from '@mui/icons-material/Error'
 import ExpandLess from '@mui/icons-material/ExpandLess'
 import ExpandMore from '@mui/icons-material/ExpandMore'
+import FileDownload from '@mui/icons-material/FileDownload'
 import Folder from '@mui/icons-material/Folder'
 import Home from '@mui/icons-material/Home'
 import Info from '@mui/icons-material/Info'
 import List from '@mui/icons-material/List'
 import MoreVert from '@mui/icons-material/MoreVert'
 import NewReleases from '@mui/icons-material/NewReleases'
+import PictureAsPdf from '@mui/icons-material/PictureAsPdf'
+import Print from '@mui/icons-material/Print'
 import Save from '@mui/icons-material/Save'
 import Savings from '@mui/icons-material/Savings'
 import Search from '@mui/icons-material/Search'
@@ -38,6 +41,6 @@ export const STANDARD_ICONS: Record<IconName, typeof SvgIcon> = {
   Delete, Edit,
   // `Error` would shadow the global Error constructor in this module
   Error: ErrorIcon,
-  ExpandLess, ExpandMore, Folder, Home, Info, List, MoreVert, NewReleases, Save, Savings, Search, ShowChart, Undo,
+  ExpandLess, ExpandMore, FileDownload, Folder, Home, Info, List, MoreVert, NewReleases, PictureAsPdf, Print, Save, Savings, Search, ShowChart, Undo,
   UploadFile, Warning
 }

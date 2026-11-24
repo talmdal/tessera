@@ -94,8 +94,9 @@ describe('the accounts plugin: contributions', () => {
   it('provides exactly the AccountsService contract, and a migrator for ledger.schema', async () => {
     const { accounts, runtime } = await setup()
     expect(Object.keys(accounts).sort()).toEqual([
-      'balances', 'categories', 'chart', 'closeAccount', 'createAccount', 'deleteAccount', 'get', 'list', 'moveAccount',
-      'onDidChange', 'payees', 'reconciliation', 'reopenAccount', 'transactionTotals', 'transactions', 'updateAccount'
+      'archivedTotals', 'balanceHistory', 'balances', 'categories', 'chart', 'closeAccount', 'createAccount', 'deleteAccount', 'get',
+      'list', 'moveAccount', 'onDidChange', 'payees', 'reconciliation', 'removedAccounts', 'reopenAccount', 'transactionTotals', 'transactions',
+      'updateAccount'
     ])
     expect(runtime.services.has('accounts.migrator')).toBe(true)
     expect(runtime.extensions.getContributions('ledger.schema').map(c => c.id)).toEqual(['accounts'])

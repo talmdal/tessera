@@ -16,6 +16,8 @@ export default defineConfig({
     alias: {
       '@shared': path.resolve(pathName, '../../shared'),
       '@tessera/types': path.resolve(pathName, '../../tessera-types/index.ts'),
+      // Before @tessera/ui, which would otherwise match it as a prefix
+      '@tessera/ui/charts': path.resolve(pathName, '../../tessera-ui/charts/index.ts'),
       '@tessera/ui': path.resolve(pathName, '../../tessera-ui/index.ts')
     }
   },

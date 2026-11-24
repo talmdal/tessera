@@ -236,7 +236,8 @@ What is missing, and how this design handles each:
   Quicken ([Later](#later)).
 - **Forecasting** balances or cash flow, **scheduled transactions** and **bill reminders**. Due dates make them
   possible later; nothing is entered for a line.
-- **Charts and reports** beyond the view. A reports plugin can build them on `budget.service`.
+- **Charts and reports** beyond the view. A reports plugin can build them on `budget.service`. (Since reports' R5,
+  the budget contributes *Budget vs Actual* to the reports itself.)
 - **Budgets by payee**, and weekly periods in the view.
 - **Exporting** budgets.
 - **Notifications** outside the window.
@@ -360,7 +361,9 @@ export interface Budget {
 - **The year start is the budget's, not a setting.** A year start belongs to a ledger, and Tessera has no per-ledger
   settings yet: the Archiving page keeps its year start in application settings until it has
   ([settings.ts](../plugins/ledger/src/privileged/archive/settings.ts)). A budget is already in the ledger, so it keeps
-  its own. It suggests the Archiving page's month when the budget is created.
+  its own. It suggests the Archiving page's month when the budget is created. **Since reports' R1** the ledger keeps
+  its year start itself (*File › Ledger Properties…*, [reporting-design.md](reporting-design.md#the-ledgers-year-start)),
+  and New Budget suggests **the ledger's year start month** instead; a budget still keeps its own, so two can differ.
 - **Names** follow the ledger's rules (`validateLedgerName`, trimmed, at most 100 characters, unique ignoring case).
 - **Deleting a budget** deletes its lines, after a confirmation naming how many. Nothing else refers to a budget, and a
   backup covers a mistake. Archived actuals belong to the ledger, not to a budget, and stay.
@@ -2095,7 +2098,7 @@ dark, from the design's March; the check by hand stays on the list ([todo.md](to
 - ***Create category “…”* is two choices**, *Create expense category* and *Create income category*, rather than a
   question after it.
 - **New Budget covers** the sub-ledger selected in the Accounts navigator, if one is, else the whole ledger; its year
-  start is the Archiving page's.
+  start is the Archiving page's (since reports' R1, the ledger's year start month).
 - ***Show lines with nothing this period*** is in the view's *More* menu, for the session, until B5 makes it a setting.
   A subtotal hides only when everything under it is empty.
 - **Subtotals closed and *Other* rows opened are remembered per budget while the app runs**, not across runs.
@@ -2384,7 +2387,7 @@ Each scheduled on its own, when wanted.
 
 | Item | Notes |
 |---|---|
-| **A *Planning* menu** (Q13) | Move *Budget*'s items under *Planning*, beside reports, when reports arrive. Only the menu contributions change. In [todo.md](todo.md) |
+| ~~**A *Planning* menu** (Q13)~~ | Answered by reports' review (Q1): reports have a top-level *Reports* menu, and *Budget* stays as it is |
 | **Where spending would be by today** (Q14) | A mark on each bar for the share of the month gone, or, using due dates, what should have been paid by now. A future consideration beside the whole-month comparison, which stays |
 | **Excluding accounts** from a scope (Q9) | `excludeAccountIds` on a budget |
 | **Several currencies** in one budget (Q6) | Needs exchange rates, a feature of its own |
@@ -2397,7 +2400,7 @@ Each scheduled on its own, when wanted.
 | **Exporting a budget** to CSV | The year grid as a spreadsheet |
 | **Rebuilding archived actuals** from archive files | For a ledger archived while `budget` was disabled |
 | **Smaller archived months** | Interning the category and account ids in a small dictionary document halves them; packing by sub-ledger and currency instead of account takes a third off, but loses the account ([B0](#4-removedtotals-and-the-budgets-writes-in-the-archive)) |
-| **Reports** | Budget against actual over years, by a reports plugin on `budget.service` |
+| ~~**Reports**~~ | **Done** (reports' R5): *Budget vs Actual*, contributed by this plugin to the reports, on a source of its own over `status` (`budget.status`), with the budget view's figures row for row, by month too; *Show as Report* in the view's *⋯* menu ([reporting-design.md](reporting-design.md#7-budget-vs-actual)) |
 
 ---
 

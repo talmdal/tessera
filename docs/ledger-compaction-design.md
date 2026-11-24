@@ -537,12 +537,26 @@ export interface AccountArchived {
   originalOpeningBalance: number
   /** The highest numeric transaction number archived, so the next cheque number suggested still follows it. */
   highestNumber?: number
+  /**
+   * How many of `count` were archived with their totals kept (below), voided ones included: every archive since
+   * accounts-api 1.15. Fewer (or absent) means an earlier archive left the account's history incomplete.
+   */
+  countWithTotals?: number
 }
 ```
 
 Both are written in the same storage transaction as the removal, by the archive only: `AccountInput` and
 `AccountPatch` don't accept them. No schema version change is needed, because they are optional fields, and older
 versions of Tessera ignore them.
+
+**What the archive keeps for reports** (accounts-api 1.15, added by [reporting-design.md](reporting-design.md#archived-months)):
+in the same transaction, after sharing `removedTotals`, the participant keeps the totals of what it removes, by
+account and month (categories, transfers and payees, in and out apart, with counts), in **`accounts.archivedMonths`**,
+packed as flat numbers against one dictionary of ids, **`accounts.archivedIds`**; a second archive of the same month
+adds to it. Each account it removes leaves a record in **`accounts.archivedAccounts`** (its name, type, currency,
+sub-ledger, opening date and original opening balance), so past balances and net worth don't change.
+`accounts.service.archivedTotals` and `balanceHistory` read them. The budget keeps its own copy, as before. New
+collections need no schema version change. Deleting a sub-ledger moves what they say was in it to its parent.
 
 ### How the register and the account dialog show it
 
@@ -631,6 +645,8 @@ plugin holding a reference to it drops it. The [balance check](#the-balance-chec
 | **Closed accounts with nothing left** | Removed | See [Closed accounts with nothing left](#closed-accounts-with-nothing-left) |
 | **Open accounts with nothing left** | Kept, with only their opening balance | They are still in use |
 | **Sub-ledgers** | Unchanged, even if now empty | They hold no transactions, and the user made them |
+
+**Archived totals** (since accounts-api 1.15) are kept as described in [What the account records](#what-the-account-records).
 
 After the removal commits, `accounts` announces one `AccountsChange`. It lists every account it touched in
 `updated` and `balances` (with `transactions` and `chart` set) and every account it removed in `deleted`. Registers
@@ -963,6 +979,14 @@ plugin (a year-end assistant, say). It follows the same steps, with no dialog to
 
 ## The Archiving page
 
+> **Changed by reports (ledger-api 1.5).** The year start is now **the ledger's**, kept in its meta and set in *File ›
+> Ledger Properties…* ([reporting-design.md](reporting-design.md#the-ledgers-year-start)), since reports, archiving and
+> new budgets all follow it. The page keeps only *Also keep the last … years*, with a description pointing to *Ledger
+> Properties…*. The `yearStartMonth` and `yearStartDay` settings stay, off the page, as what a ledger without a year
+> start is given (on creation, or the first writable open of an older ledger), so upgrading changes nothing anyone
+> sees. `suggestedArchiveDate(today, yearStart, keepYears)` now takes the ledger's year start. What follows is the page
+> as Phase 4 built it.
+
 Added in review: the suggested date is the start of the current year, and a user whose year ends somewhere else, or
 who wants to keep more than one year, can change that. This is **Tools › Options… › Ledger › Archiving**, a page of
 the ledger plugin drawn by the shell from fields, like the Backups page.
@@ -1014,7 +1038,8 @@ As built in Phase 4: three number fields. The first draft had a drop-down for th
 - **An application setting for now.** A year start really belongs to a ledger: a household ledger follows the
   calendar, and a small business's follows its fiscal year. The settings framework has no per-ledger scope yet
   ([settings-design.md](settings-design.md#the-idea-layers-of-overrides)). When it has, this namespace is the first
-  candidate to move (decided in the second review, and listed in [todo.md](todo.md)).
+  candidate to move (decided in the second review, and listed in [todo.md](todo.md)). **Since done another way:** the
+  ledger keeps its year start itself, a property rather than a setting (reports' review, Q9).
 - **Keywords** for the Options dialog's search: `archive`, `archiving`, `year end`, `fiscal year`, `tax year`,
   `compact`.
 
@@ -1401,7 +1426,7 @@ Second review, the same day:
 | The dialog's second paragraph | **"To access the archived transactions later, you can open the archive file."** | [The text](#the-text) |
 | Removing closed accounts with nothing left: always, or the user's choice? | **A check box in the dialog,** ticked by default | [Closed accounts with nothing left](#closed-accounts-with-nothing-left) |
 | *Change…* for the archive file's folder | **Later;** the Backups page's folder decides it for now | [Phase 6](#phase-6-later-each-scheduled-separately) |
-| The year start: an application setting, or per ledger? | **An application setting now.** Per ledger once settings have a per-ledger scope, listed in [todo.md](todo.md) | [The Archiving page](#the-archiving-page) |
+| The year start: an application setting, or per ledger? | **An application setting now.** Per ledger once settings have a per-ledger scope, listed in [todo.md](todo.md). **Later made the ledger's own**, in its meta, by reports' R1 | [The Archiving page](#the-archiving-page) |
 | Run the spike | **Yes:** how long the removal holds the main process; how long `planArchive` and the balance check take at 100,000 transactions; what `VACUUM` costs after a large removal; that a read-only open is really read-only; how much smaller the file gets | [Phase 0](#phase-0-spike-s) |
 
 After Phase 4, on trying it:
@@ -2507,7 +2532,8 @@ if one is at hand, watching the dialog's "Compacting" step and the window.
 - **Change… for the archive file's folder (S).**
 - **View a backup read-only (S):** a *View* button in the Restore dialog, to look inside any backup before restoring
   it, with retention skipping a backup while it is open ([Only archive files](#only-archive-files)).
-- **The year start per ledger (S),** once settings have a per-ledger scope (in [todo.md](todo.md)).
+- ~~**The year start per ledger (S),** once settings have a per-ledger scope.~~ **Done** by reports' R1, as a property
+  of the ledger set in *File › Ledger Properties…* ([reporting-design.md](reporting-design.md#the-ledgers-year-start)).
 - **From the warning to the register (S):** clicking an account in the dialog's warning cancels the dialog and shows
   that account's register, in reconcile mode, so the user can reconcile at once.
 - **Opening an older archive (M):** an upgraded temporary copy, opened read-only, instead of the message pointing to

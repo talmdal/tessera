@@ -1,6 +1,6 @@
 // Rules for ledger and sub-ledger names, and the tree helpers every view of the ledger needs. Pure functions, so the
 // session, the dialogs and other plugins (the accounts navigator) apply exactly the same rules.
-import type { SubLedger } from './model'
+import type { LedgerInfo, SubLedger, YearStart } from './model'
 
 /**
  * A calendar date (YYYY-MM-DD) as people read it, in their own locale: "Jan 1, 2026", "1 Jan 2026". It is the same
@@ -12,6 +12,36 @@ export const displayDate = (date: string): string =>
 /** A file's size as people read it: "600 KB", "7.6 MB". */
 export const displaySize = (bytes: number): string =>
   bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+
+// ---- The ledger's year start (since 1.5)
+
+/** A calendar year: what a ledger starts with unless the user keeps another. */
+export const DEFAULT_YEAR_START: YearStart = { month: 1, day: 1 }
+
+/** The last day a year may start on, month by month: February stops at 28, so the start exists every year. */
+export const YEAR_START_MONTH_DAYS: readonly number[] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+/** Why a year start can't be used, or undefined when it can. */
+export function yearStartProblem(value: unknown): string | undefined {
+  const v = value as Partial<YearStart> | null
+  if (typeof v !== 'object' || v === null) return 'Choose the month and day the year starts.'
+  if (!Number.isInteger(v.month) || v.month! < 1 || v.month! > 12) return 'Choose the month the year starts, 1 to 12.'
+  const last = YEAR_START_MONTH_DAYS[v.month! - 1]
+  if (!Number.isInteger(v.day) || v.day! < 1 || v.day! > last) {
+    return v.month === 2 && v.day === 29
+      ? 'A year can’t start on 29 February: it isn’t there every year.'
+      : `Choose a day from 1 to ${last}.`
+  }
+  return undefined
+}
+
+/** The open ledger's year start, or a calendar year for a ledger (or a `LedgerInfo` made by hand) without one. */
+export const yearStartOf = (ledger: Pick<LedgerInfo, 'yearStart'> | undefined): YearStart =>
+  ledger?.yearStart !== undefined && yearStartProblem(ledger.yearStart) === undefined ? ledger.yearStart : DEFAULT_YEAR_START
+
+/** A year start as people read it, in their own locale: "1 January", "6 April", "April 6". */
+export const yearStartLabel = (yearStart: YearStart): string =>
+  new Date(Date.UTC(2001, yearStart.month - 1, yearStart.day)).toLocaleDateString([], { day: 'numeric', month: 'long', timeZone: 'UTC' })
 
 /** The longest a sub-ledger's name may be. */
 export const LEDGER_NAME_MAX_LENGTH = 100

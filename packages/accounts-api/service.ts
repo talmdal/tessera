@@ -7,7 +7,9 @@
 //
 import type { Event } from '@tessera/types'
 import type { Confirmation } from './errors'
-import type { Account, AccountBalances, AccountClass, AccountType, Chart, TotalsQuery, TransactionTotal } from './model'
+import type {
+  Account, AccountBalances, AccountClass, AccountType, ArchivedTotal, BalancePoint, BalanceQuery, Chart, RemovedAccount, TotalsQuery, TransactionTotal
+} from './model'
 import type { ReconciliationService } from './reconciliation'
 import type { CategoryDirectory, PayeeDirectory, TransactionManager } from './transactions'
 
@@ -112,6 +114,31 @@ export interface AccountsService {
    * YYYY-MM-DD, `from` after `to`, or `accountIds` that isn't a list of ids. (Since accounts-api 1.13.)
    */
   transactionTotals(query: TotalsQuery): Promise<TransactionTotal[]>
+  /**
+   * What archives removed, kept as totals since accounts-api 1.15, for the months from `from`'s to `to`'s, inclusive
+   * (archived totals are kept by month): totalled as `transactionTotals` totals them, with the same filters, and with
+   * where each account was (`currency`, `subLedgerId`, `transferSubLedgerId`) and its name (`accountName`) when it was
+   * archived, since an archive may remove the account. With `byPayee`, categorised and uncategorised rows are by payee;
+   * transfers aren't kept by payee (their `payeeId` is null). Never overlaps `transactionTotals`: a transaction is
+   * either still in the ledger or archived. Empty for a ledger never archived, or archived only before 1.15 (see
+   * `AccountArchived.countWithTotals`). Fails with INVALID as `transactionTotals` does. (Since 1.15.)
+   */
+  archivedTotals(query: TotalsQuery): Promise<ArchivedTotal[]>
+  /**
+   * Each account's balance at the end of each date, by the navigator's rule: its opening balance plus every non-voided
+   * transaction dated on or before it, whatever its status, archived ones included (from their kept totals). An account
+   * has no point before its opening date; and none before its last archival date when an archive before 1.15 left that
+   * history incomplete. Accounts an archive removed are included (`removed: true`), so past totals stay what they were.
+   * Points come in the order of the accounts, then the dates. Fails with INVALID for a date that isn't YYYY-MM-DD, none
+   * or more than `BALANCE_DATES_MAX`. (Since 1.15.)
+   */
+  balanceHistory(query: BalanceQuery): Promise<BalancePoint[]>
+  /**
+   * The accounts archives removed, as each archive kept them, by name: for placing their archived totals and past
+   * balances (an account scope of types needs the type; a report by sub-ledger, where it was). Empty for a ledger never
+   * archived, or archived only before 1.15. (Since 1.15.)
+   */
+  removedAccounts(): Promise<RemovedAccount[]>
 
   createAccount(input: AccountInput): Promise<Account>
   /** Refused with ACCOUNT_CLOSED for a closed account: reopen it first. */

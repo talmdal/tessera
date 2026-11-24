@@ -1,6 +1,6 @@
 // The `ledger.session` service and the `ledger.schema` extension point: what other plugins build on.
 import type { CollectionSchema, Database, Disposable, Event, Transaction as StorageTransaction } from '@tessera/types'
-import type { LedgerArchived, LedgerChange, LedgerInfo, LedgerTree, SubLedger } from './model'
+import type { LedgerArchived, LedgerChange, LedgerInfo, LedgerTree, SubLedger, YearStart } from './model'
 
 /**
  * The `ledger.session` service: the open ledger file and its sub-ledger tree. One ledger is open at a time.
@@ -75,6 +75,20 @@ export interface LedgerSession {
   beginOperation(label: string): Disposable
   /** The running operation's label, or undefined. */
   readonly operation: string | undefined
+
+  // ---- The ledger's information (since 1.5)
+
+  /**
+   * Sets the open ledger's year start (`LedgerInfo.yearStart`), in its meta. Fails with NO_LEDGER, READ_ONLY for a
+   * ledger open read-only (an archive file), and INVALID (field `yearStart`) for a day that isn't there every year.
+   * Resolves the ledger as it is now; `onDidChangeInfo` follows.
+   */
+  setYearStart(yearStart: YearStart): Promise<LedgerInfo>
+  /**
+   * After the open ledger's information changes while it stays open (its year start). Opening and closing are
+   * `onDidChange`'s, which this never fires, so a listener to that one isn't told of something it doesn't expect.
+   */
+  readonly onDidChangeInfo: Event<LedgerInfo>
 
   /** Runs, awaited, before the database closes, while it is still writable. */
   onWillClose(listener: (ledger: LedgerInfo) => void | Promise<void>): Disposable

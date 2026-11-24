@@ -27,6 +27,10 @@ function tokenProblem(tokens: unknown): string | undefined {
   for (const [name, value] of Object.entries(tokens)) {
     if ((COLOR_TOKENS as readonly string[]).includes(name)) {
       if (!isThemeColor(value)) return `has an invalid colour for "${name}"`
+    } else if (name === 'chart') {
+      if (!Array.isArray(value) || value.length === 0 || value.length > 12) return 'has an invalid "chart": a list of 1 to 12 colours'
+      const bad = value.findIndex(color => !isThemeColor(color))
+      if (bad >= 0) return `has an invalid colour for "chart[${bad}]"`
     } else if (name in GROUP_TOKENS) {
       if (typeof value !== 'object' || value === null || Array.isArray(value)) return `has an invalid "${name}"`
       for (const [inner, color] of Object.entries(value)) {

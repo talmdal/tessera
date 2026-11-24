@@ -20,6 +20,11 @@ export interface ThemeTokens {
   background?: { default?: ThemeColor, paper?: ThemeColor }
   text?: { primary?: ThemeColor, secondary?: ThemeColor }
   divider?: ThemeColor
+  /**
+   * The colours charts draw their series in, in order: up to 12, each told apart from the others and at least 3:1
+   * against the paper (the contrast check warns otherwise). Fewer are made up to 12 from the shell's own.
+   */
+  chart?: ThemeColor[]
 }
 
 /**

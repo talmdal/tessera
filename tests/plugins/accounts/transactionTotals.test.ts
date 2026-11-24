@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest'
 import { displayDate } from '@tessera/ledger-api'
 import type { TransactionTotal } from '@tessera/accounts-api'
-import { compareTotals, transactionTotals } from '../../../plugins/accounts/src/privileged/transactionsCore'
+import { compareTotals, sortTotals, transactionTotals } from '../../../plugins/accounts/src/privileged/transactionsCore'
 import { chequing, rejection, setupAccounts } from './harness'
 
 async function ledger() {
@@ -145,6 +145,81 @@ describe('transaction totals', () => {
   it('fail with NO_LEDGER while no ledger is open', async () => {
     const { service } = await setupAccounts({ open: false })
     expect(await rejection(service.transactionTotals({ from: '2026-01-01', to: '2026-12-31' }))).toMatchObject({ code: 'NO_LEDGER' })
+  })
+})
+
+// accounts-api 1.15: by payee, for reports (docs/reporting-design.md, "The accounts additions")
+describe('transaction totals by payee', () => {
+  it('total each category and transfer account by payee when asked, none under null, adding up to the totals without', async () => {
+    const { service, chq, visa, category, t } = await ledger()
+    const sav = await service.createAccount(chequing({ name: 'Savings', type: 'savings', openingBalance: 0 }))
+    const groceries = category('Groceries')
+    await t(chq.id).create({ date: '2026-10-03', amount: -6500, categoryId: groceries, payee: 'Metro' })
+    await t(chq.id).create({ date: '2026-10-10', amount: -4200, categoryId: groceries, payee: 'Metro' })
+    await t(chq.id).create({ date: '2026-10-12', amount: -3000, categoryId: groceries, payee: 'Loblaws' })
+    await t(chq.id).create({ date: '2026-10-15', amount: -800, categoryId: groceries })
+    await t(visa.id).create({ date: '2026-10-20', amount: 1500, categoryId: groceries, payee: 'Metro' })      // a refund
+    await t(chq.id).create({ date: '2026-10-21', amount: -700, payee: 'Metro' })                              // no category
+    await t(chq.id).create({ date: '2026-10-25', amount: -50000, transferAccountId: sav.id, payee: 'Savings plan' })
+    const [metro, loblaws, plan] = ['Metro', 'Loblaws', 'Savings plan'].map(name => name)
+    const payees = new Map((await service.payees.search('', 100)).map(p => [p.name, p.id]))
+    const october = { from: '2026-10-01', to: '2026-10-31', includeTransfers: true }
+
+    const byPayee = await service.transactionTotals({ ...october, byPayee: true })
+    expect(new Set(byPayee)).toEqual(new Set([
+      row(chq.id, '2026-10', { categoryId: groceries, payeeId: payees.get(metro)!, outflow: 10700, count: 2 }),
+      row(chq.id, '2026-10', { categoryId: groceries, payeeId: payees.get(loblaws)!, outflow: 3000, count: 1 }),
+      row(chq.id, '2026-10', { categoryId: groceries, payeeId: null, outflow: 800, count: 1 }),
+      row(chq.id, '2026-10', { payeeId: payees.get(metro)!, outflow: 700, count: 1 }),
+      row(chq.id, '2026-10', { transferAccountId: sav.id, payeeId: payees.get(plan)!, outflow: 50000, count: 1 }),
+      row(visa.id, '2026-10', { categoryId: groceries, payeeId: payees.get(metro)!, inflow: 1500, count: 1 }),
+      row(sav.id, '2026-10', { transferAccountId: chq.id, payeeId: payees.get(plan)!, inflow: 50000, count: 1 })
+    ]))
+    expect(byPayee).toEqual([...byPayee].sort(compareTotals))
+
+    // Without byPayee, no row has a payee at all, and the rows by payee add up to them exactly
+    const plain = await service.transactionTotals(october)
+    expect(plain.some(r => 'payeeId' in r)).toBe(false)
+    const key = (r: TransactionTotal) => `${r.accountId}|${r.month}|${r.categoryId}|${r.transferAccountId}`
+    const added = new Map<string, number[]>()
+    for (const r of byPayee) { const s = added.get(key(r)) ?? [0, 0, 0]; added.set(key(r), [s[0] + r.inflow, s[1] + r.outflow, s[2] + r.count]) }
+    expect(new Map(plain.map(r => [key(r), [r.inflow, r.outflow, r.count]]))).toEqual(added)
+  })
+
+  it('refuse byPayee that isn\'t true or false', async () => {
+    const { service } = await ledger()
+    expect(await rejection(service.transactionTotals({ from: '2026-01-01', to: '2026-01-31', byPayee: 'yes' as never }))).toMatchObject({ code: 'INVALID', field: 'byPayee' })
+  })
+
+  it('come in the contract\'s order, sorted by one key: on random rows, exactly compareTotals\' order', () => {
+    let s = 11
+    const r = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff }
+    const pick = (n: number, prefix: string) => `${prefix}${Math.floor(r() * n)}`
+    for (let round = 0; round < 20; round++) {
+      const rows: TransactionTotal[] = Array.from({ length: 300 }, () => {
+        const transfer = r() < 0.2
+        return row(pick(5, '01HZACCT'), `2026-${String(1 + Math.floor(r() * 12)).padStart(2, '0')}`, {
+          categoryId: transfer || r() < 0.1 ? null : pick(8, '01HZCAT'), transferAccountId: transfer ? pick(5, '01HZACCT') : null,
+          ...(r() < 0.5 && { payeeId: r() < 0.2 ? null : pick(30, '01HZPAYEE') })
+        })
+      })
+      expect(sortTotals(rows)).toEqual([...rows].sort(compareTotals))
+    }
+  })
+})
+
+describe('payees by id', () => {
+  it('are read in one go, ids that don\'t exist left out, each once', async () => {
+    const { service, chq, t } = await ledger()
+    await t(chq.id).create({ date: '2026-10-03', amount: -100, payee: 'Metro' })
+    await t(chq.id).create({ date: '2026-10-04', amount: -100, payee: 'Loblaws' })
+    const all = await service.payees.search('', 100)
+    const ids = all.map(p => p.id)
+    const got = await service.payees.get([...ids, ids[0], 'no such payee'])
+    expect(got.map(p => p.name).sort()).toEqual(['Loblaws', 'Metro'])
+    expect(got[0]).toEqual({ id: expect.any(String), name: expect.any(String), rev: expect.any(Number) })
+    expect(await service.payees.get([])).toEqual([])
+    expect(await rejection(service.payees.get('x' as never))).toMatchObject({ code: 'INVALID', field: 'ids' })
   })
 })
 

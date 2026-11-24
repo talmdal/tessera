@@ -93,11 +93,18 @@ off, or delete them, as they land.
       `shell.dialogs` extension point with the renderer's dialog host, and
       `shell.files` (open and save dialogs, `exists`, the OS trash). See
       [Asking the user](plugin-creation.md#asking-the-user-dialogs-prompts-and-files).
-- [ ] **More shell services:** recent files, atomic writes and file locks for
+- [ ] **More shell services:** recent files and file locks for
       `shell.files`; later `shell.notifications` and a secure password prompt.
-      (Settings are done, as `context.settings`. Backups aren't a `shell.files`
-      job: a copy of an open ledger needs the storage engine; see
+      (Settings are done, as `context.settings`. Atomic writes are done, as
+      `shell.files.writeFile`, and printing as `shell.print`, both for reports'
+      R6; the export plugin's and the backup's own copies could move onto
+      `writeFile`. Backups aren't a `shell.files` job: a copy of an open ledger
+      needs the storage engine; see
       [backup-restore-design.md](backup-restore-design.md).)
+- [ ] **Printing from any view:** a *File › Print…* (Ctrl+P) that prints the
+      view in front, which each view answers with a print area or the
+      stylesheet's fallback. For now Ctrl+P is *Reports › Print Report…*,
+      enabled only while the report view is in front.
 
 ## Finance: ledgers and accounts
 
@@ -325,15 +332,94 @@ The storage engine it builds on is done ([storage-engine-redesign.md](storage-en
         status; a currency with other decimals refused while a budget has
         lines; and the smells the review found. Results:
         [budget-design.md](budget-design.md#review-after-b5).
-  - [ ] **Later, if a report needs payee names too:** a payee lookup by id in
-        `accounts.service`, so the Transactions dialog needn't read whole
-        registers ([review](budget-design.md#review-after-b5)).
+  - [x] **A payee lookup by id in `accounts.service`:** `payees.get(ids)`,
+        added for reports in their R1 (`@tessera/accounts-api` 1.15).
+  - [ ] **The Transactions dialog on `payees.get`,** so it needn't read whole
+        registers to name payees ([review](budget-design.md#review-after-b5)).
   - [ ] **B6:** the home view widget, once the home view takes widgets.
-  - [ ] **Later: move the Budget menu under a *Planning* menu** when reports
-        arrive (review, Q13). Only the menu contributions change.
+  - [x] ~~**Later: move the Budget menu under a *Planning* menu** when reports
+        arrive (review, Q13).~~ Answered by reports' review (Q1): reports get a
+        top-level *Reports* menu, and *Budget* stays as it is.
   - [ ] **Later:** where spending would be by today (Q14), excluded accounts
         (Q9), several currencies (Q6), envelope budgets (Q1), importing budgets
         (Q11); see [Later](budget-design.md#later).
+- [ ] **Reports** ([reporting-design.md](reporting-design.md), reviewed
+      2026-11-16): an extensible `reports` plugin and `@tessera/reports-api`,
+      where any plugin adds data sources and report definitions; eight
+      reports, by sub-ledger too; room for a report designer later.
+  - [x] **Review:** Q1 to Q10 answered and applied: a top-level *Reports*
+        menu, the year start the ledger's, Cash Flow without cash, reporting
+        by sub-ledger, `@tessera/ui` kept with a policy for additions.
+  - [x] **R0, spike:** totals by payee, balance history, archived payees
+        packed flat, printing, the engine and the table, measured. Results:
+        [reporting-design.md](reporting-design.md#phase-r0-results).
+  - [x] **R0, question 4:** MUI X Charts fits (9.17, with Tessera's MUI and
+        React; 133 KB gzipped), measured in R3 with R0's harness written again;
+        used behind `@tessera/ui/charts` ([4. Charts](reporting-design.md#4-charts)).
+  - [x] **R1:** `accounts.service`: totals by payee, `payees.get`,
+        `archivedTotals` (archives keep what they remove, and a record of each
+        account they remove), `balanceHistory`, the scope rule
+        (`@tessera/accounts-api` 1.15); the ledger's year start with *File ›
+        Ledger Properties…*, followed by *Archive Ledger…* and *New Budget…*
+        (`@tessera/ledger-api` 1.5). Results:
+        [reporting-design.md](reporting-design.md#phase-r1-results).
+  - [x] **R1, the renderer and pipeline tests:** run at the start of R3 with
+        the dependencies installed; they pass.
+  - [ ] **R1, by hand:** *Ledger Properties…* in `npm run dev` (the File menu
+        item, the dialog in light and dark, an archive file's read-only).
+  - [x] **R2:** `@tessera/reports-api` 1.0 (specs and their checks,
+        periods on the ledger's year start, the engine) and the `reports`
+        plugin's domain, no UI: the flows and balances sources, the seven
+        definitions, sub-ledgers side by side, `reports.service` and saved
+        reports in the ledger. Every example figure in the design is produced
+        by a test; no report changes through an archive. Results:
+        [reporting-design.md](reporting-design.md#phase-r2-results).
+  - [x] **R2, the pipeline test** (the built plugin on SQLite, a restart, an
+        archive file): run at the start of R3; it passes.
+  - [ ] **Later, if Cash Flow is felt slow:** its balance rows read every
+        transaction up to the period's end (balance history); at 100,000,
+        0.2 to 0.3 s of CPU time, where the other reports take under 0.1 s.
+  - [x] **R3:** charts in `@tessera/ui` 1.6 (`@tessera/ui/charts`, MUI X
+        Charts, loaded on first use) and the chart palette in themes;
+        `@tessera/reports-api` 1.1; the Reports tab, the report view and its
+        parameters, *Show Transactions*, the Reports menu mirrored from the
+        definitions, kept current; tested in jsdom and in headless Chromium
+        (`tests/browser/`, skipped without one). Results:
+        [reporting-design.md](reporting-design.md#phase-r3-results).
+  - [ ] **R3, by hand:** each of the seven reports in `npm run dev` on the
+        sample household (`npm run sample:archive`), in light and dark, and
+        from its archive file; the Reports menu in Electron's menu bar; the
+        built plugin's views loaded in the window. Electron's binary wasn't
+        downloaded where R3 was built.
+  - [x] **R4:** *Customise Report…* (options, *Show the top*, *Open on*), saved
+        reports (Save, Save As, Rename, Duplicate, Delete; Save refused over a
+        change made elsewhere), `reports.changed`, the Reports page, and each
+        report's last choices remembered per ledger; `@tessera/reports-api` 1.2.
+        Results: [reporting-design.md](reporting-design.md#phase-r4-results).
+  - [ ] **R4, by hand:** saving, reopening and customising in `npm run dev`, and
+        the Reports page in the Options dialog.
+  - [x] **R5:** Budget vs Actual, from the budget plugin: its source over the
+        budget's status, the Budgets group and the report, the budget view's
+        figures row for row; Show Transactions the budget's own list; *Show as
+        Report* in the budget view; either plugin works without the other;
+        `@tessera/reports-api` 1.3, `@tessera/budget-api` 1.5; *Adding a
+        report* in the plugin guide. Results:
+        [reporting-design.md](reporting-design.md#phase-r5-results).
+  - [ ] **R5, by hand:** Budget vs Actual for the sample household's budget in
+        `npm run dev` (`npm run sample:archive`), in light and dark; *Show as
+        Report* from the budget view; the Budgets group in the Reports menu.
+  - [x] **R6:** printing, PDF and CSV: `shell.print` (the system's print
+        dialog, a PDF on the region's paper) and `shell.files.writeFile`;
+        `PrintArea` in `@tessera/ui` 1.7 and the shell's print stylesheet (light
+        colours, numbered pages, headings repeated); *Print Report…*, *Save
+        Report as PDF…* and *Export Report…*; `@tessera/reports-api` 1.4.
+        Results: [reporting-design.md](reporting-design.md#phase-r6-results).
+  - [ ] **R6, by hand:** each report printed and saved as PDF in `npm run dev`
+        on Windows (the system's print dialog, landscape for a wide report, a
+        dark theme printing light); a CSV opened in Excel (accents, amounts as
+        numbers, a protected payee).
+  - [ ] **Later:** the report designer (a note of its own), and the rest of
+        [Later](reporting-design.md#later).
 - [ ] **Statement import, phase 4:** history and undo, and navigator badges.
       (Its Saved Account Matches dialog is built, as Saved Import Choices, in
       F6.)
@@ -405,9 +491,9 @@ Design: [settings-design.md](settings-design.md); guide:
       dialog's Import page
       ([import-manager-design.md](import-manager-design.md#matching-tolerances)).
 - [ ] **More field kinds** when plugins need them: a folder with Browse…, a
-      list of strings, a drop-down. The Archiving page's year start would use
-      a drop-down for the month: a `choice` draws radio buttons, and twelve is
-      too many, so it is a number for now.
+      list of strings, a drop-down. (The Archiving page's year start, which
+      wanted a drop-down for the month, has moved to *File › Ledger
+      Properties…*, a dialog of its own.)
 - [x] **Reading other plugins' settings, read-only** (`context.settings.read`),
       and change events that name the settings that changed (`changed`).
       Every change goes through the settings manager (decided in review).
@@ -472,6 +558,14 @@ Design: [theming-design.md](theming-design.md). Nothing here is built yet.
       `@tessera/ui`, token breadth, who may change the theme, per-window
       native chrome). Token breadth is answered for typography by font roles
       (below): themes may set fonts.
+- [ ] **A policy for what `@tessera/ui` exports** (proposed by reports'
+      review, [Reports and `@tessera/ui`](reporting-design.md#reports-and-tesseraui)):
+      any MUI core component on request, in a minor version; MUI X as separate
+      entries loaded on first use (`@tessera/ui/charts` first, built in
+      reports' R3: the shell shares it as a lazy singleton);
+      `styled` exported; an MUI major a major of `@tessera/ui`, with plugins
+      built against a newer one refused. Answers the curated-vs-complete
+      question above, once adopted.
 
 ## Fonts
 
@@ -643,11 +737,10 @@ shrinks the file.
       changes or more through the SQLite driver's worker, so archiving 100,000
       transactions doesn't hold the window for 0.7 to 0.9 s (it would be about
       50 ms). Not started; see the design's Phase 5.
-- [ ] **Later: the year start per ledger.** The Archiving page's year start
-      (and years kept) is an application setting for now. A household ledger
-      follows the calendar and a business's its fiscal year, so it belongs to
-      the ledger once settings have a per-ledger scope
-      ([settings-design.md](settings-design.md#the-idea-layers-of-overrides)).
+- [x] **The year start per ledger.** Done by reports' R1, as a property of
+      the ledger rather than a per-ledger setting: kept in its meta, set in
+      *File › Ledger Properties…*; the Archiving page keeps only the years to
+      keep ([reporting-design.md](reporting-design.md#the-ledgers-year-start)).
 - [ ] **Later:** Change… for the archive file's folder; viewing any backup
       read-only from the Restore dialog; opening an older archive through an
       upgraded temporary copy. See the design's Phase 6.
@@ -778,12 +871,19 @@ shrinks the file.
       first candidates for pasting. The Fonts page (`tests/renderer/fontsPage.test.tsx`, *shows what the window's
       theme sets…*, *cannot be changed when the settings are read-only*) has done the same once, and so have the
       reconcile statement dialog (`tests/plugins/accounts/renderer/reconcile.test.tsx`) and the ledger's start view
-      (`tests/plugins/ledger/renderer/views.test.tsx`). Which ones time out varies from run to run on a 4-core
-      machine. The CSV Columns tests were brought well under the limit by finding elements by label and text
+      (`tests/plugins/ledger/renderer/views.test.tsx`), and, in reports' R6 runs, the budget's Budget Line dialog
+      (`tests/plugins/budget/renderer/lineDialog.test.tsx`) and budget view (`budgetView.test.tsx`). Which ones time
+      out varies from run to run on a 4-core machine: each of R6's five full runs had one, in a different file each
+      time, with the next test in its file failing after it. The CSV Columns tests were brought well under the limit by finding elements by label and text
       rather than by role and accessible name (see import-formats-design.md, phase F4): the same would help here.
       In the budget's B3 and B4 runs, on a machine busy with other work, one to six of these timed out in each full run
       (the account dialog and register, the Fonts and Appearance pages, the Export and CSV Columns dialogs), a different
-      few each time, each passing alone.
+      few each time, each passing alone. In reports' R3, the first phase to run the whole suite with everything
+      installed, on a VM whose speed varied threefold between runs (275 to 807 s), they timed out in the slow runs:
+      none at 275 s, 21 at 807 s (the Fonts page, the account dialog and register, Fill from History, the budget
+      view's More menu, the Export and QIF Options dialogs, the Options dialog, reconciliation). Tests of time budgets
+      were made to hold under load there (a share of the whole, or the least of several runs), and tests building
+      100,000-transaction ledgers now run in fresh workers (the `heavy` project); the dialogs still need the fix above.
 - [ ] **A SQLite snapshot failed once under a full run:** *lets writes carry on, and copies one committed state*
       (`tests/plugins/storage.sqlite/SqliteStorageEngine.test.ts`) gave `could not snapshot database … : not an error`,
       and passed alone and on the next run (again once in the budget's B4 runs). SQLite's online backup can return BUSY
@@ -807,10 +907,21 @@ shrinks the file.
       `shared` (everything else) runs with `isolate: false`, about a third faster here. The setup file unmounts every
       test's components itself, and switches on React's act checks for every file: Testing Library does both only in
       a worker's first file, so later files had no cleanup and no act warnings at all.
-      A test that mocks modules (`vi.mock`) must go in the isolated project. Checked with shuffled file and test order,
+      A test that mocks modules (`vi.mock`) must go in the isolated project. Since reports' R3, two more: `heavy`
+      (tests that build large ledgers in memory, each in a fresh worker: their heaps slowed the jsdom tests that shared
+      their workers next, which then timed out) and `browser` (headless Chromium, run after the rest). Checked with shuffled file and test order,
       which also found that `tests/main/app.test.ts` (one app shared by the file) depended on its test order; its
       theme test now restores the theme, and the file keeps its written order (`shuffle: false`), as its start-up test
       needs.
+- [x] **Tests in a real browser** (reports' R3): `tests/browser/` bundles a page of the components under test with
+      esbuild and opens it in headless Chromium through `playwright-core`, for what jsdom can't show (layout, SVG drawn
+      by a chart library, painted frames, `IntersectionObserver`, the cascade: jsdom's computed styles ignore
+      specificity). Chromium comes from `TESSERA_CHROMIUM`, Playwright's own, or `PLAYWRIGHT_BROWSERS_PATH`; without
+      one the files skip, saying why. They are a Vitest project of their own, run after the others
+      (`sequence.groupOrder`), so Chromium doesn't slow the jsdom tests near their time limit.
+- [ ] **A Chromium for the browser tests in CI,** once there is CI (`npx playwright install chromium`), or they only
+      ever skip there. And the same kind of test for other views that lay out or paint: the register's long lists, the
+      budget's Year.
 - [ ] **Quiet the expected output.** The build tests print Module Federation's warnings about shared dependencies,
       one test builds a broken plugin on purpose, and error-path tests log (a missing icon, a provider outside its
       tree). None is a failure, but they fill the output; capture or silence them in the tests that cause them.

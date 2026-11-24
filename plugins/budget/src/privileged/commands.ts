@@ -2,14 +2,16 @@
 // an item) and otherwise acts on what the view shows and has selected. Deleting asks first, with the native
 // confirmation every plugin uses.
 import type { Disposable, PluginContext, ShellPrompts } from '@tessera/types'
-import { LEDGER_ARCHIVE_SETTINGS, LEDGER_CONTEXT_KEYS, nameKey, uniqueName, type LedgerSession } from '@tessera/ledger-api'
+import { LEDGER_CONTEXT_KEYS, nameKey, uniqueName, yearStartOf, type LedgerSession } from '@tessera/ledger-api'
 import { ACCOUNTS_CONTEXT_KEYS, mostUsedCurrency, type AccountsService } from '@tessera/accounts-api'
 import {
-  BUDGET_COMMANDS as C, BUDGET_CONTEXT_KEYS as K, BUDGET_DIALOGS, BUDGET_EVENTS, BUDGET_SETTINGS_DEFAULTS, BUDGET_VIEWS, isBudgetError,
+  BUDGET_COMMANDS as C, BUDGET_CONTEXT_KEYS as K, BUDGET_DIALOGS, BUDGET_EVENTS, BUDGET_REPORTS, BUDGET_SETTINGS_DEFAULTS, BUDGET_VIEWS,
+  budgetYear, firstDayOf, isBudgetError, lastDayOf, yearToDate,
   type BudgetSettings,
   type Budget, type BudgetDialogInput, type BudgetDialogResult, type DuplicateDialogInput, type HistoryDialogInput, type BudgetItemArgs, type LineDialogInput, type LineTarget, type NewLineArgs,
   type TransactionsArgs, type TransactionsDialogInput
 } from '@tessera/budget-api'
+import { REPORTS_COMMANDS } from '@tessera/reports-api'
 import type { BudgetServiceImpl } from './BudgetServiceImpl'
 import type { BudgetViewSupport } from './viewSupport'
 import { local, type ViewState } from './viewState'
@@ -61,8 +63,8 @@ export function registerCommands(
     // A new budget covers the sub-ledger selected in the Accounts navigator, if one is, else the whole ledger
     const selected = context.contextKeys.get(ACCOUNTS_CONTEXT_KEYS.selectionKind) === 'subLedger' ? context.contextKeys.get(ACCOUNTS_CONTEXT_KEYS.selectionId) : undefined
     const subLedgerId = typeof selected === 'string' && tree.subLedgers.some(s => s.id === selected) ? selected : null
-    const archiving = context.settings.read<{ yearStartMonth?: number }>(LEDGER_ARCHIVE_SETTINGS).get()
-    const yearStartMonth = Number.isInteger(archiving?.yearStartMonth) ? archiving!.yearStartMonth! : 1
+    // A new budget's year starts in the month the ledger's does (File › Ledger Properties…); a budget keeps its own
+    const yearStartMonth = yearStartOf(tree.ledger).month
     // Budget Properties…: what a new scope or currency would do to the lines, for the dialog to say before saving
     const lines = budget ? await service.lines(budget.id) : []
     const transferLines = lines.flatMap(({ target }) => {
@@ -207,6 +209,20 @@ export function registerCommands(
       }
       await prompts.show(BUDGET_DIALOGS.transactions, input, { title: `Transactions: ${input.row}` })
       return true
+    }, { enablement: SHOWN }),
+
+    // The budget shown, over the months shown, as Budget vs Actual in the report view: through the reports plugin's
+    // command, when it is there
+    context.commands.register(C.showReport, async (args?: unknown) => {
+      if (!context.commands.has(REPORTS_COMMANDS.show)) return false
+      const budget = await targetBudget(args)
+      if (!budget) return false
+      const { month, period } = view.get()
+      const range = period === 'yearToDate' ? yearToDate(month, budget.yearStartMonth) : period === 'year' ? budgetYear(month, budget.yearStartMonth) : { from: month, to: month }
+      return context.commands.execute(REPORTS_COMMANDS.show, {
+        definitionId: BUDGET_REPORTS.vsActual,
+        parameters: { source: { budget: budget.id }, period: { from: firstDayOf(range.from), to: lastDayOf(range.to) } }
+      })
     }, { enablement: SHOWN })
   ]
 }

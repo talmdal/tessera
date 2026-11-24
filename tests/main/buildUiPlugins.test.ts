@@ -29,6 +29,25 @@ describe('building a plugin that uses @tessera/ui', () => {
     expect(fs.statSync(view).size).toBeLessThan(5_000)
   })
 
+  it('shares @tessera/ui/charts with the shell too, instead of bundling MUI X Charts', { timeout: 60_000 }, async () => {
+    const out = createTempModulesDir()
+
+    await buildPlugins({ pluginsDir: fixtures, outDir: out })
+
+    const renderer = path.join(out, 'themed/renderer')
+    const code = renderedFiles(renderer).filter(f => f.endsWith('.js')).map(f => fs.readFileSync(f, 'utf8')).join('\n')
+    expect(code).toContain('@tessera/ui/charts')
+    // MUI X Charts is 423 KB minified: the plugin reads the shell's, which the shell loads when a view first asks. None
+    // of its code is in the plugin's output
+    expect(code).not.toMatch(/MuiBarChart|MuiPieChart|MuiChartsAxis|MuiChartsLegend|ChartsDataProvider|ChartsSurface|d3-scale|d3-shape|scaleBand/)
+    // The view's chunk holds the view, and the federation plugin's wrapper for a module shared on first use, inlined:
+    // 4.3 KB in one install, 5.3 KB in another (the wrapper is @module-federation/vite's, not ours, and varies with its
+    // packages, which aren't locked). So the limit is there to catch MUI X bundled in, hundreds of KB, not to measure
+    // the wrapper
+    const view = renderedFiles(path.join(renderer, 'assets')).find(f => path.basename(f).startsWith('ChartView-'))!
+    expect(fs.statSync(view).size).toBeLessThan(20_000)
+  })
+
   it('takes the shared version ranges from package.json and tessera-ui, so they cannot drift from what the shell provides', { timeout: 60_000 }, async () => {
     const root = path.resolve(__dirname, '../..')
     const react = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).dependencies.react
@@ -45,7 +64,7 @@ describe('building a plugin that uses @tessera/ui', () => {
     const map = fs.readFileSync(path.join(assets, chunk!), 'utf8')
     const ranges = [...map.matchAll(/requiredVersion: "([^"]+)"/g)].map(m => m[1])
     expect(ranges.filter(r => r === react)).toHaveLength(3)        // react, react/jsx-runtime, react-dom
-    expect(ranges).toContain(`^${ui}`)
+    expect(ranges.filter(r => r === `^${ui}`)).toHaveLength(2)      // @tessera/ui and @tessera/ui/charts
     expect(new Set(ranges)).toEqual(new Set([react, `^${ui}`]))
   })
 

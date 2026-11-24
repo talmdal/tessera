@@ -9,4 +9,4 @@ export * from './protocol'
 export * from './service'
 
 /** Version of this contract. */
-export const BUDGET_API_VERSION = '1.4.0'
+export const BUDGET_API_VERSION = '1.5.0'

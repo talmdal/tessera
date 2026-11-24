@@ -96,13 +96,26 @@ describe('resolveThemes', () => {
     ['a nested colour that is not valid', { id: 'p.x', label: 'x', light: { background: { paper: 5 } } }, 'invalid colour for "background.paper"'],
     ['an unknown field', { id: 'p.x', label: 'x', dark: {}, extends: 'p.y' }, 'unknown field "extends"'],
     ['a description that is not text', { id: 'p.x', label: 'x', dark: {}, description: 7 }, 'invalid description'],
-    ['an empty description', { id: 'p.x', label: 'x', dark: {}, description: ' ' }, 'invalid description']
+    ['an empty description', { id: 'p.x', label: 'x', dark: {}, description: ' ' }, 'invalid description'],
+    ['a chart palette that is not a list', { id: 'p.x', label: 'x', dark: { chart: '#112233' } }, 'invalid "chart": a list of 1 to 12 colours'],
+    ['an empty chart palette', { id: 'p.x', label: 'x', dark: { chart: [] } }, 'invalid "chart": a list of 1 to 12 colours'],
+    ['a chart palette of more than 12', { id: 'p.x', label: 'x', dark: { chart: Array(13).fill('#112233') } }, 'invalid "chart": a list of 1 to 12 colours'],
+    ['a chart colour that is not valid', { id: 'p.x', label: 'x', light: { chart: ['#112233', 'teal'] } }, 'invalid colour for "chart[1]"']
   ])('skips a theme with %s', (_name, impl, message) => {
     const { themes, diagnostics } = resolve(impl)
 
     expect(themes).toEqual([DEFAULT_THEME])
     expect(diagnostics).toHaveLength(1)
     expect(diagnostics[0]).toContain(message)
+  })
+
+  it('accepts a chart palette of some colours, copied', () => {
+    const chart = ['#112233', '#445566', '#778899']
+    const { themes, diagnostics } = resolve({ id: 'p.x', label: 'x', light: { chart } })
+    chart[0] = '#000000'
+
+    expect(diagnostics).toEqual([])
+    expect(themes[1].light?.chart).toEqual(['#112233', '#445566', '#778899'])
   })
 
   it("does not let a plugin replace the shell's theme", () => {

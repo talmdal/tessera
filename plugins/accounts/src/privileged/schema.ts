@@ -38,7 +38,12 @@ export const ACCOUNTS_SCHEMA: SchemaContribution = {
         // Sparse: set only while in progress, so an account has at most one reconciliation under way
         { name: 'oneActive', fields: ['activeFor'], unique: true }
       ]
-    }
+    },
+    // What archives removed, kept as totals (since accounts-api 1.15). Declaring a collection needs no migration: a
+    // ledger opened by this version has them, empty (docs/reporting-design.md, "Archived months")
+    { name: ACCOUNTS_COLLECTIONS.archivedMonths, indexes: [{ name: 'uniqueMonth', fields: ['accountId', 'month'], unique: true }] },
+    { name: ACCOUNTS_COLLECTIONS.archivedIds, indexes: [{ name: 'uniqueKey', fields: ['key'], unique: true }] },
+    { name: ACCOUNTS_COLLECTIONS.archivedAccounts, indexes: [{ name: 'uniqueAccount', fields: ['accountId'], unique: true }] }
   ]
 }
 

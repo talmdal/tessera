@@ -2,7 +2,7 @@
 import type { Disposable, IpcMessage, PluginContext } from '@tessera/types'
 import {
   LEDGER_CHANNELS, LEDGER_CONTEXT_KEYS, LEDGER_EVENTS, LEDGER_PLUGIN_ID, displayDate, toResult,
-  type LedgerState, type LedgerTree, type RecentLedger
+  type LedgerState, type LedgerTree, type RecentLedger, type YearStart
 } from '@tessera/ledger-api'
 import type { LedgerDisk } from './disk'
 import type { LedgerSessionImpl } from './LedgerSessionImpl'
@@ -109,6 +109,10 @@ export function registerIpc(context: PluginContext, session: LedgerSessionImpl, 
       const { id, name, expectedRev } = msg.data ?? {}
       return toResult(() => session.renameSubLedger(text(id, 'An id'), typeof name === 'string' ? name : '',
         typeof expectedRev === 'number' ? { expectedRev } : {}))
-    })
+    }),
+
+    // The session checks the year start itself: whatever came is passed on, and a bad one is INVALID
+    context.ipc.register(LEDGER_CHANNELS.setYearStart, async (msg: IpcMessage<{ yearStart?: unknown }>) =>
+      toResult(() => session.setYearStart(msg.data?.yearStart as YearStart)))
   ]
 }

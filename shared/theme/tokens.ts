@@ -13,7 +13,12 @@ export interface ResolvedThemeTokens {
   background: { default: string, paper: string }
   text: { primary: string, secondary: string }
   divider: string
+  /** Twelve colours for charts' series, in order. */
+  chart: string[]
 }
+
+/** How many colours a chart palette has. */
+export const CHART_PALETTE_SIZE = 12
 
 /**
  * The tokens `theme` shows in `mode`: its own, with anything it leaves out
@@ -32,7 +37,9 @@ export function tokensFor(theme: ThemeDescriptor, mode: ThemeMode): ResolvedThem
     success: own.success ?? base.success,
     background: { default: own.background?.default ?? base.background.default, paper: own.background?.paper ?? base.background.paper },
     text: { primary: own.text?.primary ?? base.text.primary, secondary: own.text?.secondary ?? base.text.secondary },
-    divider: own.divider ?? base.divider
+    divider: own.divider ?? base.divider,
+    // A theme's own first; the shell's for the rest, so a theme setting three colours still gives charts twelve
+    chart: Array.from({ length: CHART_PALETTE_SIZE }, (_, i) => own.chart?.[i] ?? base.chart[i])
   }
 }
 

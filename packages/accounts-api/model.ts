@@ -109,6 +109,12 @@ export interface AccountArchived {
   count: number
   /** The balance the account opened with on `openingDate`, before the first archive carried anything into it. */
   originalOpeningBalance: number
+  /**
+   * How many of `count` were archived with their totals kept by `accounts` (`AccountsService.archivedTotals`), voided
+   * ones included: every archive since accounts-api 1.15. Less than `count` (or absent) means an archive before then
+   * left no totals, so the account's history before its last archival date is incomplete. (Since 1.15.)
+   */
+  countWithTotals?: number
   /** The highest numeric transaction number archived, so the next cheque number suggested still follows it. */
   highestNumber?: number
 }
@@ -143,6 +149,8 @@ export interface TotalsQuery {
   accountIds?: string[]
   /** Include transfers, totalled by their other account. Default false. */
   includeTransfers?: boolean
+  /** Also total by payee: each row then has `payeeId` (null for none). Default false. (Since 1.15.) */
+  byPayee?: boolean
 }
 
 /**
@@ -164,6 +172,8 @@ export interface TransactionTotal {
   outflow: number
   /** How many transactions. */
   count: number
+  /** With `byPayee`: the payee, or null for none. Absent otherwise. (Since 1.15.) */
+  payeeId?: string | null
 }
 
 /**
@@ -177,6 +187,61 @@ export interface ArchivedTotal extends TransactionTotal {
   subLedgerId: string | null
   /** For transfers: the other account's sub-ledger; null for one directly in the ledger. Absent otherwise. */
   transferSubLedgerId?: string | null
+  /**
+   * The account's name when it was archived, from `AccountsService.archivedTotals` (not in `removedTotals`): an archive
+   * may remove a closed account, and its name with it. (Since 1.15.)
+   */
+  accountName?: string
+}
+
+/**
+ * An account an archive removed (closed, with nothing left), as the archive kept it, so reports can still place its
+ * history: what it was, where, and what it opened with. Its totals are in `archivedTotals`, its past balances in
+ * `balanceHistory` (`removed: true`). (Since 1.15.)
+ */
+export interface RemovedAccount {
+  /** Its id while it existed: the one its archived totals and balances carry. */
+  id: string
+  name: string
+  type: AccountType
+  currency: string
+  /** Its sub-ledger when removed (moved to the parent if that sub-ledger is deleted since); null for the ledger itself. */
+  subLedgerId: string | null
+  openingDate: string
+  /** The balance it opened with, before any archive carried anything into it. */
+  openingBalance: number
+  closedOn?: string
+  /** The archive date that removed it. */
+  removedBefore: string
+  /** False when an archive before 1.15 took some of its history without keeping totals: known only from `removedBefore`. */
+  complete: boolean
+}
+
+/** The most dates one `AccountsService.balanceHistory` takes: twenty years of month ends. (Since 1.15.) */
+export const BALANCE_DATES_MAX = 240
+
+/** `AccountsService.balanceHistory`: which balances, at which dates. (Since 1.15.) */
+export interface BalanceQuery {
+  /** YYYY-MM-DD, at most `BALANCE_DATES_MAX`, in any order; each is answered once. */
+  dates: string[]
+  /** Only these accounts (an account an archive removed is named by its old id). Default: every account, closed ones included. */
+  accountIds?: string[]
+}
+
+/** An account's balance at the end of a day. (Since 1.15.) */
+export interface BalancePoint {
+  accountId: string
+  /** YYYY-MM-DD. */
+  date: string
+  /** Minor units: the opening balance plus every non-voided transaction dated on or before `date`, archived ones included. */
+  balance: number
+  /**
+   * False when `date` falls inside a month an archive removed some of the account's transactions from: archived totals
+   * are kept by month, so `balance` counts that month's archived ones as of its end.
+   */
+  exact: boolean
+  /** The account is one an archive removed (closed and empty): its history comes from what the archive kept. */
+  removed?: true
 }
 
 /** Uncleared, then E (the bank reported it), C (the user cleared it), R (reconciled). Void is a separate flag. */

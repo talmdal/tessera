@@ -11,7 +11,8 @@
       "./NewLedgerDialog": "src/renderer/NewLedgerDialog.tsx",
       "./RenameDialog": "src/renderer/RenameDialog.tsx",
       "./RestoreDialog": "src/renderer/RestoreDialog.tsx",
-      "./ArchiveDialog": "src/renderer/ArchiveDialog.tsx"
+      "./ArchiveDialog": "src/renderer/ArchiveDialog.tsx",
+      "./PropertiesDialog": "src/renderer/PropertiesDialog.tsx"
     }
   },
   "services": {

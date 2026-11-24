@@ -196,7 +196,7 @@ describe('File › Archive Ledger…', () => {
     expect(env.activity.at(-1)).toBe(`Archived “Home” before ${displayDate('2026-01-01')}`)
   })
 
-  it('puts the last archive in the dialog, and suggests the date the settings give', async () => {
+  it('puts the last archive in the dialog, and suggests the date the ledger\'s year start and the years to keep give', async () => {
     const env = await archiving({ settings: { 'ledger.archive': { yearStartMonth: 4, yearStartDay: 6, keepYears: 1 } } })
     await env.run(LEDGER_COMMANDS.archive, { before: '2025-01-01' })
 

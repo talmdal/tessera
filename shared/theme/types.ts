@@ -63,7 +63,10 @@ export const DEFAULT_THEME: ThemeDescriptor = {
     success: '#2e7d32',
     background: { default: '#fafafa', paper: '#ffffff' },
     text: { primary: 'rgba(0, 0, 0, 0.87)', secondary: 'rgba(0, 0, 0, 0.6)' },
-    divider: 'rgba(0, 0, 0, 0.12)'
+    divider: 'rgba(0, 0, 0, 0.12)',
+    // Reports' Phase R0 chose these: a standard categorical palette had half its colours below 3:1 on this paper.
+    // Each is 4.92:1 or more on #ffffff (docs/reporting-design.md, "4. Charts")
+    chart: ['#1565c0', '#c2410c', '#b91c1c', '#0f766e', '#2e7d32', '#a16207', '#7e22ce', '#be185d', '#6d4c41', '#475569', '#0369a1', '#4d7c0f']
   },
   dark: {
     primary: '#90caf9',
@@ -74,7 +77,9 @@ export const DEFAULT_THEME: ThemeDescriptor = {
     success: '#66bb6a',
     background: { default: '#121212', paper: '#1e1e1e' },
     text: { primary: 'rgba(255, 255, 255, 0.87)', secondary: 'rgba(255, 255, 255, 0.6)' },
-    divider: 'rgba(255, 255, 255, 0.12)'
+    divider: 'rgba(255, 255, 255, 0.12)',
+    // Each 8.78:1 or more on #1e1e1e
+    chart: ['#90caf9', '#fdba74', '#fca5a5', '#5eead4', '#86efac', '#fde047', '#d8b4fe', '#f9a8d4', '#d7ccc8', '#cbd5e1', '#7dd3fc', '#bef264']
   }
 }
 

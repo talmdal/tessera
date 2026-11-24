@@ -14,6 +14,18 @@ export interface LedgerInfo {
   id?: string
   /** Set when this is an archive file, open read-only for viewing (File › Open Ledger… on a `.tesserabkp` archive). */
   archive?: LedgerArchiveInfo
+  /**
+   * When the ledger's year begins: a calendar year, or a fiscal or tax year (6 April). Set on every open ledger (read
+   * it with `yearStartOf`, which defaults it for a hand-made `LedgerInfo`). Reports' years and quarters, the date
+   * Archive Ledger… suggests and the month New Budget… suggests all follow it. (Since ledger-api 1.5.)
+   */
+  yearStart?: YearStart
+}
+
+/** The day a year begins: a month, 1 to 12, and a day of it that exists every year (February stops at 28). */
+export interface YearStart {
+  month: number
+  day: number
 }
 
 /** What an open archive file is. */

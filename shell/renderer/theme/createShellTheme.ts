@@ -70,7 +70,8 @@ export function createShellTheme(descriptor: ThemeDescriptor, mode: ThemeMode, {
       success: { main: tokens.success },
       background: tokens.background,
       text: tokens.text,
-      divider: tokens.divider
+      divider: tokens.divider,
+      chart: tokens.chart
     },
     typography: {
       ...fontOptions.typography,

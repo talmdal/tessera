@@ -26,7 +26,11 @@ platform.
   the left bar manages sub-ledgers. Other plugins store their data in the open
   ledger through the `ledger.session` service and the `ledger.schema`
   extension point ([@tessera/ledger-api](packages/ledger-api/),
-  [design](docs/account-manager-design.md#the-ledger)).
+  [design](docs/account-manager-design.md#the-ledger)). *File › Ledger
+  Properties…* shows the ledger's name and file and sets **when its year
+  starts** (a calendar year, or a tax or fiscal year such as 6 April), which
+  archiving, new budgets and reports follow
+  ([design](docs/reporting-design.md#the-ledgers-year-start)).
 - **Backups** (the `ledger` plugin): *File › Back Up Ledger…* writes a checked
   copy of the open ledger (`.tesserabkp`) while it stays open, suggesting
   *Documents/Tessera Backups*; expired backups of the ledger there are trimmed
@@ -50,8 +54,10 @@ platform.
   ledger's file is then compacted, and the message says how much smaller it
   is. The dialog shows what will go and warns about what isn't reconciled.
   *File › Open Ledger…* opens an archive file read-only, and nothing in it can
-  be changed; *Restore Ledger…* restores one. Tools › Options… › Ledger ›
-  Archiving sets the date the dialog suggests
+  be changed; *Restore Ledger…* restores one. The dialog suggests the start
+  of the ledger's year, and Tools › Options… › Ledger › Archiving can keep
+  earlier years too. The archive keeps the totals of what it removes, and a
+  record of each account it removes, so past figures stay true
   ([design](docs/ledger-compaction-design.md)).
 - **Accounts** (the `accounts` plugin): chequing, savings, credit card,
   mortgage, investment and other accounts, in the ledger or any sub-ledger.
@@ -60,7 +66,9 @@ platform.
   them. Balances are shown the Microsoft Money way (what you owe is negative,
   in red), with totals per currency. Reports and importers use the
   `accounts.service` service, which also totals transactions by account, month
-  and category (`transactionTotals`, for reports and budgets) ([@tessera/accounts-api](packages/accounts-api/),
+  and category, and by payee (`transactionTotals`, for reports and budgets),
+  gives what archives removed as totals (`archivedTotals`) and balances at past
+  dates (`balanceHistory`) ([@tessera/accounts-api](packages/accounts-api/),
   [how](docs/plugin-creation.md#using-accounts-from-another-plugin)).
   An account can keep a **minimum balance** and show the balance above it.
 - **Transactions and the register**: each account's **register** (in the
@@ -162,6 +170,28 @@ platform.
   *Budgets* tab beside the Accounts navigator lists the ledger's budgets; an archive file shows its budgets read-only.
   Other plugins read budgets through `budget.service` ([@tessera/budget-api](packages/budget-api/),
   [how](docs/plugin-creation.md#using-budgets-from-another-plugin), [design](docs/budget-design.md)).
+- **Reports** (the `reports` plugin): a *Reports* tab beside Budgets, and a *Reports* menu, list seven reports:
+  **Income vs Expenses**, **Spending by Category**, **Spending by Payee**, **Category Trends** and **Cash Flow**, then
+  **Net Worth** and **Account Balances**. The report view shows one with a chart above its table, or either alone: its
+  heading sets the period (presets on the ledger's year start, or dates; Page Up and Page Down step it), the accounts
+  (the whole ledger, a sub-ledger and what is beneath it, the everyday accounts, or accounts chosen), the currency, and
+  what to compare with (the period before, a year before, another date, or sub-ledgers side by side). Rows fold; a
+  negative net shows in red; *Show Transactions* (double-click a figure, or Ctrl+Enter) lists what makes it up, with
+  *Open Register*, and says how much of it archives hold. A report runs again when its figures change, while on
+  screen. Reports stay true after an archive, and an archive file's can be looked at. Any plugin can add data sources
+  and reports through `reports.sources` and `reports.definitions`, and open a report with `reports.show`
+  ([@tessera/reports-api](packages/reports-api/), [design](docs/reporting-design.md)). *Customise Report…* sets a
+  report's own choices (its detail, columns, chart, how many rows before *Other*), and *Save Report As…* keeps a report,
+  as it is shown, in the ledger, under *My Reports* in the Reports tab, where it can be renamed, duplicated or deleted;
+  a report not saved opens as it was last left. Tools › Options… › Reports sets what reports open on and how many rows
+  come before *Other*. The budget plugin adds an eighth, under *Budgets*: **Budget vs Actual**, the budget view's rows
+  with Budget, Actual, Remaining and % used for the period (or month by month), Budget beside Actual for the expense
+  lines, its figures the budget view's own; the budget view's *⋯ › Show as Report* opens it on the budget shown. Either
+  plugin works with the other turned off. *Print Report…* (Ctrl+P) prints the report shown, chart and table as on
+  screen, every row, on portrait or landscape pages as its width needs (a table too wide for one in blocks of
+  columns), in light colours whatever the theme, pages numbered; *Save Report as PDF…* writes the same as a PDF;
+  *Export Report…* writes its table to CSV for a spreadsheet, amounts exact, rows labelled by their paths (*Food :
+  Groceries*).
 
 - **Plugin runtime:** discovers plugins on disk, validates their manifests,
   orders activation by service dependencies, isolates failures (a broken
@@ -193,14 +223,18 @@ platform.
   TSX) into `modules/<id>/` with `npm run build:plugins`, and loaded before
   user-installed plugins.
 - **Services:** plugins provide and require services, such as `ledger.session`,
-  declared in their manifest. The shell provides `shell.prompts` and
-  `shell.files`; plugins provide `storage.engine` (the `storage-sqlite` plugin
+  declared in their manifest. The shell provides `shell.prompts`,
+  `shell.files` and `shell.print`; plugins provide `storage.engine` (the `storage-sqlite` plugin
   by default, or `storage-loki`) and `app.state` (provided by `app-state`,
   which requires `storage.engine`).
 - **Dialogs, prompts and files:** plugins ask the user through the shell:
   native confirmation and message boxes, a text prompt, open and save file
   dialogs, the OS trash, and modal dialogs of their own (`shell.dialogs`),
-  drawn in the shell's frame. See
+  drawn in the shell's frame. Files the user chose are written whole or not at
+  all (`shell.files.writeFile`). **Printing** (`shell.print`): the system's
+  print dialog, or a PDF on the paper of the user's region; a view prints what
+  it puts in its print area (`PrintArea` from `@tessera/ui`), in light colours
+  whatever the theme, with numbered pages. See
   [Asking the user](docs/plugin-creation.md#asking-the-user-dialogs-prompts-and-files).
 - **Settings (preferences):** a plugin registers its settings and their
   defaults (`context.settings`), reads them from the first line of `activate`,
@@ -231,7 +265,10 @@ platform.
   its colours, with a preview), and is kept as a setting; OK or Apply re-themes every
   window. Plugins can contribute themes (`shell.themes`, checked for contrast) and
   icons (`shell.icons`, fetched when first drawn), and a window stays hidden until
-  its theme is applied. See [docs/theming-design.md](docs/theming-design.md) and
+  its theme is applied. **Charts** come from `@tessera/ui/charts` (bars, lines,
+  areas and donuts, drawn by MUI X Charts, loaded the first time a view draws one),
+  in the theme's **chart palette** (twelve colours per mode, each checked for
+  contrast, which a theme may set). See [docs/theming-design.md](docs/theming-design.md) and
   [Styling and theming](docs/plugin-creation.md#styling-and-theming).
 - **Fonts:** text is drawn in *font roles* (Interface text, Headings, Small text,
   Tables and registers, Amounts and figures, Fixed-width text). The Options
@@ -352,6 +389,13 @@ try.
 | `npm run dev:renderer` | Renderer dev server only |
 | `npm run dev:electron` | Launch Electron against the current build |
 
+The tests in `tests/browser/` draw charts and the report view in **headless
+Chromium** (through `playwright-core`), for what jsdom can't show: layout, SVG,
+painted frames. They find Chromium from `TESSERA_CHROMIUM`, Playwright's own
+browser, or `PLAYWRIGHT_BROWSERS_PATH`; where there is none they are skipped,
+saying why (`npx playwright install chromium` installs one). Set
+`TESSERA_SCREENSHOTS` to a folder to keep screenshots of what they drew.
+
 Type-check with `npx tsc --noEmit -p <core|shared|shell|plugins|scripts|tests>`.
 Always pass `--noEmit`: the tsconfigs don't set an output directory yet, so a
 bare `tsc -b` writes `.js` files next to the sources. The shell and tests
@@ -374,12 +418,13 @@ scripts/dev.mts       Development launcher used by npm run dev
 scripts/build-plugins.mts  Builds bundled plugins from plugins/ into modules/
 scripts/anonymise.mts Takes the personal data out of real statement files (npm run anonymise)
 tests/                Vitest suites, mirroring the source folders, plus
-                      architecture boundary tests and fixtures
+                      architecture boundary tests, fixtures, and
+                      tests/browser (in headless Chromium)
 docs/                 Plugin guide, design notes and open-work list
 packages/             Libraries plugins bundle: storage-kit (the shared half
                       of every storage backend), and the Finance plugins'
                       published contracts, ledger-api, accounts-api,
-                      import-api, export-api and budget-api
+                      import-api, export-api, budget-api and reports-api
 plugins/              Source of bundled (built-in) plugins, one folder each:
                       accounts (accounts and the navigator), app-state
                       (application state), ledger (ledger files
@@ -390,7 +435,12 @@ plugins/              Source of bundled (built-in) plugins, one folder each:
                       type, which reads it and writes it, export
                       (File › Export…, Accounts › Export Account…),
                       budget (the Budget menu, the budget view and
-                      the Budgets tab, and budget.service),
+                      the Budgets tab, budget.service, and the
+                      Budget vs Actual report), reports
+                      (the report manager: reports.service, its
+                      sources and seven reports, the Reports tab,
+                      the report view and the Reports menu, printing,
+                      PDF and CSV),
                       storage-sqlite (the default
                       storage engine), storage-loki (LokiJS storage
                       engine), test-layout (exercises every layout
@@ -463,6 +513,22 @@ samples/statements/   Sample bank statements to import by hand, with walkthrough
   the budget's scope, and kept true through archives); a budget view for a
   month, the year to date or the year, showing what remains; Fill from
   History; and a home view widget; phases B0 to B6
+- [docs/reporting-design.md](docs/reporting-design.md): the design and plan
+  for reports (reviewed; phases R0 to R6 done: the spike; the ledger and
+  accounts additions (totals by payee, archived totals, balances at past dates
+  and the ledger's year start, with *File › Ledger Properties…*); the report
+  domain (`@tessera/reports-api`, the `reports` plugin, its two sources, seven
+  reports and saved reports); the Reports tab, the report view, Show
+  Transactions, the Reports menu and charts (`@tessera/ui/charts`, drawn by MUI
+  X Charts); customising and saving reports, with the Reports page; Budget
+  vs Actual, added by the budget plugin; and printing, PDF and CSV, with
+  `shell.print`; still to check by hand in `npm run dev`): an extensible
+  `reports` plugin with `@tessera/reports-api`, where any plugin adds
+  data sources and report definitions; eight reports (Income vs Expenses,
+  Spending by Category and by Payee, Net Worth, Account Balances, Cash Flow,
+  Budget vs Actual and Category Trends), by sub-ledger too; customising and
+  saving reports, printing, PDF and CSV; and room for a report designer later;
+  phases R0 to R6
 - [docs/todo.md](docs/todo.md): known gaps and planned work
 
 ## License

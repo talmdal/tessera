@@ -17,6 +17,6 @@
   },
   "services": {
     "requires": ["accounts.service", "ledger.session", "shell.prompts", "app.state"],
-    "provides": ["budget.service", "budget.migrator"]
+    "provides": ["budget.service", "budget.migrator", "budget.reportSource"]
   }
 }

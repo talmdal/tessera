@@ -1,6 +1,6 @@
 // shell/main/dialogs/registerDialogs.ts
-import type { DialogContribution, IpcMessage, PluginContext, PluginRuntime, ShellFiles, ShellPrompts } from '@tessera/types'
-import { DIALOGS_EXTENSION_POINT, SHELL_FILES_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
+import type { DialogContribution, IpcMessage, PluginContext, PluginRuntime, ShellFiles, ShellPrint, ShellPrompts } from '@tessera/types'
+import { DIALOGS_EXTENSION_POINT, SHELL_FILES_SERVICE, SHELL_PRINT_SERVICE, SHELL_PROMPTS_SERVICE } from '@tessera/types'
 import type { DialogService } from '../../../core/dialogs/DialogService'
 import { DIALOG_CLOSE, DialogClose, PROMPT_DIALOG, PROMPT_DIALOG_MODULE } from '../../../shared/dialogs/types'
 
@@ -10,7 +10,7 @@ const BUILT_IN_DIALOGS: DialogContribution[] = [
 ]
 
 /**
- * Provides `shell.prompts` and `shell.files`, contributes the shell's own dialogs, and routes each window's answers
+ * Provides `shell.prompts`, `shell.files` and (when given) `shell.print`, contributes the shell's own dialogs, and routes each window's answers
  * (`shell:dialog.close`) back to the dialog service. Must run before plugins activate, so that a plugin can list
  * the services in `services.requires`.
  */
@@ -18,7 +18,7 @@ export function registerDialogs(
   shell: PluginContext,
   runtime: Pick<PluginRuntime, 'services'>,
   dialogs: DialogService,
-  services: { prompts: ShellPrompts, files: ShellFiles }
+  services: { prompts: ShellPrompts, files: ShellFiles, print?: ShellPrint }
 ) {
   for (const dialog of BUILT_IN_DIALOGS) shell.extensions.contribute(shell.pluginId, DIALOGS_EXTENSION_POINT, dialog.id, dialog)
 
@@ -26,4 +26,5 @@ export function registerDialogs(
 
   runtime.services.provide(shell.pluginId, SHELL_PROMPTS_SERVICE, services.prompts)
   runtime.services.provide(shell.pluginId, SHELL_FILES_SERVICE, services.files)
+  if (services.print) runtime.services.provide(shell.pluginId, SHELL_PRINT_SERVICE, services.print)
 }

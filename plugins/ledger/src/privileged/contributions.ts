@@ -13,6 +13,7 @@ export const MENUS = [
   { kind: 'item', id: 'ledger.file.new', label: '&New Ledger…', parent: FILE_MENU, group: 'ledger.file', command: LEDGER_COMMANDS.new },
   { kind: 'item', id: 'ledger.file.open', label: '&Open Ledger…', parent: FILE_MENU, group: 'ledger.file', command: LEDGER_COMMANDS.open, accelerator: 'CmdOrCtrl+O' },
   { kind: 'item', id: 'ledger.file.close', label: '&Close Ledger', parent: FILE_MENU, group: 'ledger.file', command: LEDGER_COMMANDS.close },
+  { kind: 'item', id: 'ledger.file.properties', label: 'Ledger &Properties…', parent: FILE_MENU, group: 'ledger.file', command: LEDGER_COMMANDS.properties },
   { kind: 'item', id: 'ledger.file.backup', label: '&Back Up Ledger…', parent: FILE_MENU, group: 'ledger.backup', command: LEDGER_COMMANDS.backup },
   { kind: 'item', id: 'ledger.file.restore', label: '&Restore Ledger…', parent: FILE_MENU, group: 'ledger.backup', command: LEDGER_COMMANDS.restore },
   { kind: 'item', id: 'ledger.file.archive', label: '&Archive Ledger…', parent: FILE_MENU, group: 'ledger.backup', command: LEDGER_COMMANDS.archive },
@@ -30,7 +31,8 @@ export const DIALOGS: DialogContribution[] = [
   { id: LEDGER_DIALOGS.newLedger, title: 'New Ledger', module: './NewLedgerDialog', size: 'sm' },
   { id: LEDGER_DIALOGS.renameSubLedger, title: 'Rename Sub-Ledger', module: './RenameDialog', size: 'xs' },
   { id: LEDGER_DIALOGS.restore, title: 'Restore Ledger', module: './RestoreDialog', size: 'md' },
-  { id: LEDGER_DIALOGS.archive, title: 'Archive Ledger', module: './ArchiveDialog', size: 'md' }
+  { id: LEDGER_DIALOGS.archive, title: 'Archive Ledger', module: './ArchiveDialog', size: 'md' },
+  { id: LEDGER_DIALOGS.properties, title: 'Ledger Properties', module: './PropertiesDialog', size: 'sm' }
 ]
 
 export const BAR_ITEMS = [

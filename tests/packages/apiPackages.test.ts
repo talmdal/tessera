@@ -7,6 +7,7 @@ import * as accounts from '@tessera/accounts-api'
 import * as imports from '@tessera/import-api'
 import * as exports from '@tessera/export-api'
 import * as budget from '@tessera/budget-api'
+import * as reports from '@tessera/reports-api'
 import { parseManifest, SERVICE_ID_PATTERN } from '../../shared/plugins/manifest'
 import { parseWhen } from '../../shared/context/when'
 
@@ -53,6 +54,18 @@ describe('@tessera/ledger-api', () => {
     expect(ledger.fail('DUPLICATE_NAME', 'Taken', 'name')).toEqual({ ok: false, error: { code: 'DUPLICATE_NAME', message: 'Taken', field: 'name' } })
     expect(ledger.fail('NO_LEDGER', 'No ledger')).toEqual({ ok: false, error: { code: 'NO_LEDGER', message: 'No ledger' } })
   })
+
+  it('is at 1.5, with the ledger\'s year start: its meta key, the properties command, dialog and channel, and the rules', () => {
+    expect(ledger.LEDGER_API_VERSION).toBe('1.5.0')
+    expect(ledger.LEDGER_META.yearStart).toBe('ledger.yearStart')
+    expect(ledger.LEDGER_COMMANDS.properties).toBe('ledger.properties')
+    expect(ledger.LEDGER_DIALOGS.properties).toBe('ledger.dialog.properties')
+    expect(ledger.LEDGER_CHANNELS.setYearStart).toBe('ledger:yearStart.set')
+    expect(ledger.DEFAULT_YEAR_START).toEqual({ month: 1, day: 1 })
+    expect(ledger.YEAR_START_MONTH_DAYS).toEqual([31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31])
+    expect(ledger.yearStartOf({ yearStart: { month: 4, day: 6 } })).toEqual({ month: 4, day: 6 })
+    expect(ledger.yearStartProblem({ month: 2, day: 29 })).toBeDefined()
+  })
 })
 
 describe('@tessera/accounts-api', () => {
@@ -68,8 +81,25 @@ describe('@tessera/accounts-api', () => {
     for (const id of Object.values(accounts.ACCOUNTS_ARCHIVE_OPTIONS)) expect(id.startsWith('accounts.'), id).toBe(true)
   })
 
-  it('is at 1.14, with transaction totals for reports and budgets, the totals an archive removed, and the usual currency', () => {
-    expect(accounts.ACCOUNTS_API_VERSION).toBe('1.14.0')
+  it('is at 1.15, with totals by payee, archived totals, balances at past dates and payees by id, for reports', () => {
+    expect(accounts.ACCOUNTS_API_VERSION).toBe('1.15.0')
+    // 1.15: the shapes reports need (docs/reporting-design.md, "The accounts additions")
+    const byPayee: accounts.TotalsQuery = { from: '2026-01-01', to: '2026-12-31', byPayee: true }
+    const payeeRow: accounts.TransactionTotal = { accountId: 'a', month: '2026-01', categoryId: 'c', transferAccountId: null, inflow: 0, outflow: 100, count: 1, payeeId: null }
+    const named: accounts.ArchivedTotal = { ...payeeRow, currency: 'CAD', subLedgerId: null, accountName: 'Old Savings' }
+    const balances: accounts.BalanceQuery = { dates: ['2026-01-31'], accountIds: ['a'] }
+    const point: accounts.BalancePoint = { accountId: 'a', date: '2026-01-31', balance: 100, exact: true, removed: true }
+    const record: accounts.AccountArchived = { count: 3, originalOpeningBalance: 0, countWithTotals: 3 }
+    const methods: (keyof accounts.AccountsService)[] = ['archivedTotals', 'balanceHistory', 'removedAccounts']
+    const removed: accounts.RemovedAccount = { id: 'a', name: 'Old Visa', type: 'creditCard', currency: 'CAD', subLedgerId: null, openingDate: '2021-01-01', openingBalance: -100, removedBefore: '2026-01-01', complete: true }
+    const lookup: keyof accounts.PayeeDirectory = 'get'
+    const scope: accounts.AccountScopeInput = { kind: 'types', types: ['chequing'], subLedgerId: 's' }
+    expect([byPayee, payeeRow, named, balances, point, record, methods, removed, lookup, scope]).toHaveLength(10)
+    expect(accounts.BALANCE_DATES_MAX).toBe(240)
+    for (const name of Object.values(accounts.ACCOUNTS_COLLECTIONS)) expect(name.startsWith('accounts.'), name).toBe(true)
+  })
+
+  it('had, at 1.14, transaction totals for reports and budgets, the totals an archive removed, and the usual currency', () => {
     // 1.14: the rule a new account, a statement with no currency and a new budget start from, shared
     expect(accounts.mostUsedCurrency([{ currency: 'USD' }, { currency: 'CAD' }, { currency: 'USD' }], 'EUR')).toBe('USD')
     expect(accounts.mostUsedCurrency([{ currency: 'USD' }, { currency: 'CAD' }], 'EUR')).toBe('CAD')      // a tie: the first by code
@@ -190,8 +220,12 @@ describe('@tessera/budget-api', () => {
     expect(budget.BUDGET_ICON.startsWith(`${budget.BUDGET_PLUGIN_ID}.`)).toBe(true)
   })
 
-  it('is at 1.4, with the names and payloads of the budget\'s views (B3), the year, history and copies (B4), its settings (B5), and the review\'s additions', () => {
-    expect(budget.BUDGET_API_VERSION).toBe('1.4.0')
+  it('is at 1.5, with the names and payloads of the budget\'s views (B3), the year, history and copies (B4), its settings (B5), the review\'s additions, and its report (R5)', () => {
+    expect(budget.BUDGET_API_VERSION).toBe('1.5.0')
+    // 1.5: what the budget adds to the reports, each id its own plugin's, and Show as Report
+    for (const id of [...Object.values(budget.BUDGET_REPORTS), budget.BUDGET_COMMANDS.showReport]) expect(id.startsWith(`${budget.BUDGET_PLUGIN_ID}.`), id).toBe(true)
+    const view: Pick<budget.BudgetsView, 'reports'> = { reports: true }
+    expect(view.reports).toBe(true)
     // 1.4: the change the service and the dialogs both apply; what Budget Properties needs to say what a change would do
     expect(typeof budget.applyPlanChange).toBe('function')
     const properties: Pick<budget.BudgetDialogInput, 'lineCount' | 'transferLines'> = { lineCount: 2, transferLines: [{ accountId: 'a', label: 'Transfers from A' }] }
@@ -230,5 +264,75 @@ describe('@tessera/budget-api', () => {
     expect(await budget.toBudgetResult(async () => { throw copy })).toEqual({ ok: false, error: { code: 'DUPLICATE_NAME', message: 'Taken', field: 'name' } })
     expect(await budget.toBudgetResult(async () => 3)).toEqual({ ok: true, value: 3 })
     await expect(budget.toBudgetResult(async () => { throw new Error('a bug') })).rejects.toThrow('a bug')
+  })
+})
+
+describe('@tessera/reports-api', () => {
+  it('names everything after the reports plugin, which is a valid plugin id', () => {
+    expect(() => parseManifest({ id: reports.REPORTS_PLUGIN_ID, name: 'x', version: '1', privileged: { entry: 'x' } })).not.toThrow()
+    for (const id of [reports.REPORTS_SERVICE, reports.REPORTS_MIGRATOR_SERVICE, reports.FLOWS_SOURCE, reports.BALANCES_SOURCE]) {
+      expect(id).toMatch(SERVICE_ID_PATTERN)
+      expect(id.startsWith(`${reports.REPORTS_PLUGIN_ID}.`)).toBe(true)
+    }
+    for (const point of [reports.REPORT_SOURCES_POINT, reports.REPORT_DEFINITIONS_POINT, reports.REPORT_GROUPS_POINT]) expect(point.startsWith('reports.'), point).toBe(true)
+    for (const name of [...Object.values(reports.REPORTS_COLLECTIONS), ...Object.values(reports.REPORT_GROUPS)]) expect(name.startsWith('reports.'), name).toBe(true)
+  })
+
+  it('is at 1.4, with the contract, the limits and the pure code every party shares (R2)', () => {
+    expect(reports.REPORTS_API_VERSION).toBe('1.4.0')
+    expect([reports.REPORTS_SCHEMA_VERSION, reports.REPORT_SPEC_VERSION]).toEqual([1, 1])
+    expect([reports.REPORT_ROWS_MAX, reports.REPORT_CELLS_MAX, reports.REPORT_SERIES_MAX, reports.REPORT_SLICES_MAX, reports.REPORT_COLUMNS_MAX, reports.REPORT_DATES_MAX])
+      .toEqual([5000, 25000, 12, 8, 120, accounts.BALANCE_DATES_MAX])
+    expect([reports.SOURCE_TIMEOUT_MS, reports.REFRESH_DEBOUNCE_MS, reports.DRILL_ROWS_MAX]).toEqual([10000, 250, 1000])
+    expect(reports.EVERYDAY_ACCOUNT_TYPES).toEqual(['chequing', 'savings', 'creditCard', 'lineOfCredit'])
+    for (const f of [reports.shape, reports.specProblems, reports.definitionProblems, reports.applyOptions, reports.migrateSpec, reports.resolvePeriod, reports.resolveAsOf, reports.comparedPeriod, reports.isReportsError, reports.toReportsResult]) {
+      expect(typeof f).toBe('function')
+    }
+    const methods: (keyof reports.ReportsService)[] = ['definitions', 'groups', 'saved', 'open', 'run', 'runSpec', 'saveReport', 'updateReport', 'duplicateReport', 'deleteReport', 'onDidChange']
+    expect(methods).toHaveLength(11)
+  })
+
+  it('adds the UI at 1.1: commands, context keys, views, the dialog, the menu and channels, all named after the plugin (R3)', () => {
+    const names = [
+      ...Object.values(reports.REPORTS_COMMANDS), ...Object.values(reports.REPORTS_CONTEXT_KEYS), ...Object.values(reports.REPORTS_VIEWS),
+      ...Object.values(reports.REPORTS_DIALOGS), reports.REPORTS_MENU, reports.showCommandOf('reports.netWorth')
+    ]
+    for (const name of names) expect(name.startsWith('reports.'), name).toBe(true)
+    expect(reports.showCommandOf('budget.vsActual')).toBe('reports.show.budget.vsActual')
+    for (const channel of [...Object.values(reports.REPORTS_CHANNELS), ...Object.values(reports.REPORTS_EVENTS)]) expect(channel.startsWith('reports:'), channel).toBe(true)
+    expect(new Set(Object.values(reports.REPORTS_CHANNELS)).size).toBe(Object.keys(reports.REPORTS_CHANNELS).length)
+  })
+
+  it('adds customising and saving at 1.2: the Reports page\'s names and defaults, and Show the top under a key no option can have (R4)', () => {
+    expect([reports.REPORTS_SETTINGS_ID, reports.REPORTS_SETTINGS_PAGE]).toEqual(['reports', 'reports.settings'])
+    expect(reports.REPORTS_SETTINGS_DEFAULTS).toEqual({ openOn: 'both', topRows: 25 })
+    expect([reports.TOP_ROWS_MIN, reports.TOP_ROWS_MAX]).toEqual([5, 500])
+    expect(reports.TOP_OPTION).toBe('@top')
+    expect(reports.TOP_OPTION).not.toMatch(/^[A-Za-z]/)
+    for (const command of [reports.REPORTS_COMMANDS.customise, reports.REPORTS_COMMANDS.save, reports.REPORTS_COMMANDS.saveAs, reports.REPORTS_COMMANDS.rename, reports.REPORTS_COMMANDS.duplicate, reports.REPORTS_COMMANDS.deleteSaved]) {
+      expect(command.startsWith('reports.'), command).toBe(true)
+    }
+    expect(reports.REPORTS_CONTEXT_KEYS.changed).toBe('reports.changed')
+  })
+
+  it('adds what a report from another plugin needs at 1.3: a share of another measure, nets read the other way, a plan with no transactions, measures side by side, a source\'s own subject and currency (R5)', () => {
+    // The shapes, held to the contract by the type checker (npx tsc --noEmit -p tests)
+    const use: reports.MeasureUse = { measure: 'actual', label: '% used', show: 'percentOf', of: 'budget' }
+    const net: reports.NetSpec = { label: 'Net', negate: ['remaining'] }
+    const chart: reports.ChartSpec = { kind: 'groupedBar', measure: 0, series: 'measures', measures: [0, 1], under: 'expense' }
+    const field: Pick<reports.MeasureField, 'drillDown' | 'negativeIsBad'> = { drillDown: false }
+    const value: Pick<reports.EnumValue, 'negativeIsBad'> = { negativeIsBad: true }
+    const result: Pick<reports.SourceResult, 'subject' | 'currency'> = { subject: 'Household', currency: 'CAD' }
+    expect([use.show, net.negate, chart.kind, field.drillDown, value.negativeIsBad, result.currency]).toEqual(['percentOf', ['remaining'], 'groupedBar', false, true, 'CAD'])
+  })
+
+  it('adds printing, PDF and CSV at 1.4: three commands, and the request and reply between the plugin and its view (R6)', () => {
+    expect([reports.REPORTS_COMMANDS.exportCsv, reports.REPORTS_COMMANDS.print, reports.REPORTS_COMMANDS.savePdf]).toEqual(['reports.exportCsv', 'reports.print', 'reports.savePdf'])
+    expect(reports.REPORTS_EVENTS.print.startsWith('reports:')).toBe(true)
+    expect(reports.REPORTS_CHANNELS.printReady.startsWith('reports:')).toBe(true)
+    // The shapes, held to the contract by the type checker (npx tsc --noEmit -p tests)
+    const request: reports.PrintRequest = { request: 1, output: 'pdf' }
+    const ready: reports.PrintReady[] = [{ request: 1, landscape: true }, { request: 2, problem: 'The report couldn’t be worked out.' }]
+    expect([request.output, ready.length]).toEqual(['pdf', 2])
   })
 })

@@ -10,13 +10,14 @@ import {
   type AccountsService, type AccountSummary, type CategoryDirectory, type Chart, type ClearingStatus, type CurrencyTotals,
   type BankMatch, type BankUnmatch,
   type PayeeDirectory, type ReconciliationService, type TotalsQuery, type TransactionDraft, type TransactionManager, type TransactionPatch,
-  type TransactionTotal, type WriteOptions
+  type TransactionTotal, type WriteOptions, type ArchivedTotal, type BalancePoint, type BalanceQuery, type RemovedAccount
 } from '@tessera/accounts-api'
 import {
   Emitter, change, collectionsOf, invalid, optionalText, toAccount, translate,
   type Collections, type StoredAccount
 } from './store'
 import { applyArchive, describePlan, planArchive, readLedger, removesClosedAccounts } from './archiveCore'
+import { checkBalanceQuery, readArchivedTotals, readBalanceHistory, readRemovedAccounts, reparentArchived } from './archivedMonths'
 import * as reconcile from './reconcileCore'
 import * as core from './transactionsCore'
 
@@ -291,6 +292,21 @@ export class AccountsServiceImpl implements AccountsService {
     return this.read(c => core.readTotals(c, checked))
   }
 
+  async archivedTotals(query: TotalsQuery): Promise<ArchivedTotal[]> {
+    const checked = core.checkTotalsQuery(query)
+    return this.read(c => readArchivedTotals(c, checked))
+  }
+
+  async removedAccounts(): Promise<RemovedAccount[]> {
+    return this.read(c => readRemovedAccounts(c))
+  }
+
+  async balanceHistory(query: BalanceQuery): Promise<BalancePoint[]> {
+    const checked = checkBalanceQuery(query)
+    const tree = await this.tree()
+    return this.read(c => readBalanceHistory(c, checked, accounts => navigatorOrder(tree, accounts)))
+  }
+
   // ---- Writing accounts
 
   async createAccount(input: AccountInput): Promise<Account> {
@@ -435,7 +451,8 @@ export class AccountsServiceImpl implements AccountsService {
   }
 
   readonly payees: PayeeDirectory = {
-    search: (prefix, limit) => this.read(c => core.searchPayees(c, prefix, limit))
+    search: (prefix, limit) => this.read(c => core.searchPayees(c, prefix, limit)),
+    get: ids => this.read(c => core.getPayees(c, ids))
   }
 
   readonly categories: CategoryDirectory = {
@@ -481,6 +498,8 @@ export class AccountsServiceImpl implements AccountsService {
         await accounts.updateOne({ id: account.id }, { $set: { subLedgerId: to, order: order++ } })
         this.moved.push(account.id)
       }
+      // What archives kept says where accounts were: the deleted sub-ledger's part of it moves to the parent too
+      await reparentArchived(this.c(tx), from, to)
     }
   }
 

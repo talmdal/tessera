@@ -290,6 +290,23 @@ describe('the budget view: the Budget page\'s settings', () => {
   })
 })
 
+describe('Show as Report (R5)', () => {
+  it('is offered only when the reports plugin is there, and shows the budget as Budget vs Actual', async () => {
+    const user = userEvent.setup()
+    const without = await show()
+    await user.click(screen.getByRole('button', { name: 'More actions' }))
+    expect(within(await screen.findByRole('menu')).queryByRole('menuitem', { name: 'Show as Report' })).not.toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+    without.unmount()
+
+    const { executed } = await show({ [BUDGET_CHANNELS.budgets]: () => viewOf({ reports: true }) })
+    await user.click(screen.getByRole('button', { name: 'More actions' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Show as Report' }))
+    await waitFor(() => expect(executed().at(-1)).toEqual({ id: C.showReport, args: [{ id: BUDGET.id }] }))
+  })
+})
+
 describe('the grid\'s rows', () => {
   it('hides rows with nothing this period unless asked, and a subtotal only when everything under it is empty', () => {
     const status = statusFor({ from: '2027-02', to: '2027-02' }, undefined, [])

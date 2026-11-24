@@ -8,7 +8,8 @@
     "expose": {
       "./ThemedView": "src/renderer/ThemedView.tsx",
       "./NameDialog": "src/renderer/NameDialog.tsx",
-      "./ThemedSettingsPage": "src/renderer/ThemedSettingsPage.tsx"
+      "./ThemedSettingsPage": "src/renderer/ThemedSettingsPage.tsx",
+      "./ChartView": "src/renderer/ChartView.tsx"
     }
   }
 }

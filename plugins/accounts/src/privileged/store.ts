@@ -26,12 +26,59 @@ export type StoredReconciliation = Omit<Reconciliation, 'id' | 'rev' | 'addedIds
   adjustmentId?: string
 }
 
+/**
+ * One account's archived totals for one month, packed as flat arrays of numbers against the dictionary
+ * (`StoredArchivedIds`): R0 measured this packing smallest and quickest to write (docs/reporting-design.md, Phase R0
+ * results, 3). Each id is its place in the dictionary; −1 is "none". See archivedMonths.ts.
+ */
+export interface StoredArchivedMonth {
+  accountId: string
+  /** YYYY-MM. */
+  month: string
+  /** The account's name, currency and sub-ledger when it was archived: it may be gone since. */
+  name: string
+  currency: string
+  subLedgerId: string | null
+  /** [category (−1: uncategorised), inflow, outflow, count] for each category. */
+  categories: number[]
+  /** [other account, inflow, outflow, count, that account's sub-ledger then (−1: the ledger itself)] for each. */
+  transfers: number[]
+  /** [category (−1: uncategorised), payee (−1: none), inflow, outflow, count]: the categories' totals by payee. */
+  payees: number[]
+}
+
+/** The ids archived months name, numbered by their place in `ids`. One document, appended to and never reordered. */
+export interface StoredArchivedIds {
+  key: 'ids'
+  ids: string[]
+}
+
+/** What an account an archive removed leaves for its history: its archived months hold its transactions' totals. */
+export interface StoredArchivedAccount {
+  accountId: string
+  name: string
+  type: Account['type']
+  currency: string
+  subLedgerId: string | null
+  openingDate: string
+  /** The balance it opened with, before any archive carried anything into it. */
+  openingBalance: number
+  closedOn?: string
+  /** The archive date that removed it. */
+  removedBefore: string
+  /** Every archived transaction of it has its totals kept (no archive before 1.15 took any). */
+  complete: boolean
+}
+
 export interface Collections {
   accounts: Collection<StoredAccount>
   transactions: Collection<StoredTransaction>
   payees: Collection<StoredPayee>
   categories: Collection<StoredCategory>
   reconciliations: Collection<StoredReconciliation>
+  archivedMonths: Collection<StoredArchivedMonth>
+  archivedIds: Collection<StoredArchivedIds>
+  archivedAccounts: Collection<StoredArchivedAccount>
 }
 
 /** The collections, read through the database or written through a transaction. */
@@ -41,7 +88,10 @@ export function collectionsOf(source: Database | StorageTransaction): Collection
     transactions: source.collection<StoredTransaction>(ACCOUNTS_COLLECTIONS.transactions),
     payees: source.collection<StoredPayee>(ACCOUNTS_COLLECTIONS.payees),
     categories: source.collection<StoredCategory>(ACCOUNTS_COLLECTIONS.categories),
-    reconciliations: source.collection<StoredReconciliation>(ACCOUNTS_COLLECTIONS.reconciliations)
+    reconciliations: source.collection<StoredReconciliation>(ACCOUNTS_COLLECTIONS.reconciliations),
+    archivedMonths: source.collection<StoredArchivedMonth>(ACCOUNTS_COLLECTIONS.archivedMonths),
+    archivedIds: source.collection<StoredArchivedIds>(ACCOUNTS_COLLECTIONS.archivedIds),
+    archivedAccounts: source.collection<StoredArchivedAccount>(ACCOUNTS_COLLECTIONS.archivedAccounts)
   }
 }
 

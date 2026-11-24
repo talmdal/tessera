@@ -1,8 +1,9 @@
 // The rules an account's fields follow, shared by the service (which enforces them) and the dialogs (which show
 // them as the user types). Pure functions.
+import { descendantIds, type TreeNode } from '@tessera/ledger-api'
 import { isCurrencyCode } from './money'
 import { MAX_AMOUNT } from './money'
-import { ACCOUNT_CLASS, ACCOUNT_TYPES, type Account, type AccountType } from './model'
+import { ACCOUNT_CLASS, ACCOUNT_TYPES, type Account, type AccountType, type TransactionTotal } from './model'
 
 export const ACCOUNT_NAME_MAX_LENGTH = 100
 export const ACCOUNT_TEXT_MAX_LENGTH = 100
@@ -124,3 +125,97 @@ export function categoryLabel(categories: readonly { id: string, parentId: strin
 /** "Transfer to: Savings" for money leaving this account, "Transfer from: Savings" for money arriving. */
 export const transferLabel = (amount: number, otherAccount: string) =>
   `${amount < 0 ? 'Transfer to' : 'Transfer from'}: ${otherAccount}`
+
+// ---- What a budget or a report covers (since 1.15)
+
+/**
+ * The accounts a budget or a report covers: the whole ledger; a sub-ledger and everything beneath it; accounts of some
+ * types, in the ledger or beneath a sub-ledger (a report's *Everyday accounts*); or accounts chosen by id.
+ */
+export type AccountScopeInput =
+  | { kind: 'ledger' }
+  | { kind: 'subLedger', subLedgerId: string }
+  | { kind: 'types', types: readonly AccountType[], subLedgerId?: string }
+  | { kind: 'accounts', accountIds: readonly string[] }
+
+/** An account as a scope judges it: where it is (or, for one an archive removed, where it was), and its type if known. */
+export interface ScopedAccount {
+  id: string
+  subLedgerId: string | null
+  type?: AccountType
+}
+
+export interface AccountScope {
+  /** Whether an account is in the scope. One whose type isn't known is outside a scope of types. */
+  covers(account: ScopedAccount): boolean
+  /** The accounts given that are in the scope, in any currency: a transfer with one of these stays inside it. */
+  inside: ReadonlySet<string>
+  /** Those in the scope and the currency: the ones whose transactions count. */
+  counted: ReadonlySet<string>
+  /** Those in the scope left out for their currency, by name. */
+  notCounted: { accountId: string, name: string, currency: string }[]
+}
+
+/**
+ * The scope `input` draws over `accounts` (the ledger's, as `accounts.service.list()` gives them), for figures in
+ * `currency`. Closed accounts are covered: their history is still history. A sub-ledger covers its descendants, and
+ * accounts are judged where they are now, as budgets judge them (docs/budget-design.md, "Budgets").
+ */
+export function accountScope(
+  input: AccountScopeInput,
+  subLedgers: readonly TreeNode[],
+  accounts: readonly Pick<Account, 'id' | 'name' | 'subLedgerId' | 'currency' | 'type'>[],
+  currency: string
+): AccountScope {
+  const beneath = (subLedgerId: string | undefined) => subLedgerId === undefined
+    ? undefined
+    : new Set<string>([subLedgerId, ...descendantIds(subLedgers, subLedgerId)])
+  let covers: (account: ScopedAccount) => boolean
+  switch (input.kind) {
+    case 'ledger':
+      covers = () => true
+      break
+    case 'subLedger': {
+      const within = beneath(input.subLedgerId)!
+      covers = a => a.subLedgerId !== null && within.has(a.subLedgerId)
+      break
+    }
+    case 'types': {
+      const types = new Set(input.types)
+      const within = beneath(input.subLedgerId)
+      covers = a => a.type !== undefined && types.has(a.type) && (within === undefined || (a.subLedgerId !== null && within.has(a.subLedgerId)))
+      break
+    }
+    case 'accounts': {
+      const ids = new Set(input.accountIds)
+      covers = a => ids.has(a.id)
+      break
+    }
+  }
+  const inScope = accounts.filter(a => covers(a))
+  return {
+    covers,
+    inside: new Set(inScope.map(a => a.id)),
+    counted: new Set(inScope.filter(a => a.currency === currency).map(a => a.id)),
+    notCounted: inScope.filter(a => a.currency !== currency)
+      .map(a => ({ accountId: a.id, name: a.name, currency: a.currency }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }
+}
+
+/**
+ * Whether a total crosses the scope: a transfer whose other account is outside it. The other account is judged where
+ * it is, when it still exists (`exists`), else where it was when archived (`transferSubLedgerId`, as archived totals
+ * carry it). A total that isn't a transfer never crosses. Budgets count a transfer exactly when it crosses; so do
+ * reports' flows.
+ */
+export function crossesScope(
+  total: Pick<TransactionTotal, 'transferAccountId'> & { transferSubLedgerId?: string | null },
+  scope: AccountScope,
+  exists: (accountId: string) => boolean
+): boolean {
+  const other = total.transferAccountId
+  if (other === null || other === undefined) return false
+  if (exists(other)) return !scope.inside.has(other)
+  return !scope.covers({ id: other, subLedgerId: total.transferSubLedgerId ?? null })
+}

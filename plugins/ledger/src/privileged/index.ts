@@ -48,6 +48,8 @@ export function publicSession(session: LedgerSessionImpl): LedgerSession {
     registerNavigator: contributor => session.registerNavigator(contributor),
     beginOperation: label => session.beginOperation(label),
     get operation() { return session.operation },
+    setYearStart: yearStart => session.setYearStart(yearStart),
+    onDidChangeInfo: session.onDidChangeInfo,
     onWillClose: listener => session.onWillClose(listener),
     onDidChange: session.onDidChange,
     onDidChangeTree: session.onDidChangeTree,
@@ -75,7 +77,11 @@ export async function activate(context: PluginContext, options: ActivateOptions 
   // What the ledger remembers (recent ledgers, the last one open) is its state; how many to list is a setting
   const recent = new RecentLedgers(context.state, undefined, () => settings.get().recentLimit)
   const schema = new SchemaRegistry(context.extensions, context.services, context.logger)
-  const session = new LedgerSessionImpl({ engine, files, prompts, recent, schema, disk, log: context.logger, ...(options.now && { now: options.now }) })
+  // A ledger without a year start of its own takes the one the Archiving page kept before ledgers had one
+  const defaultYearStart = () => ({ month: archiveSettings.get().yearStartMonth, day: archiveSettings.get().yearStartDay })
+  const session = new LedgerSessionImpl({
+    engine, files, prompts, recent, schema, disk, log: context.logger, defaultYearStart, ...(options.now && { now: options.now })
+  })
   const publisher = new LedgerPublisher(context, session, recent, disk)
   active = session
   const showProblem = (problem: Parameters<typeof problemText>[0] | undefined) =>
@@ -110,6 +116,8 @@ export async function activate(context: PluginContext, options: ActivateOptions 
       void publisher.publishRecent()
     }),
     session.onDidChangeTree(tree => publisher.publishTree(tree)),
+    // The state carries the ledger's information: its year start, for the properties dialog and the other windows
+    session.onDidChangeInfo(() => publisher.publishState()),
     session.onDidChangeNavigator(() => publisher.publishState()),
     // The file commands are disabled, and the status bar can say why, while an import or a backup runs
     session.onDidChangeOperation(() => publisher.publishState()),

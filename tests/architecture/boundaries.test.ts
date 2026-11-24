@@ -98,7 +98,8 @@ describe('architecture boundaries', () => {
       'accounts-api': ['@tessera/types', '@tessera/ledger-api'],
       'import-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api'],
       'export-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api'],
-      'budget-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api']
+      'budget-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api'],
+      'reports-api': ['@tessera/types', '@tessera/ledger-api', '@tessera/accounts-api']
     }
     const found = Object.entries(allowed).flatMap(([name, deps]) => violations(`packages/${name}`, spec => {
       const normal = spec.split(path.sep).join('/')
@@ -172,4 +173,23 @@ describe('architecture boundaries', () => {
     expect(files.filter(file => loose.test(fs.readFileSync(path.join(repo, file), 'utf8')))).toEqual([])
     expect(/\bnew Date\b|\bDate\.(UTC|parse|now)\b/.test(fs.readFileSync(path.join(repo, 'packages/budget-api/plan.ts'), 'utf8'))).toBe(false)
   })
+
+  it('the report manager names no report it ships: its seven definitions are contributed like any plugin\'s', () => {
+    // docs/reporting-design.md, "Designing for the report designer": no private path
+    const dir = path.join(repo, 'plugins/reports/src')
+    const definitions = sourceFiles(path.join(dir, 'privileged/definitions'))
+    const ids = definitions.flatMap(file => [...fs.readFileSync(file, 'utf8').matchAll(/id: '(reports\.[A-Za-z]+)'/g)].map(m => m[1]))
+    expect(ids).toHaveLength(7)
+    const manager = sourceFiles(dir).filter(file => !definitions.includes(file))
+    expect(manager.flatMap(file => ids.filter(id => fs.readFileSync(file, 'utf8').includes(id)).map(id => `${path.relative(repo, file)} names ${id}`))).toEqual([])
+  })
+
+  it('reports work out figures with integers only, and dates never through a Date', () => {
+    // docs/reporting-design.md, "Security, privacy and robustness": the divisions are the engine's, through BigInt
+    const files = ['packages/reports-api/engine.ts', 'packages/reports-api/periods.ts', 'plugins/reports/src/privileged/flows.ts', 'plugins/reports/src/privileged/balances.ts']
+    const loose = /\.toFixed\(|\bparseFloat\(|\bMath\.round\(/
+    expect(files.filter(file => loose.test(fs.readFileSync(path.join(repo, file), 'utf8')))).toEqual([])
+    expect(/\bnew Date\b|\bDate\.(UTC|parse|now)\b/.test(fs.readFileSync(path.join(repo, 'packages/reports-api/periods.ts'), 'utf8'))).toBe(false)
+  })
 })
+

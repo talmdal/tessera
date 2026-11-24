@@ -110,6 +110,15 @@ describe('contrastFindings', () => {
     expect(findings[0]).toMatchObject({ mode: 'light', pair: 'primary on background.paper', minimum: MIN_UI_CONTRAST })
   })
 
+  it('reports a chart colour that cannot be seen against the paper, naming which', () => {
+    const faint: ThemeDescriptor = { id: 'p.faint', label: 'Faint', light: { chart: ['#1565c0', '#f5f5f5'] } }
+
+    const findings = contrastFindings(faint)
+
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({ mode: 'light', pair: 'chart[1] on background.paper', minimum: MIN_UI_CONTRAST })
+  })
+
   it('judges only the modes a theme has, measuring what it shows: its tokens over the shell\'s', () => {
     // Only a dark variant that sets nothing: all the shell's dark colours, which pass
     expect(contrastFindings({ id: 'p.d', label: 'D', dark: {} })).toEqual([])

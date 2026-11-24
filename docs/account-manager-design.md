@@ -246,6 +246,7 @@ A ledger is one database opened through `storage.engine` with
 | `ledger.createdAt` | ISO timestamp |
 | `ledger.createdWith` | Application version |
 | `ledger.id` | The ledger's identity, a ULID: written when it is created, or the first time an older ledger is opened writable. Added for backups ([backup-restore-design.md](backup-restore-design.md#ledger-identity)) |
+| `ledger.yearStart` | When the ledger's year begins, `{ month, day }` (a calendar year, or a tax or fiscal year: 6 April). Written when it is created, or the first time an older ledger is opened writable, from the Archiving page's old year start; set in *File › Ledger Properties…*. Reports, *Archive Ledger…* and *New Budget…* follow it. Added for reports, ledger-api 1.5 ([reporting-design.md](reporting-design.md#the-ledgers-year-start)) |
 | `ledger.schema.<contributor>` | Schema version of each `ledger.schema` contributor, such as `ledger.schema.accounts` = `1` |
 
 **SQLite is the default engine** (decided in review). It is write-through:
@@ -332,7 +333,12 @@ export interface LedgerInfo {
   /** The file name without `.tessera`; shown in the title and the start view. */
   name: string
   readOnly: boolean
+  /** When the ledger's year begins; read it with `yearStartOf(ledger)`. (Since 1.5, for reports.) */
+  yearStart?: YearStart
 }
+
+/** A month, 1 to 12, and a day that is there every year (February stops at 28). */
+export interface YearStart { month: number, day: number }
 
 export type LedgerChange =
   | { type: 'opened', ledger: LedgerInfo, created: boolean }
@@ -388,6 +394,14 @@ export interface LedgerSession {
   beginOperation(label: string): Disposable
   readonly operation: string | undefined
 
+  /**
+   * The ledger's year start (since 1.5): READ_ONLY on a read-only ledger or an archive file, INVALID (`yearStart`) for
+   * a day that isn't there every year. File › Ledger Properties… sets it.
+   */
+  setYearStart(yearStart: YearStart): Promise<LedgerInfo>
+  /** After the open ledger's information (its year start) changes while it stays open. Never fired for open or close. */
+  readonly onDidChangeInfo: Event<LedgerInfo>
+
   /** Runs, awaited, before the database closes, while it is still writable. */
   onWillClose(listener: (ledger: LedgerInfo) => void | Promise<void>): Disposable
   readonly onDidChange: Event<LedgerChange>
@@ -411,8 +425,9 @@ Errors are `LedgerError`s with a code, as in `accounts` (see [Errors across IPC]
 `CONFLICT`, `UNSUPPORTED_FILE`, `FILE_NOT_FOUND` and `MIGRATION_FAILED`. Each plugin bundles its own copy
 of `@tessera/ledger-api`, so `instanceof` fails across plugins: `isLedgerError(err)` checks the shape
 instead, and `toResult(work)` turns one into a `Result` for a view. The package also holds the name
-rules (`validateLedgerName`, `nameKey`, `uniqueName`) and tree helpers (`childrenOf`, `flattenTree`,
-`descendantIds`, `pathOf`), so the session, the dialogs and the accounts navigator apply the same rules.
+rules (`validateLedgerName`, `nameKey`, `uniqueName`), the year start's (`yearStartOf`, `yearStartProblem`,
+`yearStartLabel`) and tree helpers (`childrenOf`, `flattenTree`, `descendantIds`, `pathOf`), so the session, the
+dialogs, the accounts navigator and other plugins apply the same rules.
 
 ### `ledger.schema` (extension point)
 
@@ -579,6 +594,7 @@ databases.
 | `ledger.new` | New Ledger… | | `!ledger.isReadOnly` |
 | `ledger.open` | Open Ledger… | `CmdOrCtrl+O` | |
 | `ledger.close` | Close Ledger | | `ledger.isOpen` |
+| `ledger.properties` | Ledger Properties… (since ledger-api 1.5): the name, the file and *Year starts in* [month] *On day* [day]; read-only for an archive file | | `ledger.isOpen` |
 | `ledger.delete` | Delete Ledger… (own group) | | `ledger.isOpen && !ledger.isReadOnly` |
 | `ledger.subLedger.rename` | (argument `{ id }`; run from the Accounts menu and the navigator) | | `ledger.isOpen && !ledger.isReadOnly` |
 | `ledger.subLedger.delete` | (argument `{ id }`; run from the Accounts menu and the navigator) | | `ledger.isOpen && !ledger.isReadOnly` |
@@ -588,6 +604,7 @@ File
 ├── New Ledger…
 ├── Open Ledger…          Ctrl+O
 ├── Close Ledger
+├── Ledger Properties…
 ├── ───────────
 ├── Delete Ledger…
 ├── ───────────
@@ -976,6 +993,10 @@ export interface AccountsService {
   balances(id: string): Promise<AccountBalances>
   /** Transactions totalled by account, month, and category or transfer account (accounts-api 1.13; below). */
   transactionTotals(query: TotalsQuery): Promise<TransactionTotal[]>
+  /** What archives removed, kept as totals by month (accounts-api 1.15; below). */
+  archivedTotals(query: TotalsQuery): Promise<ArchivedTotal[]>
+  /** Each account's balance at the end of each date, archived history included (accounts-api 1.15; below). */
+  balanceHistory(query: BalanceQuery): Promise<BalancePoint[]>
 
   createAccount(input: AccountInput): Promise<Account>
   /** `null` clears an optional field; a new subLedgerId moves the account to the end there. ACCOUNT_CLOSED if closed. */
@@ -1076,8 +1097,33 @@ export interface TransactionTotal {
   inflow: number                        // the positive amounts, minor units
   outflow: number                       // the negative amounts, made positive
   count: number
+  payeeId?: string | null               // with byPayee (1.15): the payee, null for none
 }
 ```
+
+**For reports (accounts-api 1.15;** [reporting-design.md](reporting-design.md#the-accounts-additions)**).** Generic
+additions, with no visible change:
+
+- **Totals by payee:** `transactionTotals({ …, byPayee: true })` totals by payee too, within each category or transfer
+  account; rows add up to the rows without it. Rows are sorted by one precomputed key, in `compareTotals`' order,
+  which made the method faster for budgets as well.
+- **Payees by id:** `payees.get(ids)`, in one read, for naming the payees of such rows.
+- **Archived totals:** an archive keeps what it removes as totals, by account and month (categories, transfers and
+  payees), in `accounts.archivedMonths`, and a record of each account it removes in `accounts.archivedAccounts`
+  ([ledger-compaction-design.md](ledger-compaction-design.md#what-the-account-records)).
+  `archivedTotals(query)` gives them as `ArchivedTotal` rows, with where each account was and its name then; they
+  never overlap `transactionTotals`. `AccountArchived.countWithTotals` says how many of an account's archived
+  transactions were kept so; fewer than `count` means an archive before 1.15 left its history incomplete.
+- **Balances at past dates:** `balanceHistory({ dates, accountIds? })`, at most `BALANCE_DATES_MAX` (240) dates: the
+  navigator's rule (opening balance plus every non-voided transaction on or before the date), archived months
+  included from their totals (a date inside one is `exact: false`), and accounts an archive removed (`removed: true`).
+  No point before an account's opening date, nor before its last archive date when its history is incomplete.
+- **Accounts archives removed:** `removedAccounts()`, the record each archive keeps of a closed account it removed
+  (name, type, currency, sub-ledger, opening date and balance, closing date), so a report can place its history by type
+  or sub-ledger (added in reports' R2).
+- **The scope rule:** `accountScope(input, subLedgers, accounts, currency)` and `crossesScope(total, scope, exists)`,
+  pure, in `rules.ts`: what a budget or a report covers (the ledger, a sub-ledger and beneath it, account types within
+  a sub-ledger, or accounts by id), and whether a transfer crosses it.
 
 **Change notification** comes from the service, not from the database's
 `onDidChange`. The service knows which accounts each write touched, while a
@@ -1112,6 +1158,9 @@ still thrown and logged.
 | `accounts.payees` | unique `[nameKey]` |
 | `accounts.categories` | unique `[parentId, nameKey]` |
 | `accounts.reconciliations` | `byAccount [accountId, startedAt]`; unique `[activeFor]` (set only while a reconciliation is in progress or paused, so there is at most one per account) |
+| `accounts.archivedMonths` | unique `[accountId, month]`. What archives removed, as totals, packed flat against `accounts.archivedIds` (accounts-api 1.15) |
+| `accounts.archivedIds` | One document: the ids those totals name, numbered, appended to and never rewritten |
+| `accounts.archivedAccounts` | unique `[accountId]`. What an account an archive removed leaves for its history |
 
 Sub-ledgers themselves are in `ledger`'s `ledger.subledgers` collection (see
 [The ledger tree](#the-ledger-tree-sub-ledgers)). Accounts directly in the

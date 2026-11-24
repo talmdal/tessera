@@ -5,7 +5,7 @@
 import path from 'node:path'
 import type { Logger } from '@tessera/types'
 import {
-  LEDGER_ARCHIVES_FOLDER, LEDGER_BACKUP_EXTENSION, LedgerError, displayDate, isLedgerError,
+  LEDGER_ARCHIVES_FOLDER, LEDGER_BACKUP_EXTENSION, LedgerError, displayDate, isLedgerError, yearStartOf,
   type ArchiveCompaction, type ArchiveDialogInput, type ArchiveOutcome, type ArchivePreview, type ArchiveProgress, type LedgerInfo
 } from '@tessera/ledger-api'
 import type { LedgerDisk } from '../disk'
@@ -18,7 +18,7 @@ export interface ArchiveServiceDeps {
   session: Pick<LedgerSessionImpl, 'current' | 'changeCount' | 'runArchive' | 'describeArchive' | 'archiveRecords' | 'withOpenLedger'>
   backups: Pick<BackupService, 'folder' | 'backUp'>
   disk: Pick<LedgerDisk, 'exists' | 'remove' | 'stat' | 'sideFiles'>
-  settings: () => ArchiveSettings
+  settings: () => Pick<ArchiveSettings, 'keepYears'>
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   now?: () => Date
 }
@@ -85,13 +85,13 @@ export class ArchiveService {
 
   // ---- What the dialog shows
 
-  /** The dialog's starting point: the suggested date, today, and the ledger's last archive. */
+  /** The dialog's starting point: the suggested date (from the ledger's year start), today, and the ledger's last archive. */
   async dialogInput(): Promise<ArchiveDialogInput> {
     const ledger = this.ledger()
     const now = this.now()
     const [last] = await this.deps.session.archiveRecords().catch(() => [])
     return {
-      ledgerName: ledger.name, suggestedBefore: suggestedArchiveDate(now, this.deps.settings()), today: localDate(now),
+      ledgerName: ledger.name, suggestedBefore: suggestedArchiveDate(now, yearStartOf(ledger), this.deps.settings().keepYears), today: localDate(now),
       ...(last && { lastArchive: { before: last.before, archivedAt: last.archivedAt } })
     }
   }

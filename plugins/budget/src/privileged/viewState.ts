@@ -45,7 +45,9 @@ export class ViewState {
     private readonly service: BudgetServiceImpl,
     private readonly session: LedgerSession,
     private readonly today: () => string = todayIso,
-    private readonly options: () => ViewOptions = () => ({ showBars: true, showEmptyLines: false })
+    private readonly options: () => ViewOptions = () => ({ showBars: true, showEmptyLines: false }),
+    /** The reports plugin is there, to show the budget as a report (R5). */
+    private readonly reports: () => boolean = () => false
   ) {
     this.month = today().slice(0, 7)
   }
@@ -64,7 +66,7 @@ export class ViewState {
       return {
         budgets: budgets.map((b): BudgetSummary => ({ ...b, covers: coversLabel(b, tree.subLedgers) })),
         shown: this.shown, month: this.month, period: this.period, readOnly: ledger.readOnly, archive: ledger.archive !== undefined,
-        ledgerName: ledger.name, options: this.options()
+        ledgerName: ledger.name, options: this.options(), reports: this.reports()
       }
     } catch (err) {
       if (isNoLedger(err)) return null

@@ -1,16 +1,19 @@
 // The ledger's archive settings: namespace `ledger.archive`, on the Archiving page (Tools › Options… › Ledger ›
-// Archiving). They choose the date File › Archive Ledger… suggests: the start of the current year, moved to when the
-// user's year starts (a tax or fiscal year), and back by the years they keep. Application settings for now; a year start
-// belongs to a ledger, and moves there once settings have a per-ledger scope (docs/todo.md).
-// See docs/ledger-compaction-design.md, "The Archiving page".
+// Archiving). With the ledger's year start (File › Ledger Properties…), they choose the date File › Archive Ledger…
+// suggests: the start of the ledger's current year, moved back by the years the user keeps.
+// See docs/ledger-compaction-design.md, "The Archiving page", and docs/reporting-design.md, "The ledger's year start".
 import { SETTINGS_PAGES_EXTENSION_POINT } from '@tessera/types'
 import type { SettingsDefinition, SettingsPageContribution } from '@tessera/types'
-import { LEDGER_ARCHIVE_SETTINGS, LEDGER_ARCHIVE_SETTINGS_PAGE, LEDGER_SETTINGS_PAGE } from '@tessera/ledger-api'
+import { LEDGER_ARCHIVE_SETTINGS, LEDGER_ARCHIVE_SETTINGS_PAGE, LEDGER_SETTINGS_PAGE, type YearStart } from '@tessera/ledger-api'
 
 export interface ArchiveSettings {
-  /** The month the year starts, 1 to 12. A calendar year starts in 1 (January). */
+  /**
+   * The year start the Archiving page kept before each ledger had its own (ledger-api 1.5). No longer on the page: it
+   * is now only what a ledger without a year start is given, when it is created or first opened, so upgrading changes
+   * nothing anyone sees. The month, 1 to 12.
+   */
   yearStartMonth: number
-  /** The day of that month, 1 up to the month's length; February stops at 28, so the start exists every year. */
+  /** That year start's day, 1 up to the month's length; February stops at 28, so the start exists every year. */
   yearStartDay: number
   /** Whole years before the current one that the suggested date keeps in the ledger, 0 to 10. */
   keepYears: number
@@ -37,15 +40,15 @@ export const ARCHIVE_SETTINGS: SettingsDefinition<ArchiveSettings> = {
 const pad = (n: number) => String(n).padStart(2, '0')
 
 /**
- * The date File › Archive Ledger… suggests: the most recent start of the year on or before `today` (local), moved back
- * `keepYears` years. With the defaults, 1 January of this year.
+ * The date File › Archive Ledger… suggests: the most recent start of the ledger's year on or before `today` (local),
+ * moved back `keepYears` years. For a calendar year, keeping none, 1 January of this year.
  */
-export function suggestedArchiveDate(today: Date, settings: ArchiveSettings): string {
-  const month = settings.yearStartMonth, day = settings.yearStartDay
+export function suggestedArchiveDate(today: Date, yearStart: YearStart, keepYears: number): string {
+  const { month, day } = yearStart
   const startOf = (year: number) => `${year}-${pad(month)}-${pad(day)}`
   const now = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`
   const year = startOf(today.getFullYear()) <= now ? today.getFullYear() : today.getFullYear() - 1
-  return startOf(year - settings.keepYears)
+  return startOf(year - keepYears)
 }
 
 /** The Archiving page, under Ledger. */
@@ -54,17 +57,12 @@ export const archiveSettingsPage: SettingsPageContribution = {
   parent: LEDGER_SETTINGS_PAGE,
   settings: LEDGER_ARCHIVE_SETTINGS,
   title: 'Archiving',
-  description: 'The date Archive Ledger… suggests.',
+  description: 'The date Archive Ledger… suggests. It is the start of the ledger’s year, which each ledger keeps: set it in File › Ledger Properties… (a tax or fiscal year, say).',
   keywords: ['archive', 'archiving', 'year end', 'fiscal year', 'tax year', 'compact'],
   fields: [
     {
-      kind: 'number', key: 'yearStartMonth', label: 'The year starts in month', min: 1, max: 12, integer: true,
-      description: 'A calendar year starts in month 1 (January), on day 1. If you archive at the end of a tax or fiscal year, choose when it starts: month 4, day 6 for a UK tax year; month 7, day 1 for one starting in July.'
-    },
-    { kind: 'number', key: 'yearStartDay', label: 'On day', min: 1, max: 31, integer: true },
-    {
       kind: 'number', key: 'keepYears', label: 'Also keep the last', min: 0, max: KEEP_YEARS_MAX, integer: true, unit: 'years',
-      description: 'Archive Ledger… suggests archiving everything before the start of the current year. To keep the year before in the ledger too (for a tax return, say), keep 1.'
+      description: 'Archive Ledger… suggests archiving everything before the start of the ledger’s current year. To keep the year before in the ledger too (for a tax return, say), keep 1.'
     }
   ]
 }

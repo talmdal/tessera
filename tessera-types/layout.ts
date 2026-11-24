@@ -118,3 +118,9 @@ export interface LayoutPersistence {
   load(key: string): Promise<PersistedLayout | undefined>
   save(key: string, layout: PersistedLayout): Promise<void>
 }
+
+/**
+ * Context key: the id of the view in front in the focused window's main area (unset while there is none). For a
+ * command that acts on one view, so it is enabled only while that view is in front: `… == 'reports.view'`.
+ */
+export const MAIN_ACTIVE_VIEW_KEY = 'shell.layout.main.activeView'

@@ -158,6 +158,18 @@ The plugin gets types from `tessera-ui/index.ts` at build time, and the
 shell's instance at run time. MUI, Emotion and the icon package are the
 shell's private dependencies and may change behind the facade.
 
+**A second entry, for charts** (added by reports' R3,
+[reporting-design.md](reporting-design.md#charts)): `@tessera/ui/charts` exports one component, `Chart` (bars,
+lines, areas, donuts), drawn by MUI X Charts behind Tessera's own props. MUI X is large (about 130 KB gzipped), so the
+entry is shared apart from the main one and loaded the first time a view imports it; the window's start-up doesn't pay
+for it. It is curated like the main entry: no MUI X export reaches a plugin.
+
+**Printing in light colours** (added by reports' R6,
+[reporting-design.md](reporting-design.md#printing-and-exporting)): `PrintArea` (`@tessera/ui` 1.7) draws what a view
+prints in the **light variant of the window's theme**, which the shell builds beside the window's own
+(`PrintThemeContext`, internal), without motion; a theme with no light variant prints in the shell's light colours. So
+a dark window never prints black pages, and a chart prints in the light palette. Backgrounds aren't printed.
+
 **Boundaries.** `tessera-ui/` may import React, MUI and `@tessera/types`; it
 must not import `core/`, `shell/` or Electron. `core/`, `shared/` and
 `shell/main` must not import it (no React in the main process). The
@@ -185,6 +197,11 @@ export interface ThemeTokens {
   background?: { default?: string, paper?: string }
   text?: { primary?: string, secondary?: string }
   divider?: string
+  /**
+   * Charts' series colours, in order: 1 to 12 (added by reports' R3). The shell's fill the rest, so a theme setting
+   * three still gives charts twelve. Each is checked for 3:1 against the paper, as an interface part.
+   */
+  chart?: string[]
 }
 
 export interface ThemeDescriptor {
@@ -233,7 +250,7 @@ Rules:
   a `[theme]` warning, and keeps the stored selection so the theme returns
   if the plugin does.
 - **Tokens, not code.** The token set is deliberately small (palette,
-  background, text, divider). Density and shape are the shell's, so plugin
+  background, text, divider, and since reports' R3 a chart palette). Density and shape are the shell's, so plugin
   themes can't break layout. Typography was widened later: a theme may set
   fonts by role, within narrower size limits than the user's, and the user's own
   choices win ([font-roles-design.md](font-roles-design.md#themes-set-fonts)).
@@ -474,6 +491,7 @@ specifier is added:
 | Package | Why it must be a singleton |
 |---|---|
 | `@tessera/ui` | The shell's instance of MUI and Emotion is the one with the `ThemeProvider` and the style cache. A second copy would render unthemed |
+| `@tessera/ui/charts` | The same, for its charts (reports' R3). The shell shares it as a singleton of its own, loaded on first import, so the window's start-up doesn't load MUI X |
 
 MUI, Emotion and the icon package are not shared individually; they are
 *inside* the shell's `@tessera/ui`. That removes the earlier worry about

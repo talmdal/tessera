@@ -1,0 +1,20 @@
+{
+  "id": "reports",
+  "name": "Reports",
+  "version": "0.1.0",
+  "privileged": { "entry": "privileged/index.js" },
+  "renderer": {
+    "entry": "renderer/remoteEntry.js",
+    "expose": {
+      "./ReportView": "src/renderer/ReportView.tsx",
+      "./ReportList": "src/renderer/ReportList.tsx",
+      "./TransactionsDialog": "src/renderer/TransactionsDialog.tsx",
+      "./CustomiseDialog": "src/renderer/CustomiseDialog.tsx",
+      "./SaveDialog": "src/renderer/SaveDialog.tsx"
+    }
+  },
+  "services": {
+    "requires": ["accounts.service", "ledger.session", "shell.prompts", "shell.files", "shell.print", "app.state"],
+    "provides": ["reports.service", "reports.migrator", "reports.flows", "reports.balances"]
+  }
+}

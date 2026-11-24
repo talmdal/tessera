@@ -21,7 +21,7 @@ describe('creating a ledger', () => {
       defaultPath: path.join(DIR, 'Documents', 'Home Finances.tessera'),
       filters: [{ name: 'Tessera ledger', extensions: ['tessera'] }]
     }))
-    expect(ledger).toEqual({ path: file('Home Finances.tessera'), name: 'Home Finances', readOnly: false, id: expect.any(String) })
+    expect(ledger).toEqual({ path: file('Home Finances.tessera'), name: 'Home Finances', readOnly: false, id: expect.any(String), yearStart: { month: 1, day: 1 } })
     expect(session.current).toEqual(ledger)
     expect(driver.databases.has(file('Home Finances.tessera'))).toBe(true)
   })
@@ -38,6 +38,8 @@ describe('creating a ledger', () => {
     expect(meta.get(LEDGER_META.format)).toBe(1)
     expect(meta.get(LEDGER_META.createdAt)).toBe('2026-11-04T10:00:00.000Z')
     expect(meta.get(LEDGER_META.schemaVersion('accounts'))).toBe(2)
+    // A calendar year, unless the Archiving page kept another (see yearStart.test.ts)
+    expect(meta.get(LEDGER_META.yearStart)).toEqual({ month: 1, day: 1 })
   })
 
   it('does nothing when the save dialog is cancelled', async () => {

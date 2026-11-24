@@ -5,7 +5,7 @@ import type { FontSettings, TesseraBridge, ThemeDescriptor, ThemeSnapshot, Theme
 import { DEFAULT_FONT_SETTINGS, resolveFonts } from '../../../shared/fonts/resolveFonts'
 import { themeOf } from '../../../shared/theme/tokens'
 import { THEME_CHANGED, THEME_GET } from '../../../shared/theme/types'
-import { FontRolesContext, ThemeStateContext } from '../../../tessera-ui/internal'
+import { FontRolesContext, PrintThemeContext, ThemeStateContext } from '../../../tessera-ui/internal'
 import { createRemoteState } from '../state/remoteState'
 import { createShellTheme } from './createShellTheme'
 
@@ -80,6 +80,17 @@ export function ShellThemeProvider({ bridge, initial, children }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [key])
 
+  // What prints: the same theme's light variant (the shell's own light colours where it has none), without motion, so
+  // a dark window never prints black pages (docs/reporting-design.md, "Printing and exporting"). Made when first
+  // printed, not with every theme
+  const printKey = descriptor && JSON.stringify([descriptor, fonts])
+  const printTheme = useMemo(() => {
+    if (!descriptor) return null
+    let made: ReturnType<typeof createShellTheme> | undefined
+    return () => made ??= createShellTheme(descriptor, 'light', { reducedMotion: true, fonts })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printKey])
+
   const themes = snapshot?.themes
   const systemPrefersDark = snapshot?.systemPrefersDark
   const userFontsKey = JSON.stringify(userFonts)
@@ -92,10 +103,12 @@ export function ShellThemeProvider({ bridge, initial, children }: {
     <ThemeStateContext.Provider value={snapshot.state}>
       <FontRolesContext.Provider value={fonts}>
         <ThemeCatalogueContext.Provider value={catalogue}>
-          <ThemeProvider theme={muiTheme}>
-            <CssBaseline enableColorScheme />
-            {children}
-          </ThemeProvider>
+          <PrintThemeContext.Provider value={printTheme}>
+            <ThemeProvider theme={muiTheme}>
+              <CssBaseline enableColorScheme />
+              {children}
+            </ThemeProvider>
+          </PrintThemeContext.Provider>
         </ThemeCatalogueContext.Provider>
       </FontRolesContext.Provider>
     </ThemeStateContext.Provider>

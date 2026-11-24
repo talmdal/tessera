@@ -94,8 +94,8 @@ export interface ContrastFinding {
 
 /**
  * The colour pairs in a theme that fall below WCAG AA, in each mode it has:
- * text on both backgrounds, and the primary colour (which draws links, tabs and
- * buttons) on the paper. Empty means they all pass. A theme only sets some
+ * text on both backgrounds, the primary colour (which draws links, tabs and
+ * buttons) on the paper, and each chart colour on the paper. Empty means they all pass. A theme only sets some
  * tokens; the rest are the shell's, so what is measured is what is shown.
  */
 export function contrastFindings(theme: ThemeDescriptor): ContrastFinding[] {
@@ -109,7 +109,9 @@ export function contrastFindings(theme: ThemeDescriptor): ContrastFinding[] {
       ['text.primary on background.paper', t.text.primary, t.background.paper, MIN_TEXT_CONTRAST],
       ['text.secondary on background.default', t.text.secondary, t.background.default, MIN_TEXT_CONTRAST],
       ['text.secondary on background.paper', t.text.secondary, t.background.paper, MIN_TEXT_CONTRAST],
-      ['primary on background.paper', t.primary, t.background.paper, MIN_UI_CONTRAST]
+      ['primary on background.paper', t.primary, t.background.paper, MIN_UI_CONTRAST],
+      // A chart's series are parts of the interface: each must stand out from the paper it is drawn on
+      ...t.chart.map((color, i): [string, string, string, number] => [`chart[${i}] on background.paper`, color, t.background.paper, MIN_UI_CONTRAST])
     ]
     for (const [pair, fg, bg, minimum] of checks) {
       const ratio = contrastRatio(fg, bg)

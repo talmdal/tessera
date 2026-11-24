@@ -33,7 +33,8 @@ function setup() {
     // The OS trash, as a folder: the file is moved, never deleted
     trash: vi.fn(async (f: string) => { fs.mkdirSync(trash, { recursive: true }); fs.renameSync(f, path.join(trash, path.basename(f))) }),
     documentsPath: () => dir,
-    downloadsPath: () => dir
+    downloadsPath: () => dir,
+    writeFile: vi.fn(async () => {})
   }
   const session = new LedgerSessionImpl({
     engine, files, prompts: fakePrompts().prompts, recent: new RecentLedgers(pluginState('ledger', memoryAppState()), () => new Date('2026-11-04T10:11:12Z')),

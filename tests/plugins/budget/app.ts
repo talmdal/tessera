@@ -9,6 +9,7 @@ import { createPluginContext, createPluginRuntime } from '../../../core/plugins/
 import { activate as activateAccounts } from '../../../plugins/accounts/src/privileged/index'
 import { activate as activateBudget } from '../../../plugins/budget/src/privileged/index'
 import { activate as activateLedger } from '../../../plugins/ledger/src/privileged/index'
+import { activate as activateReports } from '../../../plugins/reports/src/privileged/index'
 import { fakeFiles, fakePrompts, file, logger, memoryAppState, memoryDisk } from '../ledger/harness'
 import { account } from './harness'
 
@@ -19,6 +20,11 @@ export interface AppSetup {
   today?: () => string
   /** How often the status bar checks for a new month (default: the plugin's minute). */
   monthCheckMs?: number
+  /**
+   * The reports plugin too, activated after the budget ('after', as the app's order has it today) or before it
+   * ('before'): Budget vs Actual must reach the reports either way (R5). Default: not there.
+   */
+  reports?: 'before' | 'after'
 }
 
 export async function setup(options: AppSetup = {}) {
@@ -43,10 +49,16 @@ export async function setup(options: AppSetup = {}) {
   await activateLedger(createPluginContext('ledger', runtime).context, { disk: disk.disk })
   await activateAccounts(createPluginContext('accounts', runtime).context)
   let idle: () => Promise<void> = async () => {}
+  let reportsIdle: () => Promise<void> = async () => {}
+  const reports = () => activateReports({ ...createPluginContext('reports', runtime).context, logger: log }, {
+    today: options.today ?? (() => TODAY), now: () => '2027-03-15T17:00:00.000Z', refreshDelayMs: 10, onActivated: hooks => { reportsIdle = hooks.idle }
+  })
+  if (options.reports === 'before') await reports()
   await activateBudget(createPluginContext('budget', runtime).context, {
     today: options.today ?? (() => TODAY), refreshDelayMs: 10, onActivated: hooks => { idle = hooks.idle },
     ...(options.monthCheckMs !== undefined && { monthCheckMs: options.monthCheckMs })
   })
+  if (options.reports === 'after') await reports()
 
   const session = runtime.services.get<LedgerSession>(LEDGER_SESSION_SERVICE)
   const accounts = runtime.services.get<AccountsService>(ACCOUNTS_SERVICE)
@@ -67,8 +79,8 @@ export async function setup(options: AppSetup = {}) {
   }
   return {
     runtime, engine, log, prompts, answers, reveals, events, session, accounts, budgets, run, ask, key, enabled, named, open, state,
-    /** Waits until the budget plugin has run every refresh it has to: after a change, before checking what it sent. */
-    idle: () => idle()
+    /** Waits until the budget plugin (and the reports, when there) has run every refresh it has to. */
+    idle: async () => { await idle(); await reportsIdle() }
   }
 }
 

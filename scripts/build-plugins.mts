@@ -37,6 +37,8 @@ const SHARED_MODULES = ['react', 'react/jsx-runtime', 'react-dom']
 
 /** The shell's UI facade, shared with every view. Its MUI and Emotion stay the shell's private dependencies. */
 const SHARED_UI_MODULE = '@tessera/ui'
+/** Its charts, a second entry the shell shares as its own singleton, loaded when a view first imports it. */
+const SHARED_CHARTS_MODULE = '@tessera/ui/charts'
 const sharedUiRange = () => {
   const { version } = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tessera-ui/package.json'), 'utf8'))
   return `^${version}`
@@ -46,7 +48,7 @@ const sharedUiRange = () => {
  * Plugins' published contracts (types and constants), which other plugins import. Each plugin bundles what it uses,
  * in both halves, since they hold no state. Resolved against the working directory, like the other aliases.
  */
-const API_PACKAGES = ['ledger-api', 'accounts-api', 'import-api', 'export-api', 'budget-api']
+const API_PACKAGES = ['ledger-api', 'accounts-api', 'import-api', 'export-api', 'budget-api', 'reports-api']
 const API_PACKAGE_ALIASES = (): Record<string, string> => Object.fromEntries(
   API_PACKAGES.map(name => [`@tessera/${name}`, path.resolve(process.cwd(), 'packages', name, 'index.ts')]))
 
@@ -250,7 +252,8 @@ async function buildRenderer(srcDir: string, id: string, entryOut: string, expos
               { singleton: true, requiredVersion: sharedReactRange(), import: false }
             ])
           ),
-          [SHARED_UI_MODULE]: { singleton: true, requiredVersion: sharedUiRange(), import: false }
+          [SHARED_UI_MODULE]: { singleton: true, requiredVersion: sharedUiRange(), import: false },
+          [SHARED_CHARTS_MODULE]: { singleton: true, requiredVersion: sharedUiRange(), import: false }
         },
         dts: false
       })

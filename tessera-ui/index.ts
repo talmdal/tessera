@@ -9,6 +9,8 @@
 
 // The typography variants of the font roles (`numeric`, `monospace`), in MUI's types. Types only.
 import './typography'
+// `theme.palette.chart`, the series colours the charts (`@tessera/ui/charts`) draw in. Types only.
+import './palette'
 
 export {
   Alert,
@@ -70,6 +72,8 @@ export { createSvgIcon } from '@mui/material/utils'
 
 export { Icon } from './Icon'
 export type { IconProps } from './Icon'
+export { PrintArea, PRINT_WIDTHS } from './PrintArea'
+export type { PrintAreaProps } from './PrintArea'
 export { useThemeState } from './themeState'
 export { useFontRoles } from './fontRoles'
 

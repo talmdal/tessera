@@ -70,7 +70,7 @@ describe('the ledger plugin: contributions', () => {
     const menus = resolveMenus([{ kind: 'menu', id: 'shell.file', label: '&File' }, ...impls('shell.menus').map(c => c.impl)])
     expect(menus.diagnostics).toEqual([])
     expect(menus.menus[0].children.filter(n => n.type === 'item').map(n => (n as any).label))
-      .toEqual(['&New Ledger…', '&Open Ledger…', '&Close Ledger', '&Back Up Ledger…', '&Restore Ledger…', '&Archive Ledger…', '&Delete Ledger…'])
+      .toEqual(['&New Ledger…', '&Open Ledger…', '&Close Ledger', 'Ledger &Properties…', '&Back Up Ledger…', '&Restore Ledger…', '&Archive Ledger…', '&Delete Ledger…'])
 
     const views = resolveViews(impls('shell.views'), () => 'tessera-plugin://ledger/remoteEntry.js')
     expect(views.diagnostics).toEqual([])
@@ -80,7 +80,7 @@ describe('the ledger plugin: contributions', () => {
 
     const dialogs = resolveDialogs(impls('shell.dialogs'), () => 'tessera-plugin://ledger/remoteEntry.js')
     expect(dialogs.diagnostics).toEqual([])
-    expect(dialogs.dialogs.map(d => d.id)).toEqual([LEDGER_DIALOGS.newLedger, LEDGER_DIALOGS.renameSubLedger, LEDGER_DIALOGS.restore, LEDGER_DIALOGS.archive])
+    expect(dialogs.dialogs.map(d => d.id)).toEqual([LEDGER_DIALOGS.newLedger, LEDGER_DIALOGS.renameSubLedger, LEDGER_DIALOGS.restore, LEDGER_DIALOGS.archive, LEDGER_DIALOGS.properties])
 
     const items = resolveBarItems(impls('shell.bar.items'))
     expect(items.diagnostics).toEqual([])
@@ -99,8 +99,8 @@ describe('the ledger plugin: contributions', () => {
     const { session } = await setup()
     expect(Object.keys(session).sort()).toEqual([
       'beginOperation', 'close', 'create', 'createSubLedger', 'current', 'database', 'delete', 'deleteSubLedger', 'moveSubLedger',
-      'onDidArchive', 'onDidChange', 'onDidChangeTree', 'onWillClose', 'open', 'operation', 'participate', 'participateInArchive',
-      'registerNavigator', 'renameSubLedger', 'tree'
+      'onDidArchive', 'onDidChange', 'onDidChangeInfo', 'onDidChangeTree', 'onWillClose', 'open', 'operation', 'participate',
+      'participateInArchive', 'registerNavigator', 'renameSubLedger', 'setYearStart', 'tree'
     ])
   })
 
@@ -349,8 +349,8 @@ describe('the ledger plugin: settings', () => {
       [LEDGER_SETTINGS_PAGE, undefined, 'ledger', ['reopenLast', 'recentLimit']],
       // Backups, under Ledger: a namespace of its own
       [LEDGER_BACKUP_SETTINGS_PAGE, LEDGER_SETTINGS_PAGE, 'ledger.backup', ['folder', 'onClose', 'trim', 'retentionDays', 'keepAtLeast']],
-      // Archiving, under Ledger: the date Archive Ledger… suggests
-      [LEDGER_ARCHIVE_SETTINGS_PAGE, LEDGER_SETTINGS_PAGE, 'ledger.archive', ['yearStartMonth', 'yearStartDay', 'keepYears']]
+      // Archiving, under Ledger: the date Archive Ledger… suggests. The year start is the ledger's now (Ledger Properties…)
+      [LEDGER_ARCHIVE_SETTINGS_PAGE, LEDGER_SETTINGS_PAGE, 'ledger.archive', ['keepYears']]
     ])
     expect(runtime.settings.snapshot('ledger')?.value).toEqual({ reopenLast: true, recentLimit: 10 })
     expect(runtime.settings.snapshot('ledger.backup')?.value).toEqual({ folder: '', onClose: true, trim: true, retentionDays: 30, keepAtLeast: 5 })
